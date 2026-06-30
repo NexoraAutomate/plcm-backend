@@ -1,0 +1,54 @@
+Alembic is the official migration tool for SQLAlchemy/SQLModel.
+
+It can:
+
+✅ Add column
+✅ Remove column
+✅ Rename column
+✅ Create table
+✅ Drop table
+✅ Modify column type
+✅ Handle schema safely
+
+🛠 How To Set It Up (One-Time Setup)
+
+Inside your project:
+
+    - pip install alembic
+
+Initialize:
+
+    - alembic init alembic
+
+This creates:
+alembic/
+alembic.ini
+
+⚙ Configure Alembic:
+
+Edit alembic.ini:
+
+    sqlalchemy.url = postgresql://user:password@localhost/dbname
+
+Then open alembic/env.py
+
+            Replace 
+    target_metadata = None
+                with:
+    from app.models.tables import SQLModel
+    target_metadata = SQLModel.metadata
+
+🚀 Now Generate Migration Automatically
+
+    alembic revision --autogenerate -m "Added hashed_password column"
+
+Alembic will detect:
+
+    .New column
+    .Removed column
+    .Table changes
+
+Then apply migration:
+    alembic upgrade head
+
+Database is now updated safely.

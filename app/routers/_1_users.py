@@ -1,0 +1,128 @@
+from typing import List
+from fastapi import APIRouter, HTTPException, Depends, status
+from sqlmodel import Session, select
+from app.database import get_session
+from app.models.tables import (User, Role)
+from app.schemas import schemas
+from app.routers.auth import require_permission, get_current_user, hash_password
+from app.auth import check_role
+
+router = APIRouter()
+# ===================== USER ENDPOINTS =====================
+@router.post("/users/", response_model=schemas.UserRead, tags=["users"])
+def create_user(
+    user: schemas.UserCreate, 
+    session: Session = Depends(get_session), 
+    # current_user: User = Depends(require_permission("create_users"))
+):
+    print("start")
+
+    existing_user = session.exec(select(User).where(User.username == user.username)).first()
+    print("1st")
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail= "Username already exists. Please choose a different username."
+        )
+    # Check if user role as Admin alredy exists in whole database, 
+    # if yes then do not allow to create another user with Admin role. 
+    # This is to ensure that there is only one Admin user in the system.
+    admin_user = session.exec(select(User).where(User.roles.any(Role.name == "Admin"))).first()
+    if admin_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail= "An Admin user already exists. Cannot create another user with Admin role."
+        )
+    
+    default_role = session.exec(select(Role).where(Role.name == "Admin")).first()
+
+    if not default_role:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Default role 'Viewer' not found. Please ensure it exists in the database."
+        )
+    
+    hashed_password= hash_password(user.password)
+    db_user = User(
+        username=user.username,
+        full_name= user.full_name,
+        email= user.email,
+        is_active=True,
+        password = hashed_password,
+    )
+    db_user.roles = [default_role]
+    # db_user = User(**user.model_dump())
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return db_user
+
+@router.get("/users/", response_model=List[schemas.UserRead], tags=["users"])
+def list_users(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_users"))):
+    return session.exec(select(User).offset(skip).limit(limit)).all()
+
+@router.get("/users/with-roles/", response_model=List[schemas.UserWithRoles], tags=["users"])
+def list_users_with_roles(
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_users")),
+):
+    users = session.exec(select(User).offset(skip).limit(limit)).all()
+    return [
+        schemas.UserWithRoles(
+            id=user.id,
+            username=user.username,
+            full_name=user.full_name or "",
+            email=user.email,
+            is_active=user.is_active,
+            roles=[role.name for role in user.roles],
+        )
+        for user in users
+    ]
+
+@router.get("/users/{user_id}/", response_model=schemas.UserReadWithRoles, tags=["users"])
+def get_user(user_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_users"))):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+@router.put("/users/{user_id}/", response_model=schemas.UserRead, tags=["users"])
+def update_user(user_id: int, user: schemas.UserUpdate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("edit_users"))):
+    db_user = session.get(User, user_id)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    for k, v in user.model_dump(exclude_unset=True).items():
+        setattr(db_user, k, v)
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return db_user
+
+@router.delete("/users/{user_id}/", tags=["users"])
+def delete_user(user_id: int, session: Session = Depends(get_session), 
+                # current_user: User = Depends(require_permission("delete_users"))
+                ):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    # Prevent deletion of users with Admin role
+
+    if user.roles and check_role(user, "Admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete user with Admin role. Please remove Admin role before deletion."
+        )
+    
+    session.delete(user)
+    session.commit()
+    return {"ok": True}
+
+@router.get("/users/{user_id}/projects/", response_model=List[schemas.ProjectRead], tags=["users"])
+def list_user_projects(user_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_users"))):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user.projects
+

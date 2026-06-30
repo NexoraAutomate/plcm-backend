@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"workbench.colorCustomizations": {
+			"editor.background": "#020202"
+		},
+		"editor.fontSize": 12,
+		"editor.fontLigatures": false
+	}
+}
