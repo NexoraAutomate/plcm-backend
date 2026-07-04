@@ -479,6 +479,20 @@ class EntityAttachment(SQLModel, table=True):
     file_name: str
     file_path: str
     mime_type: Optional[str] = None
+    attachment_type: AttachmentType = Field(
+        sa_column=sa.Column(
+            sa.Enum(
+                AttachmentType,
+                values_callable=lambda entries: [entry.value for entry in entries],
+                name="attachmenttype",
+                native_enum=True,
+            ),
+            nullable=False,
+            server_default=sa.text("'other'::attachmenttype"),
+        ),
+        default=AttachmentType.OTHER,
+    )
+    description: Optional[str] = None
     uploaded_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

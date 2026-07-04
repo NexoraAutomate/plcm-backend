@@ -288,6 +288,18 @@ class DeliveryStatus(str, Enum):
     DELIVERED             = "delivered"
     CONFIRMED_BY_CUSTOMER = "confirmed_by_customer"
 
+class AttachmentType(str, Enum):
+    TEST_REPORT        = "test_report"
+    DATASHEET          = "datasheet"
+    MANUAL             = "manual"
+    CERTIFICATE        = "certificate"
+    DRAWING            = "drawing"
+    PHOTO              = "photo"
+    WARRANTY           = "warranty"
+    INVOICE            = "invoice"
+    INSTALLATION_GUIDE = "installation_guide"
+    OTHER              = "other"
+
 # =============================================================================
 # 1. MAINTENANCE CASE
 # =============================================================================
