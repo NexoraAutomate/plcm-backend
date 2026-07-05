@@ -1,10 +1,11 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Inventory, User)
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 router = APIRouter()
 
@@ -20,16 +21,15 @@ def create_inventory(inventory: schemas.InventoryCreate, session: Session = Depe
 
 @router.get("/inventory/", response_model=List[schemas.InventoryRead], tags=["inventory"])
 def list_inventory(
+    response: Response,
     skip: int = 0, 
     limit: int = 100, 
     inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
     session: Session = Depends(get_session), 
-    current_user: User = Depends(require_permission("view_inventory"))
+    current_user: User = Depends(require_permission("view_inventory")),
 ):
-    query = select(Inventory).offset(skip).limit(limit)
-    if inventory_type:
-        query = query.where(Inventory.inventory_type == inventory_type)
-    return session.exec(query).all()
+    where = Inventory.inventory_type == inventory_type if inventory_type else None
+    return paginated_query(session, Inventory, skip, limit, response, where=where)
 
 @router.get("/inventory/by-type/{inventory_type}/", response_model=List[schemas.InventoryRead], tags=["inventory"])
 def list_inventory_by_type(

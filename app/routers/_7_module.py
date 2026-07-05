@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Module, User)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("module")
 
@@ -39,17 +40,23 @@ def create_module(module: schemas.ModuleCreate, session: Session = Depends(get_s
     )
 
 @router.get("/modules/", response_model=List[schemas.ModuleRead], tags=["modules"])
-def list_modules(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_modules"))):
-    modules = session.exec(select(Module).offset(skip).limit(limit)).all()
-    result = []
-    for module in modules:
+def list_modules(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    include_total: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_modules")),
+):
+    def to_read(module: Module) -> schemas.ModuleRead:
         status_name = module.status.status_name if module.status else None
-        result.append(schemas.ModuleRead(
+        return schemas.ModuleRead(
             **module.model_dump(),
             status_name=status_name,
             units=None,
-        ))
-    return result
+        )
+
+    return paginated_query(session, Module, skip, limit, response, transform=to_read, include_total=include_total)
 
 @router.get("/modules/{module_id}/", response_model=schemas.ModuleRead, tags=["modules"])
 def get_module(module_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_modules"))):

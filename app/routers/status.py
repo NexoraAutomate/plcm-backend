@@ -1,10 +1,11 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Status, User)
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 router = APIRouter()
 
@@ -45,16 +46,15 @@ def create_statuses(
 
 @router.get("/statuses/", response_model=List[schemas.StatusRead], tags=["statuses"])
 def list_statuses(
-    status_type: str | None = None,   # 👈 add this
+    response: Response,
+    status_type: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_statuses"))
+    current_user: User = Depends(require_permission("view_statuses")),
 ):
-    query = select(Status)
-
-    if status_type:
-        query = query.where(Status.status_type == status_type)
-
-    return session.exec(query).all()
+    where = Status.status_type == status_type if status_type else None
+    return paginated_query(session, Status, skip, limit, response, where=where)
 
 @router.get("/statuses/{status_id}/", response_model=schemas.StatusRead, tags=["statuses"])
 def get_status(status_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_statuses"))):

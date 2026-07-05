@@ -1,10 +1,11 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (MaintenanceLog, User)
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 router = APIRouter( tags=["maintenance_old"])
 
@@ -18,8 +19,14 @@ def create_maintenance_log(log: schemas.MaintenanceLogCreate, session: Session =
     return db_log
 
 @router.get("/maintenance-logs/", response_model=List[schemas.MaintenanceLogRead])
-def list_maintenance_logs(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_maintenance"))):
-    return session.exec(select(MaintenanceLog).offset(skip).limit(limit)).all()
+def list_maintenance_logs(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance")),
+):
+    return paginated_query(session, MaintenanceLog, skip, limit, response)
 
 @router.get("/maintenance-logs/{log_id}/", response_model=schemas.MaintenanceLogRead)
 def get_maintenance_log(log_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_maintenance"))):

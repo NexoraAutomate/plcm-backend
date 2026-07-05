@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Component, User)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("component")
 
@@ -38,16 +39,22 @@ def create_component(component: schemas.ComponentCreate, session: Session = Depe
     )
 
 @router.get("/components/", response_model=List[schemas.ComponentRead], tags=["components"])
-def list_components(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_components"))):
-    components = session.exec(select(Component).offset(skip).limit(limit)).all()
-    result = []
-    for component in components:
+def list_components(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    include_total: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_components")),
+):
+    def to_read(component: Component) -> schemas.ComponentRead:
         status_name = component.status.status_name if component.status else None
-        result.append(schemas.ComponentRead(
+        return schemas.ComponentRead(
             **component.model_dump(),
             status_name=status_name,
-        ))
-    return result
+        )
+
+    return paginated_query(session, Component, skip, limit, response, transform=to_read, include_total=include_total)
 
 @router.get("/components/{component_id}/", response_model=schemas.ComponentRead, tags=["components"])
 def get_component(component_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_components"))):

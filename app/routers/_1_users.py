@@ -1,11 +1,12 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (User, Role)
 from app.schemas import schemas
 from app.routers.auth import require_permission, get_current_user, hash_password
 from app.auth import check_role
+from app.services.pagination import paginated_query
 
 router = APIRouter()
 # ===================== USER ENDPOINTS =====================
@@ -58,8 +59,14 @@ def create_user(
     return db_user
 
 @router.get("/users/", response_model=List[schemas.UserRead], tags=["users"])
-def list_users(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_users"))):
-    return session.exec(select(User).offset(skip).limit(limit)).all()
+def list_users(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_users")),
+):
+    return paginated_query(session, User, skip, limit, response)
 
 @router.get("/users/with-roles/", response_model=List[schemas.UserWithRoles], tags=["users"])
 def list_users_with_roles(

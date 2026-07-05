@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Subsystem, User)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("subsystem")
 
@@ -39,17 +40,23 @@ def create_subsystem(subsystem: schemas.SubsystemCreate, session: Session = Depe
     )
 
 @router.get("/subsystems/", response_model=List[schemas.SubsystemRead], tags=["subsystems"])
-def list_subsystems(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_subsystems"))):
-    subsystems = session.exec(select(Subsystem).offset(skip).limit(limit)).all()
-    result = []
-    for subsystem in subsystems:
+def list_subsystems(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    include_total: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_subsystems")),
+):
+    def to_read(subsystem: Subsystem) -> schemas.SubsystemRead:
         status_name = subsystem.status.status_name if subsystem.status else None
-        result.append(schemas.SubsystemRead(
+        return schemas.SubsystemRead(
             **subsystem.model_dump(),
             status_name=status_name,
             modules=None,
-        ))
-    return result
+        )
+
+    return paginated_query(session, Subsystem, skip, limit, response, transform=to_read, include_total=include_total)
 
 @router.get("/subsystems/{subsystem_id}/", response_model=schemas.SubsystemRead, tags=["subsystems"])
 def get_subsystem(subsystem_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_subsystems"))):
