@@ -1,11 +1,19 @@
 import os
+from pathlib import Path
 from sqlmodel import create_engine, Session, SQLModel
 from sqlalchemy import text
 from dotenv import load_dotenv
 from app.models.tables import *  # Ensure all models are imported so they are registered with SQLModel
-load_dotenv()
+
+dotenv_path = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        f"Missing DATABASE_URL environment variable. "
+        f"Create a .env file at '{dotenv_path}' with DATABASE_URL=postgresql://... or set the env var before running."
+    )
 
 engine = create_engine(
     DATABASE_URL,

@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (System, User)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("system")
 
@@ -39,17 +40,23 @@ def create_system(system: schemas.SystemCreate, session: Session = Depends(get_s
     )
 
 @router.get("/systems/", response_model=List[schemas.SystemRead], tags=["systems"])
-def list_systems(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_systems"))):
-    systems = session.exec(select(System).offset(skip).limit(limit)).all()
-    result = []
-    for system in systems:
+def list_systems(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    include_total: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_systems")),
+):
+    def to_read(system: System) -> schemas.SystemRead:
         status_name = system.status.status_name if system.status else None
-        result.append(schemas.SystemRead(
+        return schemas.SystemRead(
             **system.model_dump(),
             status_name=status_name,
             subsystems=None,
-        ))
-    return result
+        )
+
+    return paginated_query(session, System, skip, limit, response, transform=to_read, include_total=include_total)
 
 @router.get("/systems/{system_id}/", response_model=schemas.SystemRead, tags=["systems"])
 def get_system(system_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_systems"))):

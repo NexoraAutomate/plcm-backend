@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.schemas import schemas
@@ -9,6 +9,7 @@ from app.models.tables import FaultyEntity, MaintenanceCase, Component, Unit, Mo
 from app.services.create_entity import New_entity
 from app.config.entities import ENTITY_CONFIG
 from app.services.update_entity import update_entity_status
+from app.services.pagination import paginated_query
 entity_config = ENTITY_CONFIG.get("customer")
 
 
@@ -38,16 +39,21 @@ def create_customer(customer: schemas.CustomerCreate, session: Session = Depends
     # return db_customer
 
 @router.get("/customers/", response_model=List[schemas.CustomerRead], tags=["customers"])
-def list_customers(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_customers"))):
-    customers= session.exec(select(Customer).offset(skip).limit(limit)).all()
-    result = []
-    for customer in customers:
+def list_customers(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_customers")),
+):
+    def to_read(customer: Customer) -> schemas.CustomerRead:
         status_name = customer.status.status_name if customer.status_id else None
-        result.append(schemas.CustomerRead(
+        return schemas.CustomerRead(
             **customer.model_dump(),
             status_name=status_name,
-        ))
-    return result
+        )
+
+    return paginated_query(session, Customer, skip, limit, response, transform=to_read)
 
 @router.get("/customers/{customer_id}/", response_model=schemas.CustomerRead, tags=["customers"])
 def get_customer(customer_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_customers"))):

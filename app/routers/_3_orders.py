@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Order, User)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 from app.models.helpers import _generate_Entity_Code
 
 entity_config = ENTITY_CONFIG.get("order")
@@ -37,16 +38,21 @@ def create_order(order: schemas.OrderCreate, session: Session = Depends(get_sess
     )
 
 @router.get("/orders/", response_model=List[schemas.OrderRead], tags=["orders"])
-def list_orders(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_orders"))):
-    orders = session.exec(select(Order).offset(skip).limit(limit)).all()
-    result = []
-    for order in orders:
+def list_orders(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_orders")),
+):
+    def to_read(order: Order) -> schemas.OrderRead:
         status_name = order.status.status_name if order.status else None
-        result.append(schemas.OrderRead(
+        return schemas.OrderRead(
             **order.model_dump(),
             status_name=status_name,
-        ))
-    return result
+        )
+
+    return paginated_query(session, Order, skip, limit, response, transform=to_read)
 
 @router.get("/orders/{order_id}/", response_model=schemas.OrderRead, tags=["orders"])
 def get_order(order_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_orders"))):

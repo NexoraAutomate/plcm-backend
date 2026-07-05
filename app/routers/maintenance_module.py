@@ -5,13 +5,13 @@
 # =============================================================================
 
 from __future__ import annotations
-from sqlalchemy import update
+from sqlalchemy import update, func
 from sqlalchemy.orm import noload
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Field, Relationship, Session, SQLModel, select
 
 # Project-level imports (adjust paths to match your project structure)
@@ -28,14 +28,13 @@ from app.schemas.Maintennance import EntityLookupRead
 from app.models.base import EntityType, ActionType
 from app.schemas.Maintennance import *
 from app.models.helpers import _generate_case_number, _cascade_fault_up,_SR_SEARCH_MODELS, _collect_descendants,_create_suspect_fes, _clear_healthy_fes, _resolve_ancestors
+from app.services.pagination import set_list_total_header
 from app.models.tables import MaintenanceCase, FaultyEntity, MaintenanceAction, MaintenanceDelivery, Project
 from app.services.configuration_history import (
     create_configuration_history_for_resolve,
     get_hardware_part_serial,
 )
 from app.models.base import FaultyEntityStatus, FaultType, ResolutionType
-from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
 
 router = APIRouter()
 
@@ -110,6 +109,7 @@ def create_maintenance_case(
     tags=["maintenance-cases"],
 )
 def list_maintenance_cases(
+    response: Response,
     project_id:   Optional[int] = None,
     status:       Optional[CaseStatus] = None,
     skip:         int = 0,
@@ -122,6 +122,13 @@ def list_maintenance_cases(
 
     RESPONSE 200: [ { case 1 }, { case 2 }, ... ]
     """
+    count_stmt = select(func.count()).select_from(MaintenanceCase)
+    if project_id:
+        count_stmt = count_stmt.where(MaintenanceCase.project_id == project_id)
+    if status:
+        count_stmt = count_stmt.where(MaintenanceCase.status == status)
+    set_list_total_header(response, session.exec(count_stmt).one())
+
     query = select(MaintenanceCase).options(
         noload(MaintenanceCase.faulty_entities),
         noload(MaintenanceCase.deliveries),
@@ -375,6 +382,7 @@ def list_faulty_entities(
     tags=["faulty-entities"],
 )
 def list_faulty_entities(
+    response: Response,
     skip:         int = 0,
     limit:        int = 100,
     session:      Session = Depends(get_session),
@@ -385,6 +393,10 @@ def list_faulty_entities(
 
     RESPONSE 200: [ { faulty_entity 1 }, { faulty_entity 2 }, ... ]
     """
+    set_list_total_header(
+        response,
+        session.exec(select(func.count()).select_from(FaultyEntity)).one(),
+    )
     query = select(FaultyEntity).options(
         noload(FaultyEntity.actions),
         noload(FaultyEntity.identified_by_user),

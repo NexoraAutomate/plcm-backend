@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Project, User, Status)
@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("project")
 
@@ -69,17 +70,22 @@ def create_project(project: schemas.ProjectCreate, session: Session = Depends(ge
     )
 
 @router.get("/projects/", response_model=List[schemas.ProjectRead], tags=["projects"])
-def list_projects(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
-    projects = session.exec(select(Project).offset(skip).limit(limit)).all()
-    result = []
-    for project in projects:
+def list_projects(
+    response: Response,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_projects")),
+):
+    def to_read(project: Project) -> schemas.ProjectRead:
         status_name = project.status.status_name if project.status else None
-        result.append(schemas.ProjectRead(
+        return schemas.ProjectRead(
             **project.model_dump(),
             status_name=status_name,
-            systems=project.systems
-        ))
-    return result
+            systems=project.systems,
+        )
+
+    return paginated_query(session, Project, skip, limit, response, transform=to_read)
 
 @router.get("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def get_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
