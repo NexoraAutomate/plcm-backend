@@ -366,11 +366,17 @@ class EntityAttachmentRead(SQLModel):
     file_name: str
     file_path: str
     mime_type: Optional[str] = None
+    attachment_type: str
+    description: Optional[str] = None
     uploaded_by_id: Optional[int] = None
     uploaded_at: datetime
 
     class Config:
         from_attributes = True
+
+class EntityAttachmentUpdate(SQLModel):
+    attachment_type: Optional[str] = None
+    description: Optional[str] = None
 
 # ---- Entity / History / Maintenance ----
 class EntityCreate(EntityBase):
