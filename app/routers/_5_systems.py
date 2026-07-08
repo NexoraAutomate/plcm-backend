@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.entity_replacement_service import filter_current_installs
 from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("system")
@@ -107,4 +108,4 @@ def list_system_subsystems(system_id: int, session: Session = Depends(get_sessio
     system = session.get(System, system_id)
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    return system.subsystems
+    return filter_current_installs(system.subsystems)

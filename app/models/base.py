@@ -108,7 +108,20 @@ class HierarchyInstallFields(SQLModel):
     original_serial_number: Optional[str] = None
 
 
-class SystemCommon(HierarchyInstallFields):
+class HardwareReplacementFields(SQLModel):
+    """Replacement chain on installed hierarchy rows only (not inventory)."""
+    is_current_install: bool = True
+    root_entity_id: Optional[int] = None
+    replaced_entity_id: Optional[int] = None
+    replacement_sequence: int = 0
+    replaced_at: Optional[datetime] = None
+
+
+class HardwareEntityFields(HierarchyInstallFields, HardwareReplacementFields):
+    """Install metadata + replacement tracking for fielded hardware entities."""
+
+
+class SystemCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     project_id: int
@@ -120,7 +133,7 @@ class SystemCommon(HierarchyInstallFields):
 class SystemBase(SystemCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class SubsystemCommon(HierarchyInstallFields):
+class SubsystemCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     part_number: Optional[str] = None
@@ -130,7 +143,7 @@ class SubsystemCommon(HierarchyInstallFields):
 class SubsystemBase(SubsystemCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class ModuleCommon(HierarchyInstallFields):
+class ModuleCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     part_number: Optional[str] = None
@@ -140,7 +153,7 @@ class ModuleCommon(HierarchyInstallFields):
 class ModuleBase(ModuleCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class UnitCommon(HierarchyInstallFields):
+class UnitCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     part_number: Optional[str] = None
@@ -150,7 +163,7 @@ class UnitCommon(HierarchyInstallFields):
 class UnitBase(UnitCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class ComponentCommon(HierarchyInstallFields):
+class ComponentCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     sku: Optional[str] = None

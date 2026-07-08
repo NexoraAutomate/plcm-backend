@@ -94,7 +94,10 @@ def _siblings_same_type(session: Session, entity_type: EntityType, entity_id: in
 
     return list(
         session.exec(
-            select(model_cls).where(getattr(model_cls, fk_attr) == parent_id)
+            select(model_cls).where(
+                getattr(model_cls, fk_attr) == parent_id,
+                model_cls.is_current_install == True,  # noqa: E712
+            )
         ).all()
     )
 
@@ -127,12 +130,47 @@ def _update_hardware_part_serial(
     entity_id: int,
     new_part_number: str,
     new_serial_number: Optional[str],
-) -> None:
+    *,
+    performed_by_id: int,
+    inventory: Optional[Inventory] = None,
+    inventory_instance_id: Optional[int] = None,
+):
+    from app.services.entity_replacement_service import (
+        apply_inventory_to_replacement,
+        create_replacement_entity,
+    )
+
     row = _get_entity_row(session, entity_type, entity_id)
-    row.part_number = new_part_number
-    if new_serial_number:
-        row.serial_number = new_serial_number
-    session.add(row)
+    config_item = new_part_number
+    picture_url = None
+    installation_date = None
+    installed_by_id = performed_by_id
+
+    if inventory is not None:
+        inv_part, inv_serial, inv_config, inv_picture = apply_inventory_to_replacement(
+            session, inventory, inventory_instance_id
+        )
+        new_part_number = inv_part or new_part_number
+        new_serial_number = inv_serial or new_serial_number
+        config_item = inv_config or new_part_number
+        picture_url = inv_picture
+        if inventory.installation_date:
+            installation_date = inventory.installation_date
+        if inventory.installed_by_id:
+            installed_by_id = inventory.installed_by_id
+
+    return create_replacement_entity(
+        session,
+        entity_type=entity_type,
+        old_row=row,
+        new_part_number=new_part_number,
+        new_serial_number=new_serial_number,
+        new_configuration_item=config_item,
+        performed_by_id=performed_by_id,
+        installation_date=installation_date,
+        installed_by_id=installed_by_id,
+        picture_url=picture_url,
+    )
 
 
 def admin_hierarchy_replace(
@@ -146,6 +184,7 @@ def admin_hierarchy_replace(
     new_serial_number: Optional[str] = None,
     notes: Optional[str] = None,
     inventory_item_id: Optional[int] = None,
+    inventory_instance_id: Optional[int] = None,
 ) -> dict:
     entity_type = _normalize_entity_type(entity_type)
 
@@ -265,6 +304,21 @@ def admin_hierarchy_replace(
     target_fe.resolved_at = datetime.now(timezone.utc)
     session.add(target_fe)
 
+    inventory = None
+    if inventory_item_id is not None:
+        inventory = session.get(Inventory, inventory_item_id)
+
+    resolved_part_number = new_part_number
+    resolved_serial_number = new_serial_number
+    if inventory is not None:
+        from app.services.entity_replacement_service import apply_inventory_to_replacement
+
+        inv_part, inv_serial, _, _ = apply_inventory_to_replacement(
+            session, inventory, inventory_instance_id
+        )
+        resolved_part_number = inv_part or new_part_number
+        resolved_serial_number = inv_serial or new_serial_number
+
     history = create_configuration_history_for_resolve(
         session,
         entity_type=entity_type,
@@ -275,11 +329,36 @@ def admin_hierarchy_replace(
         resolution_type=ResolutionType.REPLACED,
         fault_type=FaultType.HARDWARE,
         old_part_number=old_part,
-        new_part_number=new_part_number,
+        new_part_number=resolved_part_number,
         old_serial_number=old_serial,
-        new_serial_number=new_serial_number,
+        new_serial_number=resolved_serial_number,
         remarks=notes,
     )
+
+    new_row = _update_hardware_part_serial(
+        session,
+        entity_type,
+        entity_id,
+        resolved_part_number,
+        resolved_serial_number,
+        performed_by_id=performed_by.id,
+        inventory=inventory,
+        inventory_instance_id=inventory_instance_id,
+    )
+
+    if inventory is not None:
+        from app.services.inventory_service import consume_inventory_unit
+
+        consume_inventory_unit(session, inventory, instance_id=inventory_instance_id)
+
+    # Point configuration history at the slot's original generic entity for continuity.
+    if history and new_row:
+        from app.services.entity_replacement_service import resolve_slot_generic_entity_id
+
+        slot_entity_id = resolve_slot_generic_entity_id(session, entity_type, new_row.id)
+        if slot_entity_id and history.entity_id != slot_entity_id:
+            history.entity_id = slot_entity_id
+            session.add(history)
 
     _log_action(
         session,
@@ -287,22 +366,11 @@ def admin_hierarchy_replace(
         action_type=ActionType.REPLACEMENT,
         outcome=ActionOutcome.PASS,
         performed_by=performed_by.id,
-        notes=f"Replaced {old_part or 'unknown'} with {new_part_number}",
+        notes=f"Replaced {old_part or 'unknown'} with {resolved_part_number}",
     )
 
-    _update_hardware_part_serial(
-        session,
-        entity_type,
-        entity_id,
-        new_part_number,
-        new_serial_number,
-    )
-
-    if inventory_item_id is not None:
-        inv = session.get(Inventory, inventory_item_id)
-        if inv:
-            from app.services.inventory_service import consume_inventory_unit
-            consume_inventory_unit(session, inv)
+    new_part_number = new_row.part_number or resolved_part_number
+    new_serial_number = new_row.serial_number or resolved_serial_number
 
     case.status = CaseStatus.RESOLVED
     case.resolution_notes = notes or f"Admin replacement: {old_part} → {new_part_number}"
@@ -324,4 +392,6 @@ def admin_hierarchy_replace(
         "configuration_history_id": config_history_id,
         "old_part_number": old_part,
         "new_part_number": new_part_number,
+        "new_entity_id": new_row.id if new_row else entity_id,
+        "old_entity_id": entity_id,
     }

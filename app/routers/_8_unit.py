@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.services.entity_replacement_service import filter_current_installs
 from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("unit")
@@ -105,4 +106,4 @@ def list_unit_components(unit_id: int, session: Session = Depends(get_session), 
     unit = session.get(Unit, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
-    return unit.components
+    return filter_current_installs(unit.components)

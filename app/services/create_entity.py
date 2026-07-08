@@ -7,6 +7,11 @@ from app.services.create_entitystatusHistory import create_status_history
 
 def New_entity(session, entity:any, entity_name:str, changed_by_user: int) -> Entity:
 
+    if getattr(entity, "root_entity_id", None) is None and getattr(entity, "id", None) is not None:
+        entity.root_entity_id = entity.id
+        session.add(entity)
+        session.flush()
+
     entity_data=schemas.EntityCreate(
             name=f"{entity_name}-{entity.id}",
             display_name=f"{entity_name}-{entity.id}",

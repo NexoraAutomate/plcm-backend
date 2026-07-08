@@ -1323,5 +1323,6 @@ def admin_hierarchy_replace_endpoint(
         new_serial_number=payload.new_serial_number,
         notes=payload.notes,
         inventory_item_id=payload.inventory_item_id,
+        inventory_instance_id=payload.inventory_instance_id,
     )
     return AdminHierarchyReplaceRead(**result)

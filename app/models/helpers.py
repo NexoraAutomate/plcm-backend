@@ -94,7 +94,10 @@ def _collect_descendants(
 
     # Query all children whose FK matches entity_id
     children = session.exec(
-        select(child_model).where(getattr(child_model, fk_attr) == entity_id)
+        select(child_model).where(
+            getattr(child_model, fk_attr) == entity_id,
+            child_model.is_current_install == True,  # noqa: E712
+        )
     ).all()
 
     for child in children:
@@ -220,7 +223,10 @@ def _collect_confirmed_descendant_ids(
         return
     child_type, child_model, fk_attr = _CHILD_MAP[entity_type]
     children = session.exec(
-        select(child_model).where(getattr(child_model, fk_attr) == entity_id)
+        select(child_model).where(
+            getattr(child_model, fk_attr) == entity_id,
+            child_model.is_current_install == True,  # noqa: E712
+        )
     ).all()
     for child in children:
         id_set.add(child.id)

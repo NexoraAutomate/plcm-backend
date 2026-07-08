@@ -416,6 +416,7 @@ class AdminHierarchyReplacePayload(SQLModel):
     new_serial_number: Optional[str] = None
     notes: Optional[str] = None
     inventory_item_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
 
 
 class AdminHierarchyReplaceRead(SQLModel):
@@ -424,3 +425,5 @@ class AdminHierarchyReplaceRead(SQLModel):
     configuration_history_id: Optional[int] = None
     old_part_number: Optional[str] = None
     new_part_number: str
+    new_entity_id: int
+    old_entity_id: int

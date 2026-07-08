@@ -8,6 +8,7 @@ from app.routers.auth import require_permission
 from app.models.base import EntityType
 from app.models.helpers import _PARENT_MAP
 from app.services.configuration_history import resolve_generic_entity
+from app.services.entity_replacement_service import get_replacement_chain
 
 router = APIRouter()
 
@@ -89,6 +90,49 @@ def list_entity_maintenance_logs(entity_id: int, session: Session = Depends(get_
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
     return entity.maintenance_logs
+
+
+@router.get(
+    "/entities/{entity_type}/{entity_pk}/replacement-chain/",
+    tags=["entities"],
+)
+def list_entity_replacement_chain(
+    entity_type: str,
+    entity_pk: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_entities")),
+):
+    """Return all install versions for a hardware slot (original + replacements)."""
+    try:
+        normalized = EntityType(entity_type.lower())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}") from exc
+
+    chain = get_replacement_chain(session, normalized, entity_pk)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    return [
+        {
+            "id": row.id,
+            "entity_type": normalized.value,
+            "name": getattr(row, "name", None),
+            "part_number": getattr(row, "part_number", None),
+            "serial_number": getattr(row, "serial_number", None),
+            "configuration_item": getattr(row, "configuration_item", None),
+            "original_part_number": getattr(row, "original_part_number", None),
+            "original_serial_number": getattr(row, "original_serial_number", None),
+            "is_current_install": getattr(row, "is_current_install", True),
+            "root_entity_id": getattr(row, "root_entity_id", row.id),
+            "replaced_entity_id": getattr(row, "replaced_entity_id", None),
+            "replacement_sequence": getattr(row, "replacement_sequence", 0),
+            "replaced_at": getattr(row, "replaced_at", None),
+            "installation_date": getattr(row, "installation_date", None),
+            "installed_by_id": getattr(row, "installed_by_id", None),
+            "created_at": getattr(row, "created_at", None),
+        }
+        for row in chain
+    ]
 
 
 
