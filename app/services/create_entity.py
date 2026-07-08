@@ -5,9 +5,17 @@ from app.schemas import schemas
 from app.services.create_entitystatusHistory import create_status_history
 
 
+def _supports_root_entity_id(entity: object) -> bool:
+    return "root_entity_id" in getattr(type(entity), "model_fields", {})
+
+
 def New_entity(session, entity:any, entity_name:str, changed_by_user: int) -> Entity:
 
-    if getattr(entity, "root_entity_id", None) is None and getattr(entity, "id", None) is not None:
+    if (
+        _supports_root_entity_id(entity)
+        and getattr(entity, "root_entity_id", None) is None
+        and getattr(entity, "id", None) is not None
+    ):
         entity.root_entity_id = entity.id
         session.add(entity)
         session.flush()
