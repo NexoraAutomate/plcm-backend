@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.tables import Inventory, InventoryInstance, User
+from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, User
 from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
@@ -14,6 +14,8 @@ from app.services.inventory_service import (
     consume_inventory_unit,
     sync_inventory_quantity,
     normalize_part_number,
+    list_inventory_child_links,
+    replace_inventory_child_links,
 )
 
 router = APIRouter()
@@ -258,6 +260,61 @@ def delete_inventory(
     return {"ok": True}
 
 
+@router.get(
+    "/inventory/{inventory_id}/children/",
+    response_model=List[schemas.InventoryChildLinkRead],
+    tags=["inventory"],
+)
+def get_inventory_children(
+    inventory_id: int,
+    parent_instance_id: Optional[int] = Query(None),
+    parent_instance_serial: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    inventory = session.get(Inventory, inventory_id)
+    if not inventory:
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    links = list_inventory_child_links(
+        session,
+        parent_inventory_id=inventory_id,
+        parent_instance_id=parent_instance_id,
+        parent_instance_serial=parent_instance_serial,
+    )
+    return links
+
+
+@router.put(
+    "/inventory/{inventory_id}/children/",
+    response_model=List[schemas.InventoryChildLinkRead],
+    tags=["inventory"],
+)
+def replace_inventory_children(
+    inventory_id: int,
+    body: schemas.InventoryChildrenReplace,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_inventory")),
+):
+    inventory = session.get(Inventory, inventory_id)
+    if not inventory:
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    if not can_add_inventory_children_type(inventory.inventory_type):
+        raise HTTPException(status_code=400, detail="This inventory type cannot have children")
+
+    links = replace_inventory_child_links(
+        session,
+        parent_inventory=inventory,
+        parent_instance_id=body.parent_instance_id,
+        children=[child.model_dump() for child in body.children],
+    )
+    session.commit()
+    return links
+
+
+def can_add_inventory_children_type(inventory_type: str) -> bool:
+    return inventory_type != "component"
+
+
 @router.post(
     "/inventory/{inventory_id}/consume/",
     response_model=schemas.InventoryConsumeRead,
@@ -265,13 +322,14 @@ def delete_inventory(
 )
 def consume_inventory(
     inventory_id: int,
+    body: schemas.InventoryConsumeRequest = schemas.InventoryConsumeRequest(),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("edit_inventory")),
 ):
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    consumed = consume_inventory_unit(session, inventory)
+    consumed = consume_inventory_unit(session, inventory, instance_id=body.instance_id)
     session.commit()
     session.refresh(inventory)
     consumed_read = (

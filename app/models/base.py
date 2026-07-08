@@ -224,6 +224,15 @@ class InventoryInstanceBase(InventoryInstanceCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InventoryChildLinkBase(SQLModel):
+    """Child inventory stock assigned to a parent inventory item (optionally per serial)."""
+    child_category_name: str
+    child_inventory_id: int
+    child_instance_id: Optional[int] = None
+    parent_instance_serial: Optional[str] = None
+    child_instance_serial: Optional[str] = None
+
+
 class EntityType(str, Enum):
     PROJECT   = "project"
     SYSTEM    = "system"

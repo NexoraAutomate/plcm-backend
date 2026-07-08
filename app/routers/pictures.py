@@ -126,6 +126,43 @@ async def upload_picture(
     return {"picture_url": entity.picture_url}
 
 
+@router.post("/pictures/copy/", tags=["pictures"])
+def copy_picture(
+    from_owner_type: str = Form(...),
+    from_owner_id: int = Form(...),
+    to_owner_type: str = Form(...),
+    to_owner_id: int = Form(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_systems")),
+):
+    _, source_entity = _get_owner(session, from_owner_type, from_owner_id)
+    to_owner_type_normalized, target_entity = _get_owner(session, to_owner_type, to_owner_id)
+
+    source_picture_url = getattr(source_entity, "picture_url", None)
+    if not source_picture_url:
+        return {"picture_url": getattr(target_entity, "picture_url", None)}
+
+    source_path = _resolve_picture_file(source_picture_url)
+    if not source_path:
+        return {"picture_url": getattr(target_entity, "picture_url", None)}
+
+    ext = source_path.suffix or ".jpg"
+    dest_path = _picture_path(to_owner_type_normalized, to_owner_id, ext)
+    if dest_path.exists():
+        dest_path.unlink()
+    for existing in dest_path.parent.glob("picture.*"):
+        if existing != dest_path:
+            existing.unlink()
+
+    dest_path.write_bytes(source_path.read_bytes())
+    relative_path = str(dest_path.as_posix())
+    target_entity.picture_url = relative_path
+    session.add(target_entity)
+    session.commit()
+    session.refresh(target_entity)
+    return {"picture_url": target_entity.picture_url}
+
+
 @router.delete("/pictures/", status_code=204, tags=["pictures"])
 def delete_picture(
     owner_type: str,

@@ -155,6 +155,62 @@ def update_attachment(
     return attachment
 
 
+@router.post(
+    "/attachments/copy/",
+    response_model=List[EntityAttachmentRead],
+    status_code=201,
+    tags=["attachments"],
+)
+def copy_attachments(
+    from_owner_type: str = Form(...),
+    from_owner_id: int = Form(...),
+    to_owner_type: str = Form(...),
+    to_owner_id: int = Form(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_systems")),
+):
+    from_owner_type_normalized = from_owner_type.lower()
+    to_owner_type_normalized = to_owner_type.lower()
+    allowed = {"system", "subsystem", "module", "unit", "component", "inventory", "inventory_instance"}
+    if from_owner_type_normalized not in allowed or to_owner_type_normalized not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid owner_type.")
+
+    source_attachments = session.exec(
+        select(EntityAttachment).where(
+            EntityAttachment.owner_type == from_owner_type_normalized,
+            EntityAttachment.owner_id == from_owner_id,
+        )
+    ).all()
+
+    copied: list[EntityAttachment] = []
+    dest_dir = _owner_dir(to_owner_type_normalized, to_owner_id)
+    for source in source_attachments:
+        source_path = Path(source.file_path)
+        if not source_path.is_file():
+            continue
+        ext = source_path.suffix or Path(source.file_name).suffix
+        stored_name = f"{uuid.uuid4().hex}{ext}"
+        dest_path = dest_dir / stored_name
+        dest_path.write_bytes(source_path.read_bytes())
+        attachment = EntityAttachment(
+            owner_type=to_owner_type_normalized,
+            owner_id=to_owner_id,
+            file_name=source.file_name,
+            file_path=str(dest_path.as_posix()),
+            mime_type=source.mime_type,
+            attachment_type=source.attachment_type,
+            description=source.description,
+            uploaded_by_id=current_user.id,
+        )
+        session.add(attachment)
+        copied.append(attachment)
+
+    session.commit()
+    for attachment in copied:
+        session.refresh(attachment)
+    return copied
+
+
 @router.delete(
     "/attachments/{attachment_id}/",
     status_code=204,

@@ -374,6 +374,32 @@ class InventoryRead(InventoryBase):
     class Config:
         orm_mode = True
 
+class InventoryConsumeRequest(SQLModel):
+    instance_id: Optional[int] = None
+
+
+class InventoryChildLinkItem(SQLModel):
+    child_category_name: str
+    child_inventory_id: int
+    child_instance_id: Optional[int] = None
+    parent_instance_serial: Optional[str] = None
+    child_instance_serial: Optional[str] = None
+
+
+class InventoryChildLinkRead(InventoryChildLinkItem):
+    id: int
+    parent_inventory_id: int
+    parent_instance_id: Optional[int] = None
+
+    class Config:
+        orm_mode = True
+
+
+class InventoryChildrenReplace(SQLModel):
+    parent_instance_id: Optional[int] = None
+    children: List[InventoryChildLinkItem] = []
+
+
 class InventoryConsumeRead(SQLModel):
     inventory: InventoryRead
     consumed_instance: Optional[InventoryInstanceRead] = None

@@ -4,7 +4,7 @@ from sqlmodel import Column, Field, Relationship
 import sqlalchemy as sa
 from enum import Enum
 from sqlalchemy import Enum as SQLEnum
-from app.models.base import ConfigurationHistoryBase
+from app.models.base import ConfigurationHistoryBase, InventoryChildLinkBase
 
 class UserRole(SQLModel, table=True):
     user_id: Optional[int] = Field(default=None, foreign_key="user.id", primary_key=True)
@@ -204,6 +204,19 @@ class InventoryInstance(InventoryInstanceBase, table=True):
     inventory_id: int = Field(foreign_key="inventory.id", index=True)
     inventory: Optional[Inventory] = Relationship(back_populates="instances")
     status: Optional[Status] = Relationship()
+
+
+class InventoryChildLink(InventoryChildLinkBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    parent_inventory_id: int = Field(foreign_key="inventory.id", index=True, ondelete="CASCADE")
+    parent_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True, ondelete="SET NULL"
+    )
+    child_inventory_id: int = Field(foreign_key="inventory.id", ondelete="CASCADE")
+    child_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", ondelete="SET NULL"
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
