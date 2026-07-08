@@ -300,9 +300,9 @@ def admin_hierarchy_replace(
 
     if inventory_item_id is not None:
         inv = session.get(Inventory, inventory_item_id)
-        if inv and inv.quantity > 0:
-            inv.quantity = max(0, inv.quantity - 1)
-            session.add(inv)
+        if inv:
+            from app.services.inventory_service import consume_inventory_unit
+            consume_inventory_unit(session, inv)
 
     case.status = CaseStatus.RESOLVED
     case.resolution_notes = notes or f"Admin replacement: {old_part} → {new_part_number}"

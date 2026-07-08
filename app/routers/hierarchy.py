@@ -5,21 +5,29 @@ from app.database import get_session
 from app.models.tables import Hierarchy, User
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.services.hierarchy_service import create_hierarchy_entry, get_next_hierarchy_id, sync_hierarchy_id_sequence
 
 router = APIRouter()
 
 @router.post("/hierarchies/", response_model=schemas.HierarchyRead, tags=["hierarchy"])
 def create_hierarchy(entry: schemas.HierarchyCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_hierarchy"))):
-    db_entry = Hierarchy(**entry.model_dump())
-    session.add(db_entry)
+    db_entry = create_hierarchy_entry(session, entry.model_dump())
     session.commit()
     session.refresh(db_entry)
     return db_entry
 
 @router.post("/hierarchies/batch/", response_model=List[schemas.HierarchyRead], tags=["hierarchy"])
 def create_hierarchy_batch(entries: List[schemas.HierarchyCreate], session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_hierarchy"))):
-    db_entries = [Hierarchy(**entry.model_dump()) for entry in entries]
+    next_id = get_next_hierarchy_id(session)
+    db_entries = []
+    for entry in entries:
+        db_entry = Hierarchy(**entry.model_dump())
+        db_entry.id = next_id
+        next_id += 1
+        db_entries.append(db_entry)
     session.add_all(db_entries)
+    session.flush()
+    sync_hierarchy_id_sequence(session)
     session.commit()
     for db_entry in db_entries:
         session.refresh(db_entry)

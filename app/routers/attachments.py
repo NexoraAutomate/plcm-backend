@@ -71,7 +71,7 @@ async def upload_attachment(
     current_user: User = Depends(require_permission("edit_systems")),
 ):
     owner_type_normalized = owner_type.lower()
-    allowed = {"system", "subsystem", "module", "unit", "component", "inventory"}
+    allowed = {"system", "subsystem", "module", "unit", "component", "inventory", "inventory_instance"}
     if owner_type_normalized not in allowed:
         raise HTTPException(status_code=400, detail="Invalid owner_type.")
 

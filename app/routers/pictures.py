@@ -12,6 +12,7 @@ from app.database import get_session
 from app.models.tables import (
     Component,
     Inventory,
+    InventoryInstance,
     Module,
     Subsystem,
     System,
@@ -30,6 +31,7 @@ OWNER_MODELS: dict[str, Type[SQLModel]] = {
     "unit": Unit,
     "component": Component,
     "inventory": Inventory,
+    "inventory_instance": InventoryInstance,
 }
 
 ALLOWED_IMAGE_TYPES = {

@@ -203,7 +203,20 @@ class InventoryCommon(SQLModel):
     picture_url: Optional[str] = None
 
 class InventoryBase(InventoryCommon):
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))   
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InventoryInstanceCommon(SQLModel):
+    serial_number: Optional[str] = None
+    holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    location: Optional[str] = None
+    added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    shelf_life_expires_at: Optional[datetime] = None
+    picture_url: Optional[str] = None
+
+
+class InventoryInstanceBase(InventoryInstanceCommon):
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EntityType(str, Enum):

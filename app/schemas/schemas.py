@@ -29,6 +29,8 @@ from app.models.base import (
     UnitCommon,
     ComponentCommon,
     InventoryCommon,
+    InventoryInstanceCommon,
+    InventoryInstanceBase,
     EntityCommon,
     EntityStatusHistoryCommon,
     MaintenanceLogCommon,
@@ -335,14 +337,40 @@ class ComponentUpdate(SQLModel):
     original_serial_number: Optional[str] = None
 
 # ---- Inventory ----
+class InventoryInstanceCreate(InventoryInstanceCommon):
+    pass
+
+
+class InventoryInstanceRead(InventoryInstanceBase):
+    id: int
+    inventory_id: int
+
+    class Config:
+        orm_mode = True
+
+
+class InventoryInstanceUpdate(SQLModel):
+    serial_number: Optional[str] = None
+    holder_user_id: Optional[int] = None
+    location: Optional[str] = None
+    added_date: Optional[datetime] = None
+    shelf_life_expires_at: Optional[datetime] = None
+    picture_url: Optional[str] = None
+
+
 class InventoryCreate(InventoryBase):
     pass
 
 class InventoryRead(InventoryBase):
     id: int
+    instances: Optional[List[InventoryInstanceRead]] = None
 
     class Config:
         orm_mode = True
+
+class InventoryConsumeRead(SQLModel):
+    inventory: InventoryRead
+    consumed_instance: Optional[InventoryInstanceRead] = None
 
 class InventoryUpdate(SQLModel):
     name: Optional[str] = None

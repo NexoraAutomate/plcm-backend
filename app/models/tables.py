@@ -189,6 +189,19 @@ class EntityStatusHistory(EntityStatusHistoryBase, table=True):
 class Inventory(InventoryBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     entity_id: Optional[int] = Field(default=None, index=True)
+    instances: List["InventoryInstance"] = Relationship(
+        back_populates="inventory",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
+
+
+class InventoryInstance(InventoryInstanceBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory: Optional[Inventory] = Relationship(back_populates="instances")
 
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
