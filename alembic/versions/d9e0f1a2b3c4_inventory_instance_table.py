@@ -20,6 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if 'inventoryinstance' in inspector.get_table_names():
+        return
+
     op.create_table(
         'inventoryinstance',
         sa.Column('serial_number', sqlmodel.sql.sqltypes.AutoString(), nullable=True),

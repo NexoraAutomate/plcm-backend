@@ -351,11 +351,17 @@ class InventoryInstanceRead(InventoryInstanceBase):
 
 class InventoryInstanceUpdate(SQLModel):
     serial_number: Optional[str] = None
+    configuration_item: Optional[str] = None
+    status_id: Optional[int] = None
     holder_user_id: Optional[int] = None
     location: Optional[str] = None
     added_date: Optional[datetime] = None
     shelf_life_expires_at: Optional[datetime] = None
     picture_url: Optional[str] = None
+    installation_date: Optional[datetime] = None
+    installed_by_id: Optional[int] = None
+    original_part_number: Optional[str] = None
+    original_serial_number: Optional[str] = None
 
 
 class InventoryCreate(InventoryBase):
@@ -379,13 +385,20 @@ class InventoryUpdate(SQLModel):
     quantity: Optional[int] = None
     description: Optional[str] = None
     oem_name: Optional[str] = None
-    manufacturer_part_number: Optional[str] = None
+    part_number: Optional[str] = None
+    configuration_item: Optional[str] = None
+    status_id: Optional[int] = None
+    sku: Optional[str] = None
     location: Optional[str] = None
     entity_id: Optional[int] = None
     holder_user_id: Optional[int] = None
     added_date: Optional[datetime] = None
     shelf_life_expires_at: Optional[datetime] = None
     picture_url: Optional[str] = None
+    installation_date: Optional[datetime] = None
+    installed_by_id: Optional[int] = None
+    original_part_number: Optional[str] = None
+    original_serial_number: Optional[str] = None
 
 class EntityAttachmentRead(SQLModel):
     id: int

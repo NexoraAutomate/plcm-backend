@@ -22,21 +22,21 @@ def find_inventory_group(
     *,
     name: str,
     inventory_type: str,
-    manufacturer_part_number: Optional[str],
+    part_number: Optional[str],
 ) -> Optional[Inventory]:
-    normalized_part = normalize_part_number(manufacturer_part_number)
+    normalized_part = normalize_part_number(part_number)
     query = select(Inventory).where(
         Inventory.inventory_type == inventory_type,
         func.lower(Inventory.name) == name.strip().lower(),
     )
     if normalized_part:
         query = query.where(
-            func.lower(func.coalesce(Inventory.manufacturer_part_number, "")) == normalized_part
+            func.lower(func.coalesce(Inventory.part_number, "")) == normalized_part
         )
     else:
         query = query.where(
-            (Inventory.manufacturer_part_number.is_(None))
-            | (Inventory.manufacturer_part_number == "")
+            (Inventory.part_number.is_(None))
+            | (Inventory.part_number == "")
         )
     return session.exec(query).first()
 
@@ -60,20 +60,32 @@ def create_inventory_instance(
     inventory: Inventory,
     *,
     serial_number: Optional[str] = None,
+    configuration_item: Optional[str] = None,
+    status_id: Optional[int] = None,
     holder_user_id: Optional[int] = None,
     location: Optional[str] = None,
     added_date: Optional[datetime] = None,
     shelf_life_expires_at: Optional[datetime] = None,
     picture_url: Optional[str] = None,
+    installation_date: Optional[datetime] = None,
+    installed_by_id: Optional[int] = None,
+    original_part_number: Optional[str] = None,
+    original_serial_number: Optional[str] = None,
 ) -> InventoryInstance:
     instance = InventoryInstance(
         inventory_id=inventory.id,
         serial_number=serial_number,
+        configuration_item=configuration_item,
+        status_id=status_id,
         holder_user_id=holder_user_id,
         location=location,
         added_date=added_date or datetime.now(timezone.utc),
         shelf_life_expires_at=shelf_life_expires_at,
         picture_url=picture_url,
+        installation_date=installation_date,
+        installed_by_id=installed_by_id,
+        original_part_number=original_part_number,
+        original_serial_number=original_serial_number,
     )
     session.add(instance)
     session.flush()

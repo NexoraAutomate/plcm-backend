@@ -53,12 +53,22 @@ def _inventory_to_read(
 def _extract_instance_fields(data: dict) -> dict:
     return {
         "serial_number": data.pop("serial_number", None),
+        "configuration_item": data.pop("configuration_item", None),
+        "status_id": data.pop("status_id", None),
         "holder_user_id": data.pop("holder_user_id", None),
         "location": data.pop("location", None),
         "added_date": data.pop("added_date", None),
         "shelf_life_expires_at": data.pop("shelf_life_expires_at", None),
         "picture_url": data.pop("picture_url", None),
+        "installation_date": data.pop("installation_date", None),
+        "installed_by_id": data.pop("installed_by_id", None),
+        "original_part_number": data.pop("original_part_number", None),
+        "original_serial_number": data.pop("original_serial_number", None),
     }
+
+
+def _resolve_part_number(data: dict) -> Optional[str]:
+    return data.get("part_number") or data.pop("manufacturer_part_number", None)
 
 
 # ===================== INVENTORY ENDPOINTS =====================
@@ -72,6 +82,11 @@ def create_inventory(
     inventory_type = data["inventory_type"]
 
     if is_component_inventory(inventory_type):
+        part_number = _resolve_part_number(data)
+        if part_number:
+            data["part_number"] = part_number
+        if not data.get("configuration_item"):
+            data["configuration_item"] = part_number or data.get("name")
         data["quantity"] = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
         db_inventory = Inventory(**data)
         session.add(db_inventory)
@@ -79,16 +94,21 @@ def create_inventory(
         session.refresh(db_inventory)
         return _inventory_to_read(session, db_inventory)
 
-    part_number = data.get("manufacturer_part_number")
+    part_number = _resolve_part_number(data)
     if not normalize_part_number(part_number):
         raise HTTPException(
             status_code=400,
-            detail="Manufacturer part number is required for non-component inventory",
+            detail="Part number is required for non-component inventory",
         )
+    data["part_number"] = part_number
+    if not data.get("configuration_item"):
+        data["configuration_item"] = part_number
     if not (data.get("location") or "").strip():
         raise HTTPException(status_code=400, detail="Location is required for inventory instances")
 
     instance_fields = _extract_instance_fields(data)
+    if not instance_fields.get("configuration_item"):
+        instance_fields["configuration_item"] = part_number
     data["quantity"] = 0
     data["serial_number"] = None
     data["holder_user_id"] = None
@@ -96,12 +116,16 @@ def create_inventory(
     data["added_date"] = None
     data["shelf_life_expires_at"] = None
     data["picture_url"] = None
+    data["installation_date"] = None
+    data["installed_by_id"] = None
+    data["original_part_number"] = None
+    data["original_serial_number"] = None
 
     existing = find_inventory_group(
         session,
         name=data["name"],
         inventory_type=inventory_type,
-        manufacturer_part_number=part_number,
+        part_number=part_number,
     )
     if existing:
         db_inventory = existing
@@ -195,13 +219,22 @@ def update_inventory(
         for field in (
             "quantity",
             "serial_number",
+            "configuration_item",
+            "status_id",
             "holder_user_id",
             "location",
             "added_date",
             "shelf_life_expires_at",
             "picture_url",
+            "installation_date",
+            "installed_by_id",
+            "original_part_number",
+            "original_serial_number",
         ):
             update_data.pop(field, None)
+
+    if "manufacturer_part_number" in update_data:
+        update_data["part_number"] = update_data.pop("manufacturer_part_number")
 
     for k, v in update_data.items():
         setattr(db_inventory, k, v)

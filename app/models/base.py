@@ -187,32 +187,37 @@ class MaintenanceLogCommon(SQLModel):
 class MaintenanceLogBase(MaintenanceLogCommon):
     performed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class InventoryCommon(SQLModel):
+class InventoryCommon(HierarchyInstallFields):
+    """Inventory catalog row — fields mirror hierarchy entities for install-from-stock."""
     name: str
     inventory_type: str  # 'system', 'subsystem', 'module', 'unit', 'component'
     serial_number: Optional[str] = None
     quantity: int = 0
     description: Optional[str] = None
     oem_name: Optional[str] = None
-    manufacturer_part_number: Optional[str] = None
+    part_number: Optional[str] = None
+    configuration_item: Optional[str] = None
+    status_id: Optional[int] = Field(default=None, foreign_key="status.id")
+    sku: Optional[str] = None
     location: Optional[str] = None
-    entity_id: Optional[int] = None  # ID of the associated entity (system_id, subsystem_id, etc.)
+    entity_id: Optional[int] = None  # PK of linked hierarchy row after install
     holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     shelf_life_expires_at: Optional[datetime] = None
-    picture_url: Optional[str] = None
 
 class InventoryBase(InventoryCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class InventoryInstanceCommon(SQLModel):
+class InventoryInstanceCommon(HierarchyInstallFields):
+    """Serialized inventory unit — per-unit fields mirror a single hierarchy entity."""
     serial_number: Optional[str] = None
+    configuration_item: Optional[str] = None
+    status_id: Optional[int] = Field(default=None, foreign_key="status.id")
     holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     location: Optional[str] = None
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     shelf_life_expires_at: Optional[datetime] = None
-    picture_url: Optional[str] = None
 
 
 class InventoryInstanceBase(InventoryInstanceCommon):
