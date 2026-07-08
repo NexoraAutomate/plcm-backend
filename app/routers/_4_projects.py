@@ -74,6 +74,7 @@ def list_projects(
     response: Response,
     skip: int = 0,
     limit: int = 100,
+    include_total: bool = True,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_projects")),
 ):
@@ -82,10 +83,12 @@ def list_projects(
         return schemas.ProjectRead(
             **project.model_dump(),
             status_name=status_name,
-            systems=project.systems,
+            systems=None,
         )
 
-    return paginated_query(session, Project, skip, limit, response, transform=to_read)
+    return paginated_query(
+        session, Project, skip, limit, response, transform=to_read, include_total=include_total
+    )
 
 @router.get("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def get_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
