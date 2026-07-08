@@ -4,7 +4,6 @@
 from app.models.tables import (Entity)
 from sqlmodel import Session, select
 from typing import Optional
-from fastapi import HTTPException
 from app.services.create_entitystatusHistory import create_status_history
 from app.schemas import schemas
 
@@ -18,10 +17,9 @@ def update_entity_status(session: Session, entity:any, entity_name: Optional[str
             Entity.entity_pk == entity.id
         )
     ).first()
-    if not entity:
-        raise HTTPException(status_code=404, detail = "Entity Record not found")
+    if not updated_entity:
         return None
-    print("updated_entity",updated_entity)
+
     updated_entity.status_id = entity.status_id
 
     session.add(updated_entity)
