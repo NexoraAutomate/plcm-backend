@@ -194,9 +194,17 @@ def admin_hierarchy_replace(
             detail="Entity does not belong to the specified project.",
         )
 
-    target_info = _get_label(session, entity_type.value, entity_id) or {}
-    target_name = target_info.get("entity_name") or f"{entity_type.value} #{entity_id}"
-    old_part, old_serial = get_hardware_part_serial(session, entity_type, entity_id)
+    from app.services.entity_replacement_service import resolve_current_install_row
+
+    try:
+        current_row = resolve_current_install_row(session, entity_type, entity_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    current_entity_id = current_row.id
+
+    target_info = _get_label(session, entity_type.value, current_entity_id) or {}
+    target_name = target_info.get("entity_name") or f"{entity_type.value} #{current_entity_id}"
+    old_part, old_serial = get_hardware_part_serial(session, entity_type, current_entity_id)
 
     case = MaintenanceCase(
         case_number=_generate_case_number(session),
@@ -204,7 +212,7 @@ def admin_hierarchy_replace(
         description=notes or f"Admin hierarchy replacement — {target_name}",
         status=CaseStatus.OPEN,
         entity_type=entity_type.value,
-        entity_id=entity_id,
+        entity_id=current_entity_id,
         part_number=old_part,
         reported_by=performed_by.id,
     )
@@ -214,7 +222,7 @@ def admin_hierarchy_replace(
     target_fe = FaultyEntity(
         case_id=case.id,
         entity_type=entity_type,
-        entity_id=entity_id,
+        entity_id=current_entity_id,
         entity_name=target_name,
         part_number=old_part,
         serial_number=old_serial,
@@ -226,9 +234,9 @@ def admin_hierarchy_replace(
     session.add(target_fe)
     session.flush()
 
-    siblings = _siblings_same_type(session, entity_type, entity_id)
+    siblings = _siblings_same_type(session, entity_type, current_entity_id)
     for sibling in siblings:
-        if sibling.id == entity_id:
+        if sibling.id == current_entity_id:
             continue
         sibling_info = _get_label(session, entity_type.value, sibling.id) or {}
         session.add(
@@ -247,7 +255,7 @@ def admin_hierarchy_replace(
             )
         )
 
-    descendants = _collect_descendants(session, entity_type.value, entity_id)
+    descendants = _collect_descendants(session, entity_type.value, current_entity_id)
     for desc in descendants:
         desc_type = _normalize_entity_type(desc.entity_type)
         session.add(
@@ -322,7 +330,7 @@ def admin_hierarchy_replace(
     history = create_configuration_history_for_resolve(
         session,
         entity_type=entity_type,
-        entity_pk=entity_id,
+        entity_pk=current_entity_id,
         maintenance_case_id=case.id,
         performed_by=performed_by.id,
         faulty_entity_id=target_fe.id,
@@ -338,7 +346,7 @@ def admin_hierarchy_replace(
     new_row = _update_hardware_part_serial(
         session,
         entity_type,
-        entity_id,
+        current_entity_id,
         resolved_part_number,
         resolved_serial_number,
         performed_by_id=performed_by.id,
@@ -392,6 +400,6 @@ def admin_hierarchy_replace(
         "configuration_history_id": config_history_id,
         "old_part_number": old_part,
         "new_part_number": new_part_number,
-        "new_entity_id": new_row.id if new_row else entity_id,
-        "old_entity_id": entity_id,
+        "new_entity_id": new_row.id if new_row else current_entity_id,
+        "old_entity_id": current_entity_id,
     }

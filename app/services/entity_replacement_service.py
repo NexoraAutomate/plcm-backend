@@ -73,6 +73,32 @@ def get_replacement_chain(
     )
 
 
+def resolve_current_install_row(
+    session: Session,
+    entity_type: EntityType | str,
+    entity_id: int,
+) -> Any:
+    """Return the active install for a slot; any chain member id may be passed."""
+    entity_type = _normalize_entity_type(entity_type)
+    model_cls = _model_for(entity_type)
+    target = session.get(model_cls, entity_id)
+    if not target:
+        raise ValueError(f"{entity_type.value} {entity_id} not found")
+
+    chain = get_replacement_chain(session, entity_type, entity_id)
+    if not chain:
+        return target
+
+    current_rows = [row for row in chain if is_current_install_row(row)]
+    if not current_rows:
+        return chain[-1]
+
+    return max(
+        current_rows,
+        key=lambda row: (row.replacement_sequence or 0, row.id),
+    )
+
+
 def resolve_slot_generic_entity_id(
     session: Session,
     entity_type: EntityType | str,
@@ -163,7 +189,16 @@ def create_replacement_entity(
     model_cls = _model_for(entity_type)
     now = datetime.now(timezone.utc)
 
+    old_row = resolve_current_install_row(session, entity_type, old_row.id)
     root_id = ensure_root_entity_id(session, old_row)
+    chain = get_replacement_chain(session, entity_type, root_id)
+
+    for row in chain:
+        if row.id != old_row.id and is_current_install_row(row):
+            row.is_current_install = False
+            row.replaced_at = now
+            session.add(row)
+
     if old_row.original_part_number is None and old_row.part_number:
         old_row.original_part_number = old_row.part_number
     if old_row.original_serial_number is None and old_row.serial_number:
@@ -191,6 +226,8 @@ def create_replacement_entity(
     if entity_type == EntityType.COMPONENT:
         exclude.discard("sku")
 
+    next_sequence = max((row.replacement_sequence or 0) for row in chain) + 1
+
     payload = _copy_scalar_fields(old_row, exclude=exclude)
     payload.update(
         {
@@ -200,7 +237,7 @@ def create_replacement_entity(
             "is_current_install": True,
             "root_entity_id": root_id,
             "replaced_entity_id": old_row.id,
-            "replacement_sequence": (old_row.replacement_sequence or 0) + 1,
+            "replacement_sequence": next_sequence,
             "replaced_at": None,
             "original_part_number": old_row.original_part_number,
             "original_serial_number": old_row.original_serial_number,
