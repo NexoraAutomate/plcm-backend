@@ -140,9 +140,7 @@ def list_entity_replacement_chain(
 @router.get("/part-numbers/", response_model=list[str])
 def get_part_numbers(session: Session = Depends(get_session)):
     part_numbers = set()
-    # print("Compiler reached here")
     entity_models = list(EntityType)
-    # print("Compiler reached 2",entity_models)
     
     for entity_type, (_, model, _) in _PARENT_MAP.items():
 
@@ -161,3 +159,115 @@ def get_part_numbers(session: Session = Depends(get_session)):
         part_numbers.update(rows)
         
     return sorted(part_numbers)
+
+
+@router.get("/serial-numbers/", response_model=list[str])
+def get_serial_numbers(
+    q: str = Query("", description="Case-insensitive substring filter on serial number"),
+    limit: int = Query(25, ge=1, le=100, description="Max results (typeahead)"),
+    session: Session = Depends(get_session),
+):
+    """
+    Search serial numbers for hardware currently installed under a project.
+    Excludes spare inventory. Always capped for typeahead — never returns the
+    full serial population to the client.
+    """
+    from app.models.tables import System, Subsystem, Module, Unit, Component
+
+    needle = (q or "").strip()
+    # Require a short prefix so we never dump tens of thousands of rows.
+    if len(needle) < 2:
+        return []
+
+    pattern = f"%{needle}%"
+    found: set[str] = set()
+
+    def collect(rows) -> None:
+        for value in rows:
+            if value and str(value).strip():
+                found.add(str(value).strip())
+
+    # Fetch a bit more than `limit` per level, then merge/cap in Python.
+    per_level = min(limit, 100)
+
+    collect(
+        session.exec(
+            select(System.serial_number)
+            .where(
+                System.serial_number.is_not(None),
+                System.project_id.is_not(None),
+                System.is_current_install == True,  # noqa: E712
+                System.serial_number.ilike(pattern),
+            )
+            .order_by(System.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
+    collect(
+        session.exec(
+            select(Subsystem.serial_number)
+            .join(System, Subsystem.system_id == System.id)
+            .where(
+                Subsystem.serial_number.is_not(None),
+                System.project_id.is_not(None),
+                Subsystem.is_current_install == True,  # noqa: E712
+                Subsystem.serial_number.ilike(pattern),
+            )
+            .order_by(Subsystem.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
+    collect(
+        session.exec(
+            select(Module.serial_number)
+            .join(Subsystem, Module.subsystem_id == Subsystem.id)
+            .join(System, Subsystem.system_id == System.id)
+            .where(
+                Module.serial_number.is_not(None),
+                System.project_id.is_not(None),
+                Module.is_current_install == True,  # noqa: E712
+                Module.serial_number.ilike(pattern),
+            )
+            .order_by(Module.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
+    collect(
+        session.exec(
+            select(Unit.serial_number)
+            .join(Module, Unit.module_id == Module.id)
+            .join(Subsystem, Module.subsystem_id == Subsystem.id)
+            .join(System, Subsystem.system_id == System.id)
+            .where(
+                Unit.serial_number.is_not(None),
+                System.project_id.is_not(None),
+                Unit.is_current_install == True,  # noqa: E712
+                Unit.serial_number.ilike(pattern),
+            )
+            .order_by(Unit.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
+    collect(
+        session.exec(
+            select(Component.serial_number)
+            .join(Unit, Component.unit_id == Unit.id)
+            .join(Module, Unit.module_id == Module.id)
+            .join(Subsystem, Module.subsystem_id == Subsystem.id)
+            .join(System, Subsystem.system_id == System.id)
+            .where(
+                Component.serial_number.is_not(None),
+                System.project_id.is_not(None),
+                Component.is_current_install == True,  # noqa: E712
+                Component.serial_number.ilike(pattern),
+            )
+            .order_by(Component.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
+    return sorted(found)[:limit]

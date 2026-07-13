@@ -959,100 +959,64 @@ def delete_maintenance_delivery(
     session.commit()
     return {"detail": f"Delivery record {delivery_id} deleted."}
 
-# ── E1. SKU / Part-number lookup ──────────────────────────────────────────────
+# ── E1. Serial-number lookup ──────────────────────────────────────────────────
 
-@router.get(
-    "/entities/lookup-by-PN/{part_number}/",
-    response_model=EntityLookupRead,
-    tags=["entity-lookup"],
-)
-def lookup_entity_by_PN(
-    part_number:          str,
-    session:      Session = Depends(get_session),
-    current_user: User    = Depends(require_permission("view_faulty_entities")),
-):
+def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLookupRead:
     """
-    Look up any entity in the hierarchy by its SKU / part number / user-defined
-    identifier.  Does NOT require knowing the project ID upfront.
-
-    The endpoint:
-      1. Searches every entity table in _SR_SEARCH_MODELS for a matching SKU.
-      2. Walks UP the hierarchy to find the project, order, and customer.
-      3. Walks DOWN the hierarchy to enumerate every child entity.
-
-    RESPONSE 200:
-        {
-          "matched_entity_type": "module",
-          "matched_entity_id":   17,
-          "matched_label":       "MOD-PCB-001",
-          "ancestors": [
-            { "entity_type": "subsystem", "entity_id": 5,  "label": "SS-POWER" },
-            { "entity_type": "system",    "entity_id": 2,  "label": "SYS-MAIN" },
-            { "entity_type": "project",   "entity_id": 1,  "label": "Alpha Plant" },
-            { "entity_type": "order",     "entity_id": 3,  "label": "ORD-2024-007" },
-            { "entity_type": "customer",  "entity_id": 9,  "label": "Acme Corp" }
-          ],
-          "descendants": [
-            { "entity_type": "unit",      "entity_id": 22, "label": "UNIT-A",  "depth": 1 },
-            { "entity_type": "component", "entity_id": 44, "label": "CAP-C12", "depth": 2 },
-            ...
-          ],
-          "project_id": 1, "project_name": "Alpha Plant",
-          "order_id":   3, "order_ref":    "ORD-2024-007",
-          "customer_id":9, "customer_name":"Acme Corp"
-        }
-
-    ERROR 404: SKU not found in any entity table.
+    Look up any current-install hierarchy entity by unique serial number.
+    Walks up to project/order/customer and down through descendants.
     """
-    matched_type: Optional[str] = None   # May be entity name
-    matched_id:   Optional[int] = None
+    matched_type: Optional[str] = None
+    matched_id: Optional[int] = None
     matched_label: Optional[str] = None
-    serialNumber : Optional[str] = None
-    PartNumber : Optional[str] = None
-    
+    serialNumber: Optional[str] = None
+    PartNumber: Optional[str] = None
 
-    # print (_SR_SEARCH_MODELS)
-    for entity_type, model_cls, PN_attr in _SR_SEARCH_MODELS:
-        # print(entity_type, model_cls, PN_attr)
-        row = session.exec(
-            select(model_cls).where(getattr(model_cls, PN_attr) == part_number)
-        ).first()
+    for entity_type, model_cls, identity_attr in _SR_SEARCH_MODELS:
+        statement = select(model_cls).where(
+            getattr(model_cls, identity_attr) == serial_number
+        )
+        if hasattr(model_cls, "is_current_install"):
+            statement = statement.where(model_cls.is_current_install == True)  # noqa: E712
+        row = session.exec(statement).first()
         if row:
-            matched_type  = entity_type
-            matched_id    = row.id
-            serialNumber = str(getattr(row, "serial_number", part_number))
-            PartNumber = str(getattr(row, "part_number", part_number))
-            matched_label = str(getattr(row, "name", part_number))
-            print("partNumber", PartNumber)
-            print("serialNumber", serialNumber)
+            matched_type = entity_type
+            matched_id = row.id
+            serialNumber = str(getattr(row, "serial_number", serial_number) or serial_number)
+            PartNumber = str(getattr(row, "part_number", "") or "")
+            matched_label = str(getattr(row, "name", serial_number))
             break
 
     if not matched_type or matched_id is None:
         raise HTTPException(
             status_code=404,
-            detail=f"No entity found with Part Number / identifier '{part_number}'.",
+            detail=f"No entity found with serial number '{serial_number}'.",
         )
 
-    # Walk up to customer
     ancestors = _resolve_ancestors(session, matched_type, matched_id)
-    # print("@@@@@@@@@@@@@@@@@///////////Ancestors: ", ancestors)
-
-    # Walk down to every leaf
     descendants = _collect_descendants(session, matched_type, matched_id)
-    print("-------------------------///////////Descendants: ----------------------------------- ", descendants)
 
-    # Extract convenience fields from ancestors
     project_id = project_name = order_id = order_ref = customer_id = customer_name = None
     for anc in ancestors:
         if anc.entity_type == EntityType.PROJECT:
-            project_id   = anc.entity_id
+            project_id = anc.entity_id
             project_name = anc.entity_name
-        elif anc.entity_type == "order":          # EntityType.ORDER if defined
-            order_id  = anc.entity_id
+        elif anc.entity_type == "order":
+            order_id = anc.entity_id
             order_ref = anc.entity_name
-        elif anc.entity_type == "customer":       # EntityType.CUSTOMER if defined
-            customer_id   = anc.entity_id
+        elif anc.entity_type == "customer":
+            customer_id = anc.entity_id
             customer_name = anc.entity_name
+
+    # Spare inventory serials (or orphan hierarchy rows) are not valid for case lookup.
+    if project_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Serial number '{serial_number}' is not installed under any project. "
+                "Only project-installed hardware can be looked up."
+            ),
+        )
 
     return EntityLookupRead(
         matched_entity_type=matched_type,
@@ -1066,8 +1030,41 @@ def lookup_entity_by_PN(
         order_ref=order_ref,
         customer_id=customer_id,
         customer_name=customer_name,
-        matched_entity_serialNumber = serialNumber,
-        matched_entity_PartNumber = PartNumber)
+        matched_entity_serialNumber=serialNumber,
+        matched_entity_PartNumber=PartNumber,
+    )
+
+
+@router.get(
+    "/entities/lookup-by-SN/{serial_number}/",
+    response_model=EntityLookupRead,
+    tags=["entity-lookup"],
+)
+def lookup_entity_by_SN(
+    serial_number: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_faulty_entities")),
+):
+    """Look up any entity in the hierarchy by its unique serial number."""
+    return _lookup_entity_by_serial(session, serial_number)
+
+
+@router.get(
+    "/entities/lookup-by-PN/{part_number}/",
+    response_model=EntityLookupRead,
+    tags=["entity-lookup"],
+    deprecated=True,
+)
+def lookup_entity_by_PN(
+    part_number: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_faulty_entities")),
+):
+    """
+    Deprecated alias: path historically used part number, but lookups are now
+    keyed by unique serial number (part numbers are shared across units).
+    """
+    return _lookup_entity_by_serial(session, part_number)
 
 # ── E2. Suspect all children of a mid-hierarchy fault ─────────────────────────
 

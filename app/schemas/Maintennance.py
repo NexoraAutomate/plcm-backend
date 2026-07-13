@@ -34,7 +34,7 @@ class DescendantNode(SQLModel):
     hierarchy_parent_entity_type: Optional[EntityType] = None
 class EntityLookupRead(SQLModel):
     """
-    Response for GET /entities/lookup-by-PN/{PN}/
+    Response for GET /entities/lookup-by-SN/{serial_number}/
     Returns the matched entity plus its full ancestry (up to customer)
     and every descendant entity (down to components).
     """

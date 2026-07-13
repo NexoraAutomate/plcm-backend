@@ -346,15 +346,14 @@ _EXTENDED_PARENT_MAP: Dict[str, Tuple[str, Any, str]] = {
     EntityType.ORDER:    (EntityType.CUSTOMER, Order, "customer_id"),
 }
 
-# SR/part-number lookup:  maps entity_type → (SQLModelClass, PN_attr)
-# A single SRU must be unique within each entity type (enforced by your schema).
+# Serial-number lookup: maps entity_type → (SQLModelClass, identity_attr).
+# Serial numbers are unique per installed unit; part numbers may be shared.
 _SR_SEARCH_MODELS: List[Tuple[str, Any, str]] = [
-    (EntityType.COMPONENT, Component, "part_number"),
-    (EntityType.UNIT,      Unit,      "part_number"),
-    (EntityType.MODULE,    Module,    "part_number"),
-    (EntityType.SUBSYSTEM, Subsystem, "part_number"),
-    (EntityType.SYSTEM,    System,    "part_number"),
-    # Add more if Project / Order also carry part numbers.
+    (EntityType.COMPONENT, Component, "serial_number"),
+    (EntityType.UNIT,      Unit,      "serial_number"),
+    (EntityType.MODULE,    Module,    "serial_number"),
+    (EntityType.SUBSYSTEM, Subsystem, "serial_number"),
+    (EntityType.SYSTEM,    System,    "serial_number"),
 ]
 
 
