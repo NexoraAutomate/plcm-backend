@@ -673,19 +673,26 @@ def create_maintenance_action(
 def list_all_maintenance_actions(
     skip:         int = 0,
     limit:        int = 100,
+    case_id:      Optional[int] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_actions")),
 ):
-    """List all maintenance actions across faulty entities."""
-    actions = session.exec(
+    """List maintenance actions, optionally scoped to a single maintenance case."""
+    statement = (
         select(MaintenanceAction)
         .options(
             noload(MaintenanceAction.faulty_entity),
             noload(MaintenanceAction.performed_by_user),
         )
         .order_by(MaintenanceAction.performed_at.desc())
-        .offset(skip).limit(limit)
-    ).all()
+    )
+    if case_id is not None:
+        statement = (
+            statement
+            .join(FaultyEntity, MaintenanceAction.faulty_entity_id == FaultyEntity.id)
+            .where(FaultyEntity.case_id == case_id)
+        )
+    actions = session.exec(statement.offset(skip).limit(limit)).all()
     return [
         MaintenanceActionRead.model_validate(action).model_copy(
             update={"performed_by_user": None}
