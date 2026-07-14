@@ -16,6 +16,7 @@ from app.services.inventory_service import (
     normalize_part_number,
     list_inventory_child_links,
     replace_inventory_child_links,
+    delete_inventory_item,
 )
 
 router = APIRouter()
@@ -255,7 +256,7 @@ def delete_inventory(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    session.delete(inventory)
+    delete_inventory_item(session, inventory)
     session.commit()
     return {"ok": True}
 
@@ -305,6 +306,7 @@ def replace_inventory_children(
         session,
         parent_inventory=inventory,
         parent_instance_id=body.parent_instance_id,
+        parent_instance_serial=body.parent_instance_serial,
         children=[child.model_dump() for child in body.children],
     )
     session.commit()
@@ -330,11 +332,12 @@ def consume_inventory(
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
     consumed = consume_inventory_unit(session, inventory, instance_id=body.instance_id)
-    session.commit()
-    session.refresh(inventory)
+    # Snapshot before commit — deleted instances expire and lose attribute access.
     consumed_read = (
         schemas.InventoryInstanceRead.model_validate(consumed) if consumed else None
     )
+    session.commit()
+    session.refresh(inventory)
     return schemas.InventoryConsumeRead(
         inventory=_inventory_to_read(session, inventory, include_instances=True),
         consumed_instance=consumed_read,
@@ -430,6 +433,6 @@ def delete_inventory_instance(
     session.flush()
     remaining = sync_inventory_quantity(session, inventory)
     if remaining == 0:
-        session.delete(inventory)
+        delete_inventory_item(session, inventory)
     session.commit()
     return {"ok": True}

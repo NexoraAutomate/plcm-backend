@@ -194,14 +194,13 @@ class Inventory(InventoryBase, table=True):
         back_populates="inventory",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",
-            "passive_deletes": True,
         },
     )
 
 
 class InventoryInstance(InventoryInstanceBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True, ondelete="CASCADE")
     inventory: Optional[Inventory] = Relationship(back_populates="instances")
     status: Optional[Status] = Relationship()
 

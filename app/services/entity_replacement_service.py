@@ -9,10 +9,18 @@ from sqlmodel import Session, select
 
 from app.config.entities import ENTITY_CONFIG
 from app.models.base import EntityType
-from app.models.helpers import _CHILD_MAP, _ENTITY_MODEL_MAP, _PARENT_MAP
-from app.models.tables import Inventory, InventoryInstance
+from app.models.helpers import _CHILD_MAP, _ENTITY_MODEL_MAP
+from app.models.tables import Inventory, InventoryInstance, Status
 from app.services.configuration_history import resolve_generic_entity
 from app.services.create_entity import New_entity
+
+_STATUS_TYPE_BY_ENTITY = {
+    EntityType.SYSTEM: "systems",
+    EntityType.SUBSYSTEM: "subsystems",
+    EntityType.MODULE: "modules",
+    EntityType.UNIT: "units",
+    EntityType.COMPONENT: "components",
+}
 
 
 def _normalize_entity_type(entity_type: EntityType | str) -> EntityType:
@@ -127,22 +135,88 @@ def _copy_scalar_fields(source: Any, *, exclude: set[str]) -> dict:
     return data
 
 
-def _reparent_direct_children(
+def _clone_descendant_tree(
     session: Session,
     entity_type: EntityType,
     old_entity_id: int,
     new_entity_id: int,
-) -> None:
-    if entity_type not in _CHILD_MAP:
-        return
+    performed_by_id: int,
+) -> int:
+    """Copy current-install descendants from ``old_entity_id`` onto ``new_entity_id``.
 
-    child_type, child_model, fk_attr = _CHILD_MAP[entity_type.value]
-    children = session.exec(
-        select(child_model).where(getattr(child_model, fk_attr) == old_entity_id)
-    ).all()
+    Originals stay under the superseded parent for build history. New rows are
+    fresh install slots (not chained to the source children's replacement history).
+    Avoids reparenting, which can delete children under SQLAlchemy delete-orphan.
+    """
+    if entity_type not in _CHILD_MAP:
+        return 0
+
+    child_type_raw, child_model, fk_attr = _CHILD_MAP[entity_type.value]
+    child_type = _normalize_entity_type(child_type_raw)
+
+    children = list(
+        session.exec(
+            select(child_model).where(
+                getattr(child_model, fk_attr) == old_entity_id,
+                child_model.is_current_install == True,  # noqa: E712
+            )
+        ).all()
+    )
+    if not children:
+        return 0
+
+    display_name = ENTITY_CONFIG.get(child_type.value, {}).get(
+        "display_name", child_type.value
+    )
+    cloned = 0
+
     for child in children:
-        setattr(child, fk_attr, new_entity_id)
-        session.add(child)
+        exclude = {
+            "id",
+            "created_at",
+            "is_current_install",
+            "root_entity_id",
+            "replaced_entity_id",
+            "replacement_sequence",
+            "replaced_at",
+            fk_attr,
+        }
+        payload = _copy_scalar_fields(child, exclude=exclude)
+        payload.update(
+            {
+                fk_attr: new_entity_id,
+                "is_current_install": True,
+                "root_entity_id": None,
+                "replaced_entity_id": None,
+                "replacement_sequence": 0,
+                "replaced_at": None,
+            }
+        )
+
+        new_child = child_model(**payload)
+        session.add(new_child)
+        session.flush()
+
+        new_child.root_entity_id = new_child.id
+        session.add(new_child)
+
+        New_entity(
+            session=session,
+            entity=new_child,
+            entity_name=display_name,
+            changed_by_user=performed_by_id,
+        )
+
+        cloned += 1
+        cloned += _clone_descendant_tree(
+            session,
+            child_type,
+            child.id,
+            new_child.id,
+            performed_by_id,
+        )
+
+    return cloned
 
 
 def _inventory_identity(
@@ -172,6 +246,82 @@ def _inventory_identity(
     return part_number or inventory.name, serial_number, configuration_item
 
 
+def _default_status_id(session: Session, entity_type: EntityType) -> Optional[int]:
+    status_type = _STATUS_TYPE_BY_ENTITY.get(entity_type)
+    if not status_type:
+        return None
+    row = session.exec(
+        select(Status).where(Status.status_type == status_type).order_by(Status.id)
+    ).first()
+    return row.id if row else None
+
+
+def _create_fielded_child_from_inventory(
+    session: Session,
+    *,
+    child_type: EntityType,
+    parent_entity_id: int,
+    fk_attr: str,
+    name: str,
+    child_inventory: Inventory,
+    part_number: str,
+    serial_number: Optional[str],
+    configuration_item: Optional[str],
+    picture_url: Optional[str],
+    performed_by_id: int,
+    installation_date: Optional[datetime] = None,
+    installed_by_id: Optional[int] = None,
+) -> Any:
+    """Create a new fielded child under ``parent_entity_id`` from inventory stock."""
+    model_cls = _model_for(child_type)
+    now = datetime.now(timezone.utc)
+    status_id = child_inventory.status_id or _default_status_id(session, child_type)
+
+    payload: dict[str, Any] = {
+        "name": name,
+        "description": getattr(child_inventory, "description", None),
+        fk_attr: parent_entity_id,
+        "status_id": status_id,
+        "part_number": part_number,
+        "serial_number": serial_number,
+        "configuration_item": configuration_item or part_number,
+        "is_current_install": True,
+        "root_entity_id": None,
+        "replaced_entity_id": None,
+        "replacement_sequence": 0,
+        "replaced_at": None,
+        "installation_date": installation_date
+        or getattr(child_inventory, "installation_date", None)
+        or now,
+        "installed_by_id": installed_by_id
+        or getattr(child_inventory, "installed_by_id", None)
+        or performed_by_id,
+        "picture_url": picture_url or child_inventory.picture_url,
+        "original_part_number": part_number,
+        "original_serial_number": serial_number,
+    }
+    if child_type == EntityType.COMPONENT:
+        payload["sku"] = getattr(child_inventory, "sku", None)
+
+    new_child = model_cls(**payload)
+    session.add(new_child)
+    session.flush()
+
+    new_child.root_entity_id = new_child.id
+    session.add(new_child)
+
+    display_name = ENTITY_CONFIG.get(child_type.value, {}).get(
+        "display_name", child_type.value
+    )
+    New_entity(
+        session=session,
+        entity=new_child,
+        entity_name=display_name,
+        changed_by_user=performed_by_id,
+    )
+    return new_child
+
+
 def create_replacement_entity(
     session: Session,
     *,
@@ -184,8 +334,14 @@ def create_replacement_entity(
     installation_date: Optional[datetime] = None,
     installed_by_id: Optional[int] = None,
     picture_url: Optional[str] = None,
+    copy_children: bool = True,
 ) -> Any:
-    """Mark old row superseded and create a new current-install row in the same slot."""
+    """Mark old row superseded and create a new current-install row in the same slot.
+
+    When ``copy_children`` is True, current-install children of the old row are
+    cloned under the new row (originals stay on the superseded parent). Skip this
+    when inventory composition will install children instead.
+    """
     model_cls = _model_for(entity_type)
     now = datetime.now(timezone.utc)
 
@@ -259,7 +415,14 @@ def create_replacement_entity(
         changed_by_user=performed_by_id,
     )
 
-    _reparent_direct_children(session, entity_type, old_row.id, new_row.id)
+    if copy_children:
+        _clone_descendant_tree(
+            session,
+            entity_type,
+            old_row.id,
+            new_row.id,
+            performed_by_id,
+        )
     session.flush()
     return new_row
 
@@ -278,3 +441,177 @@ def apply_inventory_to_replacement(
         if instance and instance.picture_url:
             picture_url = instance.picture_url
     return part_number, serial_number, configuration_item, picture_url
+
+
+def resolve_inventory_instance_serial(
+    session: Session,
+    inventory: Inventory,
+    instance_id: Optional[int],
+) -> Optional[str]:
+    """Stable serial for inventory composition lookup (survives instance delete)."""
+    if instance_id is not None:
+        instance = session.get(InventoryInstance, instance_id)
+        if instance and instance.inventory_id == inventory.id:
+            serial = (
+                instance.original_serial_number or instance.serial_number or ""
+            ).strip()
+            if serial:
+                return serial
+    serial = (getattr(inventory, "original_serial_number", None) or inventory.serial_number or "").strip()
+    return serial or None
+
+
+def _is_composed_child_link(link: Any) -> bool:
+    """True when child stock was removed at compose time (do not consume again)."""
+    if getattr(link, "stock_consumed", False):
+        return True
+    return (
+        getattr(link, "child_instance_id", None) is None
+        and bool((getattr(link, "child_instance_serial", None) or "").strip())
+    )
+
+
+def replace_children_from_inventory_composition(
+    session: Session,
+    *,
+    parent_entity_type: EntityType | str,
+    parent_entity_id: int,
+    parent_inventory_id: int,
+    performed_by_id: int,
+    parent_instance_id: Optional[int] = None,
+    parent_instance_serial: Optional[str] = None,
+    prefetched_links: Optional[List[Any]] = None,
+) -> int:
+    """Apply inventory composition under ``parent_entity_id``.
+
+    Each ``InventoryChildLink`` is matched to a current-install child by
+    ``child_category_name`` ↔ entity ``name``. Matches are versioned; missing
+    slots are created (install parity). Nested links apply recursively.
+    Already-composed child stock is not consumed again.
+    """
+    from app.services.inventory_service import consume_inventory_unit, list_inventory_child_links
+
+    parent_entity_type = _normalize_entity_type(parent_entity_type)
+    if parent_entity_type == EntityType.COMPONENT or parent_entity_type not in _CHILD_MAP:
+        return 0
+
+    links = prefetched_links
+    if links is None:
+        links = list_inventory_child_links(
+            session,
+            parent_inventory_id=parent_inventory_id,
+            parent_instance_id=parent_instance_id,
+            parent_instance_serial=parent_instance_serial,
+        )
+    if not links:
+        return 0
+
+    child_type_raw, child_model, fk_attr = _CHILD_MAP[parent_entity_type.value]
+    child_type = _normalize_entity_type(child_type_raw)
+
+    fielded_children = list(
+        session.exec(
+            select(child_model).where(
+                getattr(child_model, fk_attr) == parent_entity_id,
+                child_model.is_current_install == True,  # noqa: E712
+            )
+        ).all()
+    )
+    used_ids: set[int] = set()
+    applied = 0
+
+    for link in links:
+        child_inventory = session.get(Inventory, link.child_inventory_id)
+        if not child_inventory:
+            continue
+
+        category_name = (
+            (link.child_category_name or "").strip()
+            or (child_inventory.name or "").strip()
+        )
+        if not category_name:
+            continue
+        category_key = category_name.lower()
+
+        match = None
+        for child in fielded_children:
+            if child.id in used_ids:
+                continue
+            if (getattr(child, "name", None) or "").strip().lower() == category_key:
+                match = child
+                break
+
+        composed = _is_composed_child_link(link)
+        instance_id = None if composed else link.child_instance_id
+        composed_serial = (link.child_instance_serial or "").strip() or None
+        # Capture serial before any consume — instance FKs on nested links are cleared.
+        nested_serial = composed_serial or resolve_inventory_instance_serial(
+            session, child_inventory, instance_id
+        )
+
+        inv_part, inv_serial, inv_config, inv_picture = apply_inventory_to_replacement(
+            session, child_inventory, instance_id
+        )
+        if nested_serial and (composed or not inv_serial):
+            inv_serial = nested_serial
+
+        new_part = inv_part or child_inventory.part_number or child_inventory.name
+
+        if match is not None:
+            used_ids.add(match.id)
+            new_child = create_replacement_entity(
+                session,
+                entity_type=child_type,
+                old_row=match,
+                new_part_number=new_part,
+                new_serial_number=inv_serial,
+                new_configuration_item=inv_config or new_part,
+                performed_by_id=performed_by_id,
+                installation_date=getattr(child_inventory, "installation_date", None),
+                installed_by_id=getattr(child_inventory, "installed_by_id", None)
+                or performed_by_id,
+                picture_url=inv_picture,
+                # Nested composition installs below; don't duplicate by cloning then creating.
+                copy_children=False,
+            )
+        else:
+            new_child = _create_fielded_child_from_inventory(
+                session,
+                child_type=child_type,
+                parent_entity_id=parent_entity_id,
+                fk_attr=fk_attr,
+                name=category_name,
+                child_inventory=child_inventory,
+                part_number=new_part,
+                serial_number=inv_serial,
+                configuration_item=inv_config or new_part,
+                picture_url=inv_picture,
+                performed_by_id=performed_by_id,
+                installation_date=getattr(child_inventory, "installation_date", None),
+                installed_by_id=getattr(child_inventory, "installed_by_id", None)
+                or performed_by_id,
+            )
+            fielded_children.append(new_child)
+            used_ids.add(new_child.id)
+
+        applied += 1
+
+        if not composed:
+            consume_inventory_unit(
+                session,
+                child_inventory,
+                instance_id=link.child_instance_id,
+                instance_serial=composed_serial if link.child_instance_id is None else None,
+            )
+
+        applied += replace_children_from_inventory_composition(
+            session,
+            parent_entity_type=child_type,
+            parent_entity_id=new_child.id,
+            parent_inventory_id=child_inventory.id,
+            performed_by_id=performed_by_id,
+            parent_instance_id=None,
+            parent_instance_serial=nested_serial,
+        )
+
+    return applied

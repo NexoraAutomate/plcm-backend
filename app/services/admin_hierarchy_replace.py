@@ -134,6 +134,7 @@ def _update_hardware_part_serial(
     performed_by_id: int,
     inventory: Optional[Inventory] = None,
     inventory_instance_id: Optional[int] = None,
+    copy_children: bool = True,
 ):
     from app.services.entity_replacement_service import (
         apply_inventory_to_replacement,
@@ -170,6 +171,7 @@ def _update_hardware_part_serial(
         installation_date=installation_date,
         installed_by_id=installed_by_id,
         picture_url=picture_url,
+        copy_children=copy_children,
     )
 
 
@@ -343,6 +345,25 @@ def admin_hierarchy_replace(
         remarks=notes,
     )
 
+    # Snapshot composition before parent consume: deleting the parent instance
+    # SET NULLs parent_instance_id on child links; serial remains the stable key.
+    parent_instance_serial = None
+    prefetched_child_links = []
+    if inventory is not None:
+        from app.services.entity_replacement_service import resolve_inventory_instance_serial
+        from app.services.inventory_service import list_inventory_child_links
+
+        parent_instance_serial = resolve_inventory_instance_serial(
+            session, inventory, inventory_instance_id
+        )
+        prefetched_child_links = list_inventory_child_links(
+            session,
+            parent_inventory_id=inventory.id,
+            parent_instance_id=inventory_instance_id,
+            parent_instance_serial=parent_instance_serial,
+        )
+
+    has_composition = bool(prefetched_child_links)
     new_row = _update_hardware_part_serial(
         session,
         entity_type,
@@ -352,12 +373,30 @@ def admin_hierarchy_replace(
         performed_by_id=performed_by.id,
         inventory=inventory,
         inventory_instance_id=inventory_instance_id,
+        # Inventory composition installs children; avoid cloning then leaving gaps.
+        copy_children=not has_composition,
     )
 
     if inventory is not None:
+        from app.services.entity_replacement_service import (
+            replace_children_from_inventory_composition,
+        )
         from app.services.inventory_service import consume_inventory_unit
 
         consume_inventory_unit(session, inventory, instance_id=inventory_instance_id)
+
+        # Install / version children from inventory composition (create missing slots).
+        if new_row is not None and prefetched_child_links:
+            replace_children_from_inventory_composition(
+                session,
+                parent_entity_type=entity_type,
+                parent_entity_id=new_row.id,
+                parent_inventory_id=inventory.id,
+                performed_by_id=performed_by.id,
+                parent_instance_id=inventory_instance_id,
+                parent_instance_serial=parent_instance_serial,
+                prefetched_links=prefetched_child_links,
+            )
 
     # Point configuration history at the slot's original generic entity for continuity.
     if history and new_row:

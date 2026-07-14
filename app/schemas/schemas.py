@@ -384,6 +384,7 @@ class InventoryChildLinkItem(SQLModel):
     child_instance_id: Optional[int] = None
     parent_instance_serial: Optional[str] = None
     child_instance_serial: Optional[str] = None
+    stock_consumed: bool = False
 
 
 class InventoryChildLinkRead(InventoryChildLinkItem):
@@ -397,6 +398,7 @@ class InventoryChildLinkRead(InventoryChildLinkItem):
 
 class InventoryChildrenReplace(SQLModel):
     parent_instance_id: Optional[int] = None
+    parent_instance_serial: Optional[str] = None
     children: List[InventoryChildLinkItem] = []
 
 

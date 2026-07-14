@@ -244,6 +244,8 @@ class InventoryChildLinkBase(SQLModel):
     child_instance_id: Optional[int] = None
     parent_instance_serial: Optional[str] = None
     child_instance_serial: Optional[str] = None
+    # True when child stock was removed from available inventory at compose time.
+    stock_consumed: bool = False
 
 
 class EntityType(str, Enum):

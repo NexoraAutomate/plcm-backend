@@ -93,11 +93,35 @@ def create_inventory_instance(
     return instance
 
 
+def find_inventory_instance_by_serial(
+    session: Session,
+    inventory_id: int,
+    serial_number: Optional[str],
+) -> Optional[InventoryInstance]:
+    normalized = (serial_number or "").strip().lower()
+    if not normalized:
+        return None
+    instances = session.exec(
+        select(InventoryInstance)
+        .where(InventoryInstance.inventory_id == inventory_id)
+        .order_by(InventoryInstance.id)
+    ).all()
+    for instance in instances:
+        candidates = (
+            (instance.original_serial_number or "").strip().lower(),
+            (instance.serial_number or "").strip().lower(),
+        )
+        if normalized in candidates:
+            return instance
+    return None
+
+
 def consume_inventory_unit(
     session: Session,
     inventory: Inventory,
     *,
     instance_id: Optional[int] = None,
+    instance_serial: Optional[str] = None,
 ) -> Optional[InventoryInstance]:
     if is_component_inventory(inventory.inventory_type):
         if inventory.quantity <= 0:
@@ -111,6 +135,13 @@ def consume_inventory_unit(
         instance = session.get(InventoryInstance, instance_id)
         if not instance or instance.inventory_id != inventory.id:
             raise HTTPException(status_code=404, detail="Inventory instance not found")
+    elif instance_serial:
+        instance = find_inventory_instance_by_serial(session, inventory.id, instance_serial)
+        if not instance:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Inventory instance with serial '{instance_serial}' not found",
+            )
     else:
         instance = session.exec(
             select(InventoryInstance)
@@ -125,6 +156,32 @@ def consume_inventory_unit(
     return instance
 
 
+def restore_inventory_unit(
+    session: Session,
+    inventory: Inventory,
+    *,
+    serial_number: Optional[str] = None,
+) -> Optional[InventoryInstance]:
+    """Return previously composed child stock back to available inventory."""
+    if is_component_inventory(inventory.inventory_type):
+        inventory.quantity = (inventory.quantity or 0) + 1
+        inventory.updated_at = datetime.now(timezone.utc)
+        session.add(inventory)
+        return None
+
+    normalized = (serial_number or "").strip() or None
+    existing = find_inventory_instance_by_serial(session, inventory.id, normalized)
+    if existing:
+        return existing
+
+    return create_inventory_instance(
+        session,
+        inventory,
+        serial_number=normalized,
+        original_serial_number=normalized,
+    )
+
+
 def list_inventory_child_links(
     session: Session,
     *,
@@ -132,16 +189,11 @@ def list_inventory_child_links(
     parent_instance_id: Optional[int] = None,
     parent_instance_serial: Optional[str] = None,
 ) -> list[InventoryChildLink]:
-    if parent_instance_id is not None:
-        specific = session.exec(
-            select(InventoryChildLink)
-            .where(InventoryChildLink.parent_inventory_id == parent_inventory_id)
-            .where(InventoryChildLink.parent_instance_id == parent_instance_id)
-            .order_by(InventoryChildLink.id)
-        ).all()
-        if specific:
-            return list(specific)
+    """Resolve composed children for a parent inventory unit.
 
+    Prefer serial when provided: after consume, ``parent_instance_id`` is SET NULL
+    on links while ``parent_instance_serial`` remains the stable composition key.
+    """
     normalized_serial = (parent_instance_serial or "").strip().lower()
     if normalized_serial:
         serial_matches = session.exec(
@@ -155,6 +207,16 @@ def list_inventory_child_links(
         ).all()
         if serial_matches:
             return list(serial_matches)
+
+    if parent_instance_id is not None:
+        specific = session.exec(
+            select(InventoryChildLink)
+            .where(InventoryChildLink.parent_inventory_id == parent_inventory_id)
+            .where(InventoryChildLink.parent_instance_id == parent_instance_id)
+            .order_by(InventoryChildLink.id)
+        ).all()
+        if specific:
+            return list(specific)
 
     return list(
         session.exec(
@@ -176,6 +238,7 @@ def replace_inventory_child_links(
     parent_inventory: Inventory,
     parent_instance_id: Optional[int],
     children: list[dict],
+    parent_instance_serial: Optional[str] = None,
 ) -> list[InventoryChildLink]:
     if parent_instance_id is not None:
         instance = session.get(InventoryInstance, parent_instance_id)
@@ -185,7 +248,7 @@ def replace_inventory_child_links(
             instance.original_serial_number or instance.serial_number or ""
         ).strip() or None
     else:
-        parent_instance_serial = None
+        parent_instance_serial = (parent_instance_serial or "").strip() or None
 
     delete_query = select(InventoryChildLink).where(
         InventoryChildLink.parent_inventory_id == parent_inventory.id
@@ -205,7 +268,16 @@ def replace_inventory_child_links(
             == parent_instance_serial.lower()
         )
 
+    # Restore previously composed stock before replacing links.
     for existing in session.exec(delete_query).all():
+        if existing.stock_consumed:
+            child_inventory = session.get(Inventory, existing.child_inventory_id)
+            if child_inventory:
+                restore_inventory_unit(
+                    session,
+                    child_inventory,
+                    serial_number=existing.child_instance_serial,
+                )
         session.delete(existing)
     session.flush()
 
@@ -231,6 +303,23 @@ def replace_inventory_child_links(
                 or child_instance.serial_number
                 or ""
             ).strip() or None
+        elif child_instance_serial:
+            child_instance_serial = child_instance_serial.strip() or None
+
+        # Consume child from available stock so composed assemblies leave main inventory.
+        consumed = consume_inventory_unit(
+            session,
+            child_inventory,
+            instance_id=child_instance_id,
+            instance_serial=child_instance_serial if child_instance_id is None else None,
+        )
+        if consumed is not None:
+            child_instance_serial = (
+                child_instance_serial
+                or consumed.original_serial_number
+                or consumed.serial_number
+                or ""
+            ).strip() or None
 
         link = InventoryChildLink(
             parent_inventory_id=parent_inventory.id,
@@ -238,11 +327,48 @@ def replace_inventory_child_links(
             parent_instance_serial=parent_instance_serial,
             child_category_name=entry["child_category_name"].strip(),
             child_inventory_id=child_inventory_id,
-            child_instance_id=child_instance_id,
+            # Instance is deleted by consume; keep serial snapshot only.
+            child_instance_id=None,
             child_instance_serial=child_instance_serial,
+            stock_consumed=True,
         )
         session.add(link)
         created.append(link)
 
     session.flush()
     return created
+
+
+def delete_inventory_item(session: Session, inventory: Inventory) -> None:
+    """Remove an inventory group and all dependent rows (links, instances)."""
+    inventory_id = inventory.id
+    if inventory_id is None:
+        raise HTTPException(status_code=400, detail="Inventory item has no id")
+
+    related_links = session.exec(
+        select(InventoryChildLink).where(
+            (InventoryChildLink.parent_inventory_id == inventory_id)
+            | (InventoryChildLink.child_inventory_id == inventory_id)
+        )
+    ).all()
+    for link in related_links:
+        if link.parent_inventory_id == inventory_id and link.stock_consumed:
+            child_inventory = session.get(Inventory, link.child_inventory_id)
+            if child_inventory:
+                restore_inventory_unit(
+                    session,
+                    child_inventory,
+                    serial_number=link.child_instance_serial,
+                )
+        session.delete(link)
+    session.flush()
+
+    instances = session.exec(
+        select(InventoryInstance).where(InventoryInstance.inventory_id == inventory_id)
+    ).all()
+    for instance in instances:
+        session.delete(instance)
+    session.flush()
+
+    session.delete(inventory)
+    session.flush()
