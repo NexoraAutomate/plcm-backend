@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from app.database import init_db, close_db, engine
 from sqlmodel import Session
@@ -22,19 +23,29 @@ app: FastAPI = FastAPI(title="PLCM System", lifespan=lifespan)
 
 from fastapi.middleware.cors import CORSMiddleware
 
-origins = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://192.168.1.6:3000',
-    'http://193.193.193.80:3000',
-    'http://193.193.193.141:3000',
-    'http://193.193.193.109:3000'
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://192.168.1.6:3000",
+    "http://193.193.193.80:3000",
+    "http://193.193.193.141:3000",
+    "http://193.193.193.109:3000",
 ]
+_cors_origins_env = os.getenv("CORS_ORIGINS", "")
+origins = (
+    [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if _cors_origins_env.strip()
+    else _default_origins
+)
+_cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?",
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?",
+    allow_origin_regex=_cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,4 +60,10 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", reload=True, reload_dirs=["app"])
+    uvicorn.run(
+        "app.main:app",
+        host=os.getenv("BACKEND_HOST", "0.0.0.0"),
+        port=int(os.getenv("BACKEND_PORT", "8000")),
+        reload=os.getenv("BACKEND_RELOAD", "true").lower() in ("1", "true", "yes"),
+        reload_dirs=["app"],
+    )

@@ -4,6 +4,7 @@ Handles JWT token generation, password hashing, and role-based access control
 Works entirely offline - no internet required
 """
 
+import os
 from datetime import datetime, timedelta, timezone, UTC
 from typing import Optional, List
 from passlib.context import CryptContext
@@ -13,10 +14,13 @@ from sqlmodel import Session, select
 from pwdlib import PasswordHash
 from app.models.tables import User
 
-# Configuration
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24  # 12 hours
+# Configuration (override via environment variables)
+SECRET_KEY = os.getenv(
+    "AUTH_SECRET_KEY",
+    "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7",
+)
+ALGORITHM = os.getenv("AUTH_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", str(30 * 24)))
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
