@@ -21,6 +21,7 @@ from app.auth import (
     decode_token,
 )
 from datetime import timedelta
+from app.services.sorting import apply_sort
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 oauth2_scheme:OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -219,9 +220,21 @@ def change_password(
 # ==================== ROLE MANAGEMENT ENDPOINTS ====================
 
 @router.get("/roles", response_model=List[schemas.RoleRead])
-def list_roles(user: User = Depends(require_role("Admin")), session: Session = Depends(get_session)):
+def list_roles(
+    sort_by: str | None = None,
+    sort_order: str | None = None,
+    user: User = Depends(require_role("Admin")),
+    session: Session = Depends(get_session),
+):
     """List all roles. Requires Admin role."""
-    roles = session.exec(select(Role)).all()
+    stmt = apply_sort(
+        select(Role),
+        Role,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed_fields={"id", "name", "description"},
+    )
+    roles = session.exec(stmt).all()
     return roles
 
 @router.get("/roles/{role_id}", response_model=schemas.RoleRead)

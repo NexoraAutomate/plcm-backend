@@ -50,11 +50,18 @@ def list_report_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     report_type: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_order: Optional[str] = Query(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_reports")),
 ):
     return report_service.list_report_history(
-        session, page=page, page_size=page_size, report_type=report_type
+        session,
+        page=page,
+        page_size=page_size,
+        report_type=report_type,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 

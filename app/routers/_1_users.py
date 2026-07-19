@@ -8,6 +8,7 @@ from app.schemas import schemas
 from app.routers.auth import require_permission, get_current_user, hash_password
 from app.auth import check_role
 from app.services.pagination import set_list_total_header
+from app.services.sorting import apply_sort
 
 router = APIRouter()
 
@@ -77,34 +78,44 @@ def list_users(
     response: Response,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_users")),
 ):
     total = session.exec(select(func.count()).select_from(User)).one()
     set_list_total_header(response, total)
-    users = session.exec(
-        select(User)
-        .options(selectinload(User.roles))
-        .order_by(User.id.asc())
-        .offset(skip)
-        .limit(limit)
-    ).all()
+    stmt = select(User).options(selectinload(User.roles))
+    stmt = apply_sort(
+        stmt,
+        User,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed_fields={"id", "username", "full_name", "email", "is_active"},
+        default_order=[User.id.asc()],
+    )
+    users = session.exec(stmt.offset(skip).limit(limit)).all()
     return [_user_with_roles(user) for user in users]
 
 @router.get("/users/with-roles/", response_model=List[schemas.UserWithRoles], tags=["users"])
 def list_users_with_roles(
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_users")),
 ):
-    users = session.exec(
-        select(User)
-        .options(selectinload(User.roles))
-        .order_by(User.id.asc())
-        .offset(skip)
-        .limit(limit)
-    ).all()
+    stmt = select(User).options(selectinload(User.roles))
+    stmt = apply_sort(
+        stmt,
+        User,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed_fields={"id", "username", "full_name", "email", "is_active"},
+        default_order=[User.id.asc()],
+    )
+    users = session.exec(stmt.offset(skip).limit(limit)).all()
     return [_user_with_roles(user) for user in users]
 
 @router.get("/users/{user_id}/", response_model=schemas.UserReadWithRoles, tags=["users"])

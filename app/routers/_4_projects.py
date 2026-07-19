@@ -75,6 +75,8 @@ def list_projects(
     skip: int = 0,
     limit: int = 100,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_projects")),
 ):
@@ -87,7 +89,15 @@ def list_projects(
         )
 
     return paginated_query(
-        session, Project, skip, limit, response, transform=to_read, include_total=include_total
+        session,
+        Project,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        include_total=include_total,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
 @router.get("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])

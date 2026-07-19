@@ -45,6 +45,8 @@ def list_units(
     skip: int = 0,
     limit: int = 100,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_units")),
 ):
@@ -56,7 +58,17 @@ def list_units(
             components=None,
         )
 
-    return paginated_query(session, Unit, skip, limit, response, transform=to_read, include_total=include_total)
+    return paginated_query(
+        session,
+        Unit,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        include_total=include_total,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/units/{unit_id}/", response_model=schemas.UnitRead, tags=["units"])
 def get_unit(unit_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_units"))):

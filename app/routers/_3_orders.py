@@ -42,6 +42,8 @@ def list_orders(
     response: Response,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_orders")),
 ):
@@ -52,7 +54,16 @@ def list_orders(
             status_name=status_name,
         )
 
-    return paginated_query(session, Order, skip, limit, response, transform=to_read)
+    return paginated_query(
+        session,
+        Order,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/orders/{order_id}/", response_model=schemas.OrderRead, tags=["orders"])
 def get_order(order_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_orders"))):

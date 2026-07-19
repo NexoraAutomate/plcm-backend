@@ -5,6 +5,7 @@ from app.database import get_session
 from app.models.tables import (EntityStatusHistory, User)
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.services.sorting import apply_sort
 
 router = APIRouter()
 
@@ -18,8 +19,21 @@ def create_status_history(history: schemas.EntityStatusHistoryCreate, session: S
     return db_history
 
 @router.get("/entity-status-history/", response_model=List[schemas.EntityStatusHistoryRead], tags=["status-history"])
-def list_status_history(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_status_history"))):
-    return session.exec(select(EntityStatusHistory).offset(skip).limit(limit)).all()
+def list_status_history(
+    skip: int = 0,
+    limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_status_history")),
+):
+    stmt = apply_sort(
+        select(EntityStatusHistory),
+        EntityStatusHistory,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    return session.exec(stmt.offset(skip).limit(limit)).all()
 
 @router.get("/entity-status-history/{history_id}/", response_model=schemas.EntityStatusHistoryRead, tags=["status-history"])
 def get_status_history(history_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_status_history"))):

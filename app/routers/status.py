@@ -50,11 +50,22 @@ def list_statuses(
     status_type: str | None = None,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_statuses")),
 ):
     where = Status.status_type == status_type if status_type else None
-    return paginated_query(session, Status, skip, limit, response, where=where)
+    return paginated_query(
+        session,
+        Status,
+        skip,
+        limit,
+        response,
+        where=where,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/statuses/{status_id}/", response_model=schemas.StatusRead, tags=["statuses"])
 def get_status(status_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_statuses"))):

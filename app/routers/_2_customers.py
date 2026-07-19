@@ -43,6 +43,8 @@ def list_customers(
     response: Response,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_customers")),
 ):
@@ -53,7 +55,16 @@ def list_customers(
             status_name=status_name,
         )
 
-    return paginated_query(session, Customer, skip, limit, response, transform=to_read)
+    return paginated_query(
+        session,
+        Customer,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/customers/{customer_id}/", response_model=schemas.CustomerRead, tags=["customers"])
 def get_customer(customer_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_customers"))):

@@ -11,6 +11,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.models.base import CaseStatus
+from app.services.sorting import apply_sort
 from app.models.tables import (
     Component,
     ConfigurationHistory,
@@ -163,6 +164,8 @@ def list_report_history(
     page: int = 1,
     page_size: int = 20,
     report_type: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ) -> ReportHistoryListResponse:
     count_stmt = select(func.count(ReportHistory.id))
     stmt = select(ReportHistory)
@@ -170,10 +173,25 @@ def list_report_history(
         count_stmt = count_stmt.where(ReportHistory.report_type == report_type)
         stmt = stmt.where(ReportHistory.report_type == report_type)
     total = session.exec(count_stmt).one()
+    stmt = apply_sort(
+        stmt,
+        ReportHistory,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed_fields={
+            "id",
+            "report_uuid",
+            "report_type",
+            "report_title",
+            "generated_by",
+            "generated_at",
+            "file_name",
+            "software_version",
+        },
+        default_order=[ReportHistory.generated_at.desc()],
+    )
     rows = session.exec(
-        stmt.order_by(ReportHistory.generated_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        stmt.offset((page - 1) * page_size).limit(page_size)
     ).all()
     items: List[ReportHistoryItem] = []
     for row in rows:

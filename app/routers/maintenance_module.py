@@ -29,6 +29,7 @@ from app.models.base import EntityType, ActionType
 from app.schemas.Maintennance import *
 from app.models.helpers import _generate_case_number, _cascade_fault_up,_SR_SEARCH_MODELS, _collect_descendants,_create_suspect_fes, _clear_healthy_fes, _resolve_ancestors
 from app.services.pagination import set_list_total_header
+from app.services.sorting import apply_sort
 from app.models.tables import MaintenanceCase, FaultyEntity, MaintenanceAction, MaintenanceDelivery, Project
 from app.services.configuration_history import (
     create_configuration_history_for_resolve,
@@ -114,6 +115,8 @@ def list_maintenance_cases(
     status:       Optional[CaseStatus] = None,
     skip:         int = 0,
     limit:        int = 100,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_cases")),
 ):
@@ -137,9 +140,14 @@ def list_maintenance_cases(
         query = query.where(MaintenanceCase.project_id == project_id)
     if status:
         query = query.where(MaintenanceCase.status == status)
-    cases = session.exec(
-        query.order_by(MaintenanceCase.reported_at.desc()).offset(skip).limit(limit)
-    ).all()
+    query = apply_sort(
+        query,
+        MaintenanceCase,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        default_order=[MaintenanceCase.reported_at.desc()],
+    )
+    cases = session.exec(query.offset(skip).limit(limit)).all()
     if not cases:
         return []
 
@@ -354,6 +362,8 @@ def list_faulty_entities(
     entity_type:  Optional[EntityType]          = None,
     skip:         int = 0,
     limit:        int = 100,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_faulty_entities")),
 ):
@@ -370,6 +380,7 @@ def list_faulty_entities(
         query = query.where(FaultyEntity.status == status)
     if entity_type:
         query = query.where(FaultyEntity.entity_type == entity_type)
+    query = apply_sort(query, FaultyEntity, sort_by=sort_by, sort_order=sort_order)
     rows = session.exec(query.offset(skip).limit(limit)).all()
     return [
         FaultyEntityRead.model_validate(row).model_copy(update={"actions": []})
@@ -385,6 +396,8 @@ def list_faulty_entities(
     response: Response,
     skip:         int = 0,
     limit:        int = 100,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_faulty_entities")),
 ):
@@ -405,6 +418,7 @@ def list_faulty_entities(
     #     query = query.where(FaultyEntity.status == status)
     # if entity_type:
         # query = query.where(FaultyEntity.entity_type == entity_type)
+    query = apply_sort(query, FaultyEntity, sort_by=sort_by, sort_order=sort_order)
     rows = session.exec(query.offset(skip).limit(limit)).all()
     return [
         FaultyEntityRead.model_validate(row).model_copy(update={"actions": []})
@@ -674,17 +688,15 @@ def list_all_maintenance_actions(
     skip:         int = 0,
     limit:        int = 100,
     case_id:      Optional[int] = None,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_actions")),
 ):
     """List maintenance actions, optionally scoped to a single maintenance case."""
-    statement = (
-        select(MaintenanceAction)
-        .options(
-            noload(MaintenanceAction.faulty_entity),
-            noload(MaintenanceAction.performed_by_user),
-        )
-        .order_by(MaintenanceAction.performed_at.desc())
+    statement = select(MaintenanceAction).options(
+        noload(MaintenanceAction.faulty_entity),
+        noload(MaintenanceAction.performed_by_user),
     )
     if case_id is not None:
         statement = (
@@ -692,6 +704,13 @@ def list_all_maintenance_actions(
             .join(FaultyEntity, MaintenanceAction.faulty_entity_id == FaultyEntity.id)
             .where(FaultyEntity.case_id == case_id)
         )
+    statement = apply_sort(
+        statement,
+        MaintenanceAction,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        default_order=[MaintenanceAction.performed_at.desc()],
+    )
     actions = session.exec(statement.offset(skip).limit(limit)).all()
     return [
         MaintenanceActionRead.model_validate(action).model_copy(
@@ -709,16 +728,21 @@ def list_maintenance_actions(
     fe_id:        int,
     skip:         int = 0,
     limit:        int = 100,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_actions")),
 ):
     """List all actions recorded against a faulty entity."""
-    return session.exec(
-        select(MaintenanceAction)
-        .where(MaintenanceAction.faulty_entity_id == fe_id)
-        .order_by(MaintenanceAction.performed_at.desc())
-        .offset(skip).limit(limit)
-    ).all()
+    statement = select(MaintenanceAction).where(MaintenanceAction.faulty_entity_id == fe_id)
+    statement = apply_sort(
+        statement,
+        MaintenanceAction,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        default_order=[MaintenanceAction.performed_at.desc()],
+    )
+    return session.exec(statement.offset(skip).limit(limit)).all()
 
 @router.get(
     "/maintenance-actions/{action_id}/",
@@ -827,19 +851,24 @@ def create_maintenance_delivery(
 def list_all_maintenance_deliveries(
     skip:         int = 0,
     limit:        int = 100,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_deliveries")),
 ):
     """List all maintenance deliveries across cases."""
-    deliveries = session.exec(
-        select(MaintenanceDelivery)
-        .options(
-            noload(MaintenanceDelivery.case),
-            noload(MaintenanceDelivery.delivered_by_user),
-        )
-        .order_by(MaintenanceDelivery.created_at.desc())
-        .offset(skip).limit(limit)
-    ).all()
+    statement = select(MaintenanceDelivery).options(
+        noload(MaintenanceDelivery.case),
+        noload(MaintenanceDelivery.delivered_by_user),
+    )
+    statement = apply_sort(
+        statement,
+        MaintenanceDelivery,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        default_order=[MaintenanceDelivery.created_at.desc()],
+    )
+    deliveries = session.exec(statement.offset(skip).limit(limit)).all()
     return [
         MaintenanceDeliveryRead.model_validate(delivery).model_copy(
             update={"delivered_by_user": None}
@@ -854,15 +883,21 @@ def list_all_maintenance_deliveries(
 )
 def list_maintenance_deliveries(
     case_id:      int,
+    sort_by:      Optional[str] = None,
+    sort_order:   Optional[str] = None,
     session:      Session = Depends(get_session),
     current_user: User    = Depends(require_permission("view_maintenance_deliveries")),
 ):
     """List all delivery records for a case (full re-delivery history)."""
-    return session.exec(
-        select(MaintenanceDelivery)
-        .where(MaintenanceDelivery.case_id == case_id)
-        .order_by(MaintenanceDelivery.created_at.desc())
-    ).all()
+    statement = select(MaintenanceDelivery).where(MaintenanceDelivery.case_id == case_id)
+    statement = apply_sort(
+        statement,
+        MaintenanceDelivery,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        default_order=[MaintenanceDelivery.created_at.desc()],
+    )
+    return session.exec(statement).all()
 
 @router.get(
     "/maintenance-deliveries/{delivery_id}/",

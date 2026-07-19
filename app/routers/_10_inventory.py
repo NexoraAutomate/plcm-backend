@@ -154,11 +154,22 @@ def list_inventory(
     skip: int = 0,
     limit: int = 100,
     inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
     where = Inventory.inventory_type == inventory_type if inventory_type else None
-    items = paginated_query(session, Inventory, skip, limit, response, where=where)
+    items = paginated_query(
+        session,
+        Inventory,
+        skip,
+        limit,
+        response,
+        where=where,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     return [_inventory_to_read(session, item, include_instances=True) for item in items]
 
 
@@ -167,12 +178,17 @@ def list_inventory_by_type(
     inventory_type: str,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
     """Get all inventory items of a specific type (system, subsystem, module, unit, component)."""
-    query = select(Inventory).where(Inventory.inventory_type == inventory_type).offset(skip).limit(limit)
-    items = session.exec(query).all()
+    from app.services.sorting import apply_sort
+
+    query = select(Inventory).where(Inventory.inventory_type == inventory_type)
+    query = apply_sort(query, Inventory, sort_by=sort_by, sort_order=sort_order)
+    items = session.exec(query.offset(skip).limit(limit)).all()
     return [_inventory_to_read(session, item, include_instances=True) for item in items]
 
 

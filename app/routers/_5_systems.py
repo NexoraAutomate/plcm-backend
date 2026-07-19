@@ -48,6 +48,8 @@ def list_systems(
     skip: int = 0,
     limit: int = 100,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_systems")),
 ):
@@ -59,7 +61,17 @@ def list_systems(
             subsystems=None,
         )
 
-    return paginated_query(session, System, skip, limit, response, transform=to_read, include_total=include_total)
+    return paginated_query(
+        session,
+        System,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        include_total=include_total,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/systems/{system_id}/", response_model=schemas.SystemRead, tags=["systems"])
 def get_system(system_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_systems"))):

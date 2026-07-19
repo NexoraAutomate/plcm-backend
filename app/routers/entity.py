@@ -9,6 +9,7 @@ from app.models.base import EntityType
 from app.models.helpers import _PARENT_MAP
 from app.services.configuration_history import resolve_generic_entity
 from app.services.entity_replacement_service import get_replacement_chain
+from app.services.sorting import apply_sort
 
 router = APIRouter()
 
@@ -24,8 +25,16 @@ def create_entity(entity: schemas.EntityCreate, session: Session = Depends(get_s
 
 # List All Entities with Pagination and Optional Filtering 
 @router.get("/entities/", response_model=List[schemas.EntityRead], tags=["entities"])
-def list_entities(skip: int = 0, limit: int = 100, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_entities"))):
-    return session.exec(select(Entity).offset(skip).limit(limit)).all()
+def list_entities(
+    skip: int = 0,
+    limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_entities")),
+):
+    stmt = apply_sort(select(Entity), Entity, sort_by=sort_by, sort_order=sort_order)
+    return session.exec(stmt.offset(skip).limit(limit)).all()
 
 @router.get("/entities/lookup/", response_model=schemas.EntityRead, tags=["entities"])
 def lookup_entity(

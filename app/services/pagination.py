@@ -5,6 +5,8 @@ from sqlalchemy import func, inspect
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, SQLModel, select
 
+from app.services.sorting import apply_sort
+
 T = TypeVar("T", bound=SQLModel)
 R = TypeVar("R")
 
@@ -32,10 +34,14 @@ def paginated_query(
     where=None,
     transform: Callable[[T], R] | None = None,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
+    allowed_sort_fields: set[str] | None = None,
 ) -> List[R]:
     """Return a page of rows and optionally set X-Total-Count on the response.
 
-    Always orders by primary key ascending so updates do not reshuffle list
+    Sorting is applied before offset/limit. When sort_by is missing or invalid,
+    rows are ordered by primary key ascending so updates do not reshuffle list
     positions (PostgreSQL has no guaranteed order without ORDER BY).
     """
     if include_total:
@@ -45,14 +51,19 @@ def paginated_query(
         total = session.exec(count_stmt).one()
         set_list_total_header(response, total)
 
-    stmt = select(model).offset(skip).limit(limit)
+    stmt = select(model)
     if where is not None:
         stmt = stmt.where(where)
 
-    # Stable list order: updated rows must keep their original position.
-    pk_cols = list(inspect(model).primary_key)
-    if pk_cols:
-        stmt = stmt.order_by(*pk_cols)
+    stmt = apply_sort(
+        stmt,
+        model,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        allowed_fields=allowed_sort_fields,
+    )
+
+    stmt = stmt.offset(skip).limit(limit)
 
     status_loader = _eager_load_status(model)
     if status_loader is not None:

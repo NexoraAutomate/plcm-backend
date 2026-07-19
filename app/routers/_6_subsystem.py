@@ -47,6 +47,8 @@ def list_subsystems(
     skip: int = 0,
     limit: int = 100,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_subsystems")),
 ):
@@ -58,7 +60,17 @@ def list_subsystems(
             modules=None,
         )
 
-    return paginated_query(session, Subsystem, skip, limit, response, transform=to_read, include_total=include_total)
+    return paginated_query(
+        session,
+        Subsystem,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        include_total=include_total,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/subsystems/{subsystem_id}/", response_model=schemas.SubsystemRead, tags=["subsystems"])
 def get_subsystem(subsystem_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_subsystems"))):

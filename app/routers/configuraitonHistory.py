@@ -27,6 +27,7 @@ from app.models.base import EntityType, ActionType
 from app.schemas.Maintennance import *
 from app.models.tables import ConfigurationHistory, ConfigurationHistoryBase
 from app.services.configuration_history import create_configuration_history_record
+from app.services.sorting import apply_sort
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
@@ -42,6 +43,8 @@ router = APIRouter()
 def list_configuration_history(
     skip: int = 0,
     limit: int = 100,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
     # entity_id: Optional[int] = None,
     # maintenance_case_id: Optional[int] = None,
     session: Session = Depends(get_session),
@@ -55,6 +58,12 @@ def list_configuration_history(
     # if maintenance_case_id:
     #     statement = statement.where(ConfigurationHistory.maintenance_case_id == maintenance_case_id)
 
+    statement = apply_sort(
+        statement,
+        ConfigurationHistory,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     statement = statement.offset(skip).limit(limit)
 
     return session.exec(statement).all()
@@ -71,6 +80,8 @@ def list_configuration_history_by_case(
     caseId: int,
     skip: int = 0,
     limit: int = 100,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_configuration_history")),
 ):
@@ -78,6 +89,12 @@ def list_configuration_history_by_case(
         ConfigurationHistory.maintenance_case_id == caseId
     )
 
+    statement = apply_sort(
+        statement,
+        ConfigurationHistory,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     statement = statement.offset(skip).limit(limit)
 
     return session.exec(statement).all()
@@ -94,6 +111,8 @@ def list_configuration_history_by_entity(
     entityId: int,
     skip: int = 0,
     limit: int = 100,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_configuration_history")),
 ):
@@ -101,6 +120,12 @@ def list_configuration_history_by_entity(
         ConfigurationHistory.entity_id == entityId
     )
 
+    statement = apply_sort(
+        statement,
+        ConfigurationHistory,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     statement = statement.offset(skip).limit(limit)
 
     return session.exec(statement).all()

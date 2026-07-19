@@ -23,10 +23,20 @@ def list_maintenance_logs(
     response: Response,
     skip: int = 0,
     limit: int = 100,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_maintenance")),
 ):
-    return paginated_query(session, MaintenanceLog, skip, limit, response)
+    return paginated_query(
+        session,
+        MaintenanceLog,
+        skip,
+        limit,
+        response,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/maintenance-logs/{log_id}/", response_model=schemas.MaintenanceLogRead)
 def get_maintenance_log(log_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_maintenance"))):

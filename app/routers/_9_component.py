@@ -45,6 +45,8 @@ def list_components(
     skip: int = 0,
     limit: int = 100,
     include_total: bool = True,
+    sort_by: str | None = None,
+    sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_components")),
 ):
@@ -55,7 +57,17 @@ def list_components(
             status_name=status_name,
         )
 
-    return paginated_query(session, Component, skip, limit, response, transform=to_read, include_total=include_total)
+    return paginated_query(
+        session,
+        Component,
+        skip,
+        limit,
+        response,
+        transform=to_read,
+        include_total=include_total,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 @router.get("/components/{component_id}/", response_model=schemas.ComponentRead, tags=["components"])
 def get_component(component_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_components"))):
