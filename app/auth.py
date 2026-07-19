@@ -206,6 +206,25 @@ DEFAULT_PERMISSIONS = [
     {"name": "view_reports", "description": "View reports"},
     {"name": "view_executive_dashboard", "description": "View executive dashboard analytics"},
     {"name": "export_reports", "description": "Export reports"},
+    {"name": "print_reports", "description": "Print reports"},
+    {"name": "export_data", "description": "Export system data"},
+    {"name": "import_data", "description": "Import system data"},
+    {"name": "generate_build_dossier", "description": "Generate build dossier documents"},
+    {"name": "generate_maintenance_dossier", "description": "Generate maintenance dossier documents"},
+
+    # ==================== ATTACHMENTS ====================
+    {"name": "upload_attachments", "description": "Upload entity attachments"},
+    {"name": "delete_attachments", "description": "Delete entity attachments"},
+    {"name": "download_attachments", "description": "Download entity attachments"},
+
+    # ==================== SYSTEM ADMINISTRATION ====================
+    {"name": "backup_database", "description": "Create database backups"},
+    {"name": "restore_database", "description": "Restore database from backups"},
+    {"name": "manage_settings", "description": "Manage system settings"},
+    {"name": "view_audit_logs", "description": "View audit logs"},
+    {"name": "manage_notifications", "description": "Manage notifications"},
+    {"name": "view_notifications", "description": "View notifications"},
+    {"name": "approve_configuration_changes", "description": "Approve configuration change requests"},
     
     # ==================== ROLE MANAGEMENT ====================
     {"name": "view_roles", "description": "View roles"},
@@ -279,6 +298,10 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "export_reports",
+            "print_reports",
+            "generate_build_dossier",
+            "generate_maintenance_dossier",
             # Entities
             "view_entities", "create_entities", "edit_entities",
             # Status
@@ -315,6 +338,15 @@ DEFAULT_ROLES = [
             # Configuration History
             "view_configuration_history",
             "create_configuration_history",
+            "approve_configuration_changes",
+
+            # Attachments
+            "upload_attachments",
+            "download_attachments",
+
+            # Notifications
+            "view_notifications",
+            "manage_notifications",
         ]
     },
     {
@@ -346,6 +378,7 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "print_reports",
 
             # Maintenance Cases
             "view_maintenance_cases",
@@ -374,6 +407,13 @@ DEFAULT_ROLES = [
             # Configuration History
             "view_configuration_history",
             "create_configuration_history",
+
+            # Attachments
+            "upload_attachments",
+            "download_attachments",
+
+            # Notifications
+            "view_notifications",
         ]
     },
     {
@@ -403,6 +443,8 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "print_reports",
+            "generate_maintenance_dossier",
 
             # Maintenance Cases
             "view_maintenance_cases",
@@ -437,6 +479,14 @@ DEFAULT_ROLES = [
             # Configuration History
             "view_configuration_history",
             "create_configuration_history",
+
+            # Attachments
+            "upload_attachments",
+            "delete_attachments",
+            "download_attachments",
+
+            # Notifications
+            "view_notifications",
         ]
     },
     {
@@ -489,6 +539,15 @@ DEFAULT_ROLES = [
 
             # Maintenance Deliveries
             "view_maintenance_deliveries",
+
+            # Configuration History
+            "view_configuration_history",
+
+            # Attachments (view/download only)
+            "download_attachments",
+
+            # Notifications
+            "view_notifications",
         ]
     }
 ]

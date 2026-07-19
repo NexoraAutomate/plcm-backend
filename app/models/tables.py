@@ -308,7 +308,7 @@ class MaintenanceAction(MaintenanceActionBase, table=True):
     )
     
     # Relationships
-    faulty_entity:    Optional[FaultyEntity] = Relationship(back_populates="actions")
+    faulty_entity:    Optional["FaultyEntity"] = Relationship(back_populates="actions")
     performed_by_user: Optional[User]        = Relationship(back_populates="maintenance_actions")
 
 class MaintenanceDelivery(MaintenanceDeliveryBase, table=True):
@@ -522,4 +522,25 @@ class EntityAttachment(SQLModel, table=True):
     description: Optional[str] = None
     uploaded_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReportHistory(SQLModel, table=True):
+    """Tracks generated enterprise reports for QR verification."""
+
+    __tablename__ = "report_history"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    report_uuid: str = Field(index=True, unique=True, max_length=36)
+    report_type: str = Field(index=True, max_length=64)
+    report_title: str = Field(max_length=255)
+    generated_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    filters_json: Optional[str] = Field(default=None, sa_column=sa.Column(sa.Text, nullable=True))
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    checksum: Optional[str] = Field(default=None, max_length=128)
+    software_version: str = Field(default="0.1.0", max_length=32)
+
+    generated_by_user: Optional["User"] = Relationship(
+        sa_relationship_kwargs=dict(foreign_keys="[ReportHistory.generated_by]")
+    )
 

@@ -964,8 +964,11 @@ def delete_maintenance_delivery(
 def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLookupRead:
     """
     Look up any current-install hierarchy entity by unique serial number.
+    Matches serial_number or original_serial_number (inventory SN).
     Walks up to project/order/customer and down through descendants.
     """
+    from sqlalchemy import or_
+
     matched_type: Optional[str] = None
     matched_id: Optional[int] = None
     matched_label: Optional[str] = None
@@ -973,16 +976,24 @@ def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLook
     PartNumber: Optional[str] = None
 
     for entity_type, model_cls, identity_attr in _SR_SEARCH_MODELS:
-        statement = select(model_cls).where(
-            getattr(model_cls, identity_attr) == serial_number
-        )
+        serial_col = getattr(model_cls, identity_attr)
+        original_col = getattr(model_cls, "original_serial_number", None)
+        conditions = [serial_col == serial_number]
+        if original_col is not None:
+            conditions.append(original_col == serial_number)
+        statement = select(model_cls).where(or_(*conditions))
         if hasattr(model_cls, "is_current_install"):
             statement = statement.where(model_cls.is_current_install == True)  # noqa: E712
         row = session.exec(statement).first()
         if row:
             matched_type = entity_type
             matched_id = row.id
-            serialNumber = str(getattr(row, "serial_number", serial_number) or serial_number)
+            original = getattr(row, "original_serial_number", None)
+            current = getattr(row, "serial_number", None)
+            # Prefer inventory/original SN for response when available.
+            serialNumber = str(
+                (original or current or serial_number) or serial_number
+            )
             PartNumber = str(getattr(row, "part_number", "") or "")
             matched_label = str(getattr(row, "name", serial_number))
             break

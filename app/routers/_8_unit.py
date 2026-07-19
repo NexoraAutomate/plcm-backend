@@ -20,9 +20,10 @@ router = APIRouter()
 @router.post("/units/", response_model=schemas.UnitRead, tags=["units"])
 def create_unit(unit: schemas.UnitCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_units"))):
     db_unit = Unit(**unit.model_dump())
+    if not db_unit.original_serial_number and db_unit.serial_number:
+        db_unit.original_serial_number = db_unit.serial_number
     session.add(db_unit)
     session.flush()
-    db_unit.serial_number = "Unit-" + str(db_unit.serial_number)+ "-"+ str(db_unit.id)
 #    1.  Entity status
 #    2.  Entity Status History
 # --------------------------------------------------------------------------------------------------------------------------------------------

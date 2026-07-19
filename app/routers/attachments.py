@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.tables import EntityAttachment, User
-from app.routers.auth import require_permission
+from app.routers.auth import require_permission, get_current_user
 from app.models.base import AttachmentType
 from app.schemas.schemas import EntityAttachmentRead, EntityAttachmentUpdate
 
@@ -35,7 +35,7 @@ def list_attachments(
     owner_type: str,
     owner_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_systems")),
+    current_user: User = Depends(get_current_user),
 ):
     return session.exec(
         select(EntityAttachment).where(
@@ -68,7 +68,7 @@ async def upload_attachment(
     attachment_type: str = Form("other"),
     description: Optional[str] = Form(None),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_systems")),
+    current_user: User = Depends(require_permission("upload_attachments")),
 ):
     owner_type_normalized = owner_type.lower()
     allowed = {"system", "subsystem", "module", "unit", "component", "inventory", "inventory_instance"}
@@ -110,7 +110,7 @@ async def upload_attachment(
 def download_attachment(
     attachment_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_systems")),
+    current_user: User = Depends(require_permission("download_attachments")),
 ):
     attachment = session.get(EntityAttachment, attachment_id)
     if not attachment:
@@ -136,7 +136,7 @@ def update_attachment(
     attachment_id: int,
     payload: EntityAttachmentUpdate,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_systems")),
+    current_user: User = Depends(require_permission("upload_attachments")),
 ):
     attachment = session.get(EntityAttachment, attachment_id)
     if not attachment:
@@ -167,7 +167,7 @@ def copy_attachments(
     to_owner_type: str = Form(...),
     to_owner_id: int = Form(...),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_systems")),
+    current_user: User = Depends(require_permission("upload_attachments")),
 ):
     from_owner_type_normalized = from_owner_type.lower()
     to_owner_type_normalized = to_owner_type.lower()
@@ -219,7 +219,7 @@ def copy_attachments(
 def delete_attachment(
     attachment_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_systems")),
+    current_user: User = Depends(require_permission("delete_attachments")),
 ):
     attachment = session.get(EntityAttachment, attachment_id)
     if not attachment:

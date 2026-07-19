@@ -20,9 +20,10 @@ router = APIRouter()
 @router.post("/subsystems/", response_model=schemas.SubsystemRead, tags=["subsystems"])
 def create_subsystem(subsystem: schemas.SubsystemCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_subsystems"))):
     db_subsystem = Subsystem(**subsystem.model_dump())
+    if not db_subsystem.original_serial_number and db_subsystem.serial_number:
+        db_subsystem.original_serial_number = db_subsystem.serial_number
     session.add(db_subsystem)
     session.flush()
-    db_subsystem.serial_number = "Subsys-"  + str(db_subsystem.serial_number)+ "-"+ str(db_subsystem.id)
 
 # Create
 #    1.  Entity status

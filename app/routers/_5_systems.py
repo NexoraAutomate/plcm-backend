@@ -20,9 +20,11 @@ router = APIRouter()
 @router.post("/systems/", response_model=schemas.SystemRead, tags=["systems"])
 def create_system(system: schemas.SystemCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_systems"))):
     db_system = System(**system.dict())
+    # Preserve inventory/user-provided serial numbers — do not rewrite.
+    if not db_system.original_serial_number and db_system.serial_number:
+        db_system.original_serial_number = db_system.serial_number
     session.add(db_system)
     session.flush()
-    db_system.serial_number = "Sys-"  +  str(db_system.serial_number) + "-" + str(db_system.id)
 
 # Create
 #    1.  Entity status

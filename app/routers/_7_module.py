@@ -20,9 +20,10 @@ router = APIRouter()
 @router.post("/modules/", response_model=schemas.ModuleRead, tags=["modules"])
 def create_module(module: schemas.ModuleCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_modules"))):
     db_module = Module(**module.model_dump())
+    if not db_module.original_serial_number and db_module.serial_number:
+        db_module.original_serial_number = db_module.serial_number
     session.add(db_module)
     session.flush()
-    db_module.serial_number = "Mod-" +  str(db_module.serial_number)+ "-"+ str(db_module.id)
 
 
 # Create

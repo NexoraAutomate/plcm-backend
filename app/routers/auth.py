@@ -48,22 +48,23 @@ def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Dep
     return user
 
 def require_permission(permission: str):
-    """Check permission from JWT (fast) then load a minimal user row."""
+    """Check permission from the live role assignment (DB), not only the JWT snapshot."""
     async def check_permission_dependency(
         token: str = Depends(oauth2_scheme),
         session: Session = Depends(get_session),
     ):
         payload = decode_token(token)
-        if permission not in payload.get("permissions", []):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"User does not have permission: {permission}",
-            )
         user = session.get(User, payload["sub"])
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User is inactive or not found",
+            )
+        # Prefer live DB permissions so role sync applies without forcing re-login
+        if not check_permission(user, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User does not have permission: {permission}",
             )
         return user
     return check_permission_dependency
@@ -174,7 +175,7 @@ def register(
             detail="Username already exists",
         )
     
-    default_role = session.exec(select(Role).where(Role.name == "Admin")).first()
+    default_role = session.exec(select(Role).where(Role.name == "Viewer")).first()
 
     print("DEFAULT ROLE:", default_role)
     
@@ -277,7 +278,7 @@ def assign_role_to_user(
     user: User = Depends(require_role("Admin")),
     session: Session = Depends(get_session)
 ):
-    """Assign a role to a user. Requires Admin role."""
+    """Set a user's role (replaces any existing roles). Requires Admin role."""
     target_user = session.get(User, assignment.user_id)
     if not target_user:
         raise HTTPException(
@@ -297,10 +298,10 @@ def assign_role_to_user(
             detail= "Admin Already exists. Cannot assign Admin role to another user."
         )
 
-    if role not in target_user.roles:
-        target_user.roles.append(role)  
-        session.add(target_user)
-        session.commit()
+    # Replace existing roles so edit-user changes the role instead of stacking
+    target_user.roles = [role]
+    session.add(target_user)
+    session.commit()
     
     return {
         "message": f"Role '{role.name}' assigned to user '{target_user.username}'",
@@ -323,7 +324,7 @@ def remove_role_from_user(
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     
-    if user.roles and check_role(user, "Admin"):
+    if target_user.roles and check_role(target_user, "Admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot remove role from user with Admin role."
@@ -362,8 +363,8 @@ def get_current_user_info(
         full_name=user.full_name,
         is_active=user.is_active,
         created_at=user.created_at,
-        roles=payload.get("roles", []),
-        permissions=payload.get("permissions", []),
+        roles=[role.name for role in user.roles],
+        permissions=get_user_permissions(user),
     )
 
 @router.get("/permissions", response_model=List[str])

@@ -1,14 +1,28 @@
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends, status, Response
-from sqlmodel import Session, select
+from sqlalchemy.orm import selectinload
+from sqlmodel import Session, select, func
 from app.database import get_session
 from app.models.tables import (User, Role)
 from app.schemas import schemas
 from app.routers.auth import require_permission, get_current_user, hash_password
 from app.auth import check_role
-from app.services.pagination import paginated_query
+from app.services.pagination import set_list_total_header
 
 router = APIRouter()
+
+
+def _user_with_roles(user: User) -> schemas.UserWithRoles:
+    return schemas.UserWithRoles(
+        id=user.id,
+        username=user.username,
+        full_name=user.full_name or "",
+        email=user.email,
+        is_active=user.is_active,
+        roles=[role.name for role in user.roles],
+    )
+
+
 # ===================== USER ENDPOINTS =====================
 @router.post("/users/", response_model=schemas.UserRead, tags=["users"])
 def create_user(
@@ -58,7 +72,7 @@ def create_user(
     session.refresh(db_user)
     return db_user
 
-@router.get("/users/", response_model=List[schemas.UserRead], tags=["users"])
+@router.get("/users/", response_model=List[schemas.UserWithRoles], tags=["users"])
 def list_users(
     response: Response,
     skip: int = 0,
@@ -66,7 +80,16 @@ def list_users(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_users")),
 ):
-    return paginated_query(session, User, skip, limit, response)
+    total = session.exec(select(func.count()).select_from(User)).one()
+    set_list_total_header(response, total)
+    users = session.exec(
+        select(User)
+        .options(selectinload(User.roles))
+        .order_by(User.id.asc())
+        .offset(skip)
+        .limit(limit)
+    ).all()
+    return [_user_with_roles(user) for user in users]
 
 @router.get("/users/with-roles/", response_model=List[schemas.UserWithRoles], tags=["users"])
 def list_users_with_roles(
@@ -75,18 +98,14 @@ def list_users_with_roles(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_users")),
 ):
-    users = session.exec(select(User).offset(skip).limit(limit)).all()
-    return [
-        schemas.UserWithRoles(
-            id=user.id,
-            username=user.username,
-            full_name=user.full_name or "",
-            email=user.email,
-            is_active=user.is_active,
-            roles=[role.name for role in user.roles],
-        )
-        for user in users
-    ]
+    users = session.exec(
+        select(User)
+        .options(selectinload(User.roles))
+        .order_by(User.id.asc())
+        .offset(skip)
+        .limit(limit)
+    ).all()
+    return [_user_with_roles(user) for user in users]
 
 @router.get("/users/{user_id}/", response_model=schemas.UserReadWithRoles, tags=["users"])
 def get_user(user_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_users"))):
@@ -100,7 +119,12 @@ def update_user(user_id: int, user: schemas.UserUpdate, session: Session = Depen
     db_user = session.get(User, user_id)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    for k, v in user.model_dump(exclude_unset=True).items():
+    update_data = user.model_dump(exclude_unset=True)
+    if "password" in update_data:
+        password = update_data.pop("password")
+        if password:
+            db_user.password = hash_password(password)
+    for k, v in update_data.items():
         setattr(db_user, k, v)
     session.add(db_user)
     session.commit()
@@ -121,7 +145,8 @@ def delete_user(user_id: int, session: Session = Depends(get_session),
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot delete user with Admin role. Please remove Admin role before deletion."
         )
-    
+
+    user.roles.clear()
     session.delete(user)
     session.commit()
     return {"ok": True}

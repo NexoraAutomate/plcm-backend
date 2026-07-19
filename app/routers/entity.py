@@ -169,9 +169,10 @@ def get_serial_numbers(
 ):
     """
     Search serial numbers for hardware currently installed under a project.
-    Excludes spare inventory. Always capped for typeahead — never returns the
-    full serial population to the client.
+    Prefers original_serial_number (inventory SN) when present so typeahead
+    matches inventory labels even if serial_number was historically rewritten.
     """
+    from sqlalchemy import or_
     from app.models.tables import System, Subsystem, Module, Unit, Component
 
     needle = (q or "").strip()
@@ -181,91 +182,101 @@ def get_serial_numbers(
 
     pattern = f"%{needle}%"
     found: set[str] = set()
-
-    def collect(rows) -> None:
-        for value in rows:
-            if value and str(value).strip():
-                found.add(str(value).strip())
-
-    # Fetch a bit more than `limit` per level, then merge/cap in Python.
     per_level = min(limit, 100)
 
-    collect(
+    def preferred_serial(serial_number, original_serial_number) -> str | None:
+        original = (original_serial_number or "").strip()
+        current = (serial_number or "").strip()
+        value = original or current
+        return value or None
+
+    def collect_rows(rows) -> None:
+        for row in rows:
+            if isinstance(row, (tuple, list)):
+                serial_number, original_serial_number = row[0], row[1]
+            else:
+                serial_number, original_serial_number = row, None
+            value = preferred_serial(serial_number, original_serial_number)
+            if value:
+                found.add(value)
+
+    def matches_serial(model):
+        return or_(
+            model.serial_number.ilike(pattern),
+            model.original_serial_number.ilike(pattern),
+        )
+
+    collect_rows(
         session.exec(
-            select(System.serial_number)
+            select(System.serial_number, System.original_serial_number)
             .where(
-                System.serial_number.is_not(None),
                 System.project_id.is_not(None),
                 System.is_current_install == True,  # noqa: E712
-                System.serial_number.ilike(pattern),
+                matches_serial(System),
             )
-            .order_by(System.serial_number)
+            .order_by(System.original_serial_number, System.serial_number)
             .limit(per_level)
         ).all()
     )
 
-    collect(
+    collect_rows(
         session.exec(
-            select(Subsystem.serial_number)
+            select(Subsystem.serial_number, Subsystem.original_serial_number)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                Subsystem.serial_number.is_not(None),
                 System.project_id.is_not(None),
                 Subsystem.is_current_install == True,  # noqa: E712
-                Subsystem.serial_number.ilike(pattern),
+                matches_serial(Subsystem),
             )
-            .order_by(Subsystem.serial_number)
+            .order_by(Subsystem.original_serial_number, Subsystem.serial_number)
             .limit(per_level)
         ).all()
     )
 
-    collect(
+    collect_rows(
         session.exec(
-            select(Module.serial_number)
+            select(Module.serial_number, Module.original_serial_number)
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                Module.serial_number.is_not(None),
                 System.project_id.is_not(None),
                 Module.is_current_install == True,  # noqa: E712
-                Module.serial_number.ilike(pattern),
+                matches_serial(Module),
             )
-            .order_by(Module.serial_number)
+            .order_by(Module.original_serial_number, Module.serial_number)
             .limit(per_level)
         ).all()
     )
 
-    collect(
+    collect_rows(
         session.exec(
-            select(Unit.serial_number)
+            select(Unit.serial_number, Unit.original_serial_number)
             .join(Module, Unit.module_id == Module.id)
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                Unit.serial_number.is_not(None),
                 System.project_id.is_not(None),
                 Unit.is_current_install == True,  # noqa: E712
-                Unit.serial_number.ilike(pattern),
+                matches_serial(Unit),
             )
-            .order_by(Unit.serial_number)
+            .order_by(Unit.original_serial_number, Unit.serial_number)
             .limit(per_level)
         ).all()
     )
 
-    collect(
+    collect_rows(
         session.exec(
-            select(Component.serial_number)
+            select(Component.serial_number, Component.original_serial_number)
             .join(Unit, Component.unit_id == Unit.id)
             .join(Module, Unit.module_id == Module.id)
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                Component.serial_number.is_not(None),
                 System.project_id.is_not(None),
                 Component.is_current_install == True,  # noqa: E712
-                Component.serial_number.ilike(pattern),
+                matches_serial(Component),
             )
-            .order_by(Component.serial_number)
+            .order_by(Component.original_serial_number, Component.serial_number)
             .limit(per_level)
         ).all()
     )

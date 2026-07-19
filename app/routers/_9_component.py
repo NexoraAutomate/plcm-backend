@@ -19,9 +19,10 @@ router = APIRouter()
 @router.post("/components/", response_model=schemas.ComponentRead, tags=["components"])
 def create_component(component: schemas.ComponentCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_components"))):
     db_component = Component(**component.model_dump())
+    if not db_component.original_serial_number and db_component.serial_number:
+        db_component.original_serial_number = db_component.serial_number
     session.add(db_component)
     session.flush()
-    db_component.serial_number = "Comp-" + str(db_component.serial_number)  + "-"+ str(db_component.id)
 
 # Create
 #    1.  Entity status

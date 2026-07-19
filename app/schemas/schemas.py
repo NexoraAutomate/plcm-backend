@@ -57,6 +57,7 @@ class UserUpdate(SQLModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = None
 
 
 class UserWithRoles(UserCommon):

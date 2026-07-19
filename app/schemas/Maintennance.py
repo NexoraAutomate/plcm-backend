@@ -59,6 +59,15 @@ class EntityLookupRead(SQLModel):
     customer_id:   Optional[int] = None
     customer_name: Optional[str] = None
 
+class FaultyEntityRead(FaultyEntityBase):
+    id:                      int
+    case_id:                 int
+    identified_by:           Optional[int]                = None
+    identified_by_user:      Optional[MaintenanceUserRead]           = None
+    parent_faulty_entity_id: Optional[int]                = None
+    actions:                 List["MaintenanceActionRead"] = []
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SuspectChildrenPayload(SQLModel):
@@ -168,15 +177,6 @@ class FaultyEntityCreate(FaultyEntityBase):
     identified_by:           Optional[int] = None
     parent_faulty_entity_id: Optional[int] = None
 
-class FaultyEntityRead(FaultyEntityBase):
-    id:                      int
-    case_id:                 int
-    identified_by:           Optional[int]                = None
-    identified_by_user:      Optional[MaintenanceUserRead]           = None
-    parent_faulty_entity_id: Optional[int]                = None
-    actions:                 List["MaintenanceActionRead"] = []
-
-    model_config = ConfigDict(from_attributes=True)
 
 class FaultyEntityUpdate(SQLModel):
     """
