@@ -5,6 +5,7 @@ from sqlmodel import Session
 from contextlib import asynccontextmanager
 from app.routers import router
 from app.auth import initialize_roles_and_permissions, sync_roles_and_permissions
+from app.services.inventory_service import backfill_legacy_inventory_instances
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,6 +14,8 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         initialize_roles_and_permissions(session)
         sync_roles_and_permissions(session)
+        # Legacy seed/import data stored qty on the parent row; project install needs instances.
+        backfill_legacy_inventory_instances(session)
     try:
         yield
     finally:

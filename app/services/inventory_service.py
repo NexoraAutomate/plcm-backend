@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -372,3 +373,91 @@ def delete_inventory_item(session: Session, inventory: Inventory) -> None:
 
     session.delete(inventory)
     session.flush()
+
+
+def _legacy_instance_serial(base_serial: Optional[str], index: int, inventory_id: int) -> str:
+    """Derive a unique serial for a backfilled instance from the legacy parent serial."""
+    base = (base_serial or "").strip()
+    if not base:
+        return f"INV-{inventory_id}-{index + 1:05d}"
+    if index == 0:
+        return base
+    match = re.search(r"(\d+)$", base)
+    if match:
+        width = len(match.group(1))
+        next_value = int(match.group(1)) + index
+        return f"{base[: match.start()]}{str(next_value).zfill(width)}"
+    return f"{base}-{index + 1}"
+
+
+def _clear_parent_instance_fields(inventory: Inventory) -> None:
+    """Parent catalog rows store unit fields on instances after the instances migration."""
+    inventory.serial_number = None
+    inventory.holder_user_id = None
+    inventory.location = None
+    inventory.shelf_life_expires_at = None
+    inventory.picture_url = None
+    inventory.installation_date = None
+    inventory.installed_by_id = None
+    inventory.original_part_number = None
+    inventory.original_serial_number = None
+
+
+def backfill_legacy_inventory_instances(session: Session) -> int:
+    """
+    Create InventoryInstance rows for legacy non-component inventory that still
+    stores stock as parent.quantity / parent.serial_number without instances.
+
+    Returns the number of instances created. Idempotent when instances already exist.
+    """
+    created = 0
+    inventories = session.exec(
+        select(Inventory).where(Inventory.inventory_type != "component")
+    ).all()
+
+    for inventory in inventories:
+        existing_count = session.exec(
+            select(func.count())
+            .select_from(InventoryInstance)
+            .where(InventoryInstance.inventory_id == inventory.id)
+        ).one()
+        if existing_count > 0:
+            continue
+
+        quantity = max(0, int(inventory.quantity or 0))
+        if quantity == 0:
+            # Stale parent unit fields with no stock — clear so list UIs stay consistent.
+            if inventory.serial_number or inventory.location or inventory.holder_user_id:
+                _clear_parent_instance_fields(inventory)
+                inventory.updated_at = datetime.now(timezone.utc)
+                session.add(inventory)
+            continue
+
+        location = (inventory.location or "").strip() or "Unknown"
+        base_serial = inventory.serial_number
+        for index in range(quantity):
+            create_inventory_instance(
+                session,
+                inventory,
+                serial_number=_legacy_instance_serial(base_serial, index, inventory.id or 0),
+                configuration_item=inventory.configuration_item or inventory.part_number,
+                status_id=inventory.status_id,
+                holder_user_id=inventory.holder_user_id,
+                location=location,
+                added_date=inventory.added_date,
+                shelf_life_expires_at=inventory.shelf_life_expires_at,
+                picture_url=inventory.picture_url,
+                installation_date=inventory.installation_date,
+                installed_by_id=inventory.installed_by_id,
+                original_part_number=inventory.original_part_number,
+                original_serial_number=inventory.original_serial_number
+                or _legacy_instance_serial(base_serial, index, inventory.id or 0),
+            )
+            created += 1
+
+        _clear_parent_instance_fields(inventory)
+        inventory.updated_at = datetime.now(timezone.utc)
+        session.add(inventory)
+
+    session.commit()
+    return created
