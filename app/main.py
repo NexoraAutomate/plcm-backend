@@ -6,16 +6,23 @@ from contextlib import asynccontextmanager
 from app.routers import router
 from app.auth import initialize_roles_and_permissions, sync_roles_and_permissions
 from app.services.inventory_service import backfill_legacy_inventory_instances
+from app.services.security_settings_service import get_or_create_security_settings
+from app.services.inactivity_service import deactivate_inactive_users
+from app.services.schema_bootstrap import ensure_user_management_schema
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    ensure_user_management_schema()
     # Initialize defaults on first run, then sync any newly added permissions/roles
     with Session(engine) as session:
         initialize_roles_and_permissions(session)
         sync_roles_and_permissions(session)
         # Legacy seed/import data stored qty on the parent row; project install needs instances.
         backfill_legacy_inventory_instances(session)
+        get_or_create_security_settings(session)
+        # Reusable inactivity job — also runnable via POST /api/auth/run-inactivity-check
+        deactivate_inactive_users(session)
     try:
         yield
     finally:

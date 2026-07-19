@@ -20,6 +20,21 @@ class User(UserBase, table=True):
     maintenance_actions: List["MaintenanceAction"] = Relationship(back_populates="performed_by_user")
     deliveries: List["MaintenanceDelivery"] = Relationship(back_populates="delivered_by_user")
     identified_faults: List["FaultyEntity"] = Relationship(back_populates="identified_by_user")
+    login_history: List["UserLoginHistory"] = Relationship(back_populates="user")
+
+
+class UserLoginHistory(UserLoginHistoryBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user: Optional[User] = Relationship(back_populates="login_history")
+
+
+class AuditLog(AuditLogBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class SecuritySettings(SecuritySettingsBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
 
 class RolePermission(SQLModel, table=True):
     role_id: Optional[int] = Field(default=None, foreign_key="role.id", primary_key=True)

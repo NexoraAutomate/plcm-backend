@@ -18,8 +18,81 @@ class UserCommon(SQLModel):
   # Password hash, required for auth
 
 class UserBase(UserCommon):
-    password:str
+    password: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    last_login_at: Optional[datetime] = None
+    last_logout_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
+    failed_login_count: int = 0
+    locked_until: Optional[datetime] = None
+    created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class UserLoginHistoryCommon(SQLModel):
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    username: str
+    login_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    logout_time: Optional[datetime] = None
+    session_id: Optional[str] = Field(default=None, index=True, max_length=64)
+    ip_address: Optional[str] = Field(default=None, max_length=64)
+    device_name: Optional[str] = Field(default=None, max_length=255)
+    browser: Optional[str] = Field(default=None, max_length=255)
+    operating_system: Optional[str] = Field(default=None, max_length=255)
+    login_status: str = Field(default="Failed", max_length=32)  # Success | Failed
+    failure_reason: Optional[str] = Field(default=None, max_length=255)
+    last_activity: Optional[datetime] = None
+    session_duration: Optional[int] = None  # seconds
+    authentication_method: str = Field(default="password", max_length=64)
+    country: Optional[str] = Field(default=None, max_length=128)
+    city: Optional[str] = Field(default=None, max_length=128)
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class UserLoginHistoryBase(UserLoginHistoryCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AuditLogCommon(SQLModel):
+    actor_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    actor_username: Optional[str] = Field(default=None, max_length=255)
+    action: str = Field(max_length=128)
+    resource_type: Optional[str] = Field(default=None, max_length=64)
+    resource_id: Optional[str] = Field(default=None, max_length=64)
+    previous_value: Optional[str] = None
+    new_value: Optional[str] = None
+    details: Optional[str] = None
+    ip_address: Optional[str] = Field(default=None, max_length=64)
+
+
+class AuditLogBase(AuditLogCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SecuritySettingsCommon(SQLModel):
+    """Singleton row storing enterprise security policy values."""
+    min_password_length: int = 8
+    password_expiry_days: int = 90
+    require_uppercase: bool = True
+    require_lowercase: bool = True
+    require_numbers: bool = True
+    require_special: bool = False
+    password_history_length: int = 5
+    max_login_attempts: int = 5
+    lockout_duration_minutes: int = 30
+    inactivity_deactivate_days: int = 90
+    two_factor_enabled: bool = False
+    two_factor_require_all: bool = False
+    two_factor_require_admins_only: bool = True
+
+
+class SecuritySettingsBase(SecuritySettingsCommon):
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
 
 class ProjectCommon(SQLModel):
     name: str

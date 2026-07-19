@@ -63,6 +63,113 @@ class UserUpdate(SQLModel):
 class UserWithRoles(UserCommon):
     id: int
     roles: List[str]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    last_logout_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
+    failed_login_count: int = 0
+    created_by_id: Optional[int] = None
+
+
+class UserActivitySummary(SQLModel):
+    last_login: Optional[datetime] = None
+    last_logout: Optional[datetime] = None
+    last_activity: Optional[datetime] = None
+    last_ip_address: Optional[str] = None
+    last_device: Optional[str] = None
+    browser: Optional[str] = None
+    operating_system: Optional[str] = None
+    total_login_count: int = 0
+    failed_login_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by_id: Optional[int] = None
+    is_active: bool = True
+
+
+class UserStatsSummary(SQLModel):
+    total_users: int = 0
+    active_users: int = 0
+    inactive_users: int = 0
+    currently_logged_in: int = 0
+    failed_logins_today: int = 0
+
+
+class UserLoginHistoryRead(SQLModel):
+    id: int
+    user_id: Optional[int] = None
+    username: str
+    login_time: datetime
+    logout_time: Optional[datetime] = None
+    session_id: Optional[str] = None
+    ip_address: Optional[str] = None
+    device_name: Optional[str] = None
+    browser: Optional[str] = None
+    operating_system: Optional[str] = None
+    login_status: str
+    failure_reason: Optional[str] = None
+    last_activity: Optional[datetime] = None
+    session_duration: Optional[int] = None
+    authentication_method: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class SecuritySettingsRead(SQLModel):
+    id: int
+    min_password_length: int
+    password_expiry_days: int
+    require_uppercase: bool
+    require_lowercase: bool
+    require_numbers: bool
+    require_special: bool
+    password_history_length: int
+    max_login_attempts: int
+    lockout_duration_minutes: int
+    inactivity_deactivate_days: int
+    two_factor_enabled: bool
+    two_factor_require_all: bool
+    two_factor_require_admins_only: bool
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class SecuritySettingsUpdate(SQLModel):
+    min_password_length: Optional[int] = None
+    password_expiry_days: Optional[int] = None
+    require_uppercase: Optional[bool] = None
+    require_lowercase: Optional[bool] = None
+    require_numbers: Optional[bool] = None
+    require_special: Optional[bool] = None
+    password_history_length: Optional[int] = None
+    max_login_attempts: Optional[int] = None
+    lockout_duration_minutes: Optional[int] = None
+    inactivity_deactivate_days: Optional[int] = None
+    two_factor_enabled: Optional[bool] = None
+    two_factor_require_all: Optional[bool] = None
+    two_factor_require_admins_only: Optional[bool] = None
+
+
+class AuditLogRead(SQLModel):
+    id: int
+    actor_user_id: Optional[int] = None
+    actor_username: Optional[str] = None
+    action: str
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    previous_value: Optional[str] = None
+    new_value: Optional[str] = None
+    details: Optional[str] = None
+    ip_address: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 
 class MaintenanceUserRead(UserCommon):
@@ -518,9 +625,20 @@ class PermissionRead(SQLModel):
         orm_mode = True
 
 
+class PermissionCreate(SQLModel):
+    name: str
+    description: Optional[str] = None
+
+
+class PermissionUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class RoleCreate(SQLModel):
     name: str
     description: Optional[str] = None
+    permission_ids: Optional[List[int]] = None
 
 
 class RoleRead(SQLModel):
@@ -528,6 +646,7 @@ class RoleRead(SQLModel):
     name: str
     description: Optional[str] = None
     permissions: Optional[List[PermissionRead]] = None
+    user_count: Optional[int] = None
     
     class Config:
         orm_mode = True
@@ -536,6 +655,11 @@ class RoleRead(SQLModel):
 class RoleUpdate(SQLModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    permission_ids: Optional[List[int]] = None
+
+
+class RolePermissionsUpdate(SQLModel):
+    permission_ids: List[int] = []
 
 
 class TokenResponse(SQLModel):
