@@ -61,6 +61,15 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(value: Optional[datetime]) -> datetime:
+    """Normalize naive/aware datetimes for safe comparison/sorting."""
+    if value is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _str(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -456,7 +465,7 @@ def _build_timeline_events(
             )
         )
 
-    events.sort(key=lambda e: e.occurred_at or datetime.min.replace(tzinfo=timezone.utc))
+    events.sort(key=lambda e: _as_utc(e.occurred_at))
     return events
 
 
@@ -715,7 +724,7 @@ def maintenance_history_dossier(
                 occurred_at=case.closed_at,
             )
         )
-    timeline.sort(key=lambda e: e.occurred_at or datetime.min.replace(tzinfo=timezone.utc))
+    timeline.sort(key=lambda e: _as_utc(e.occurred_at))
 
     # Attachments linked to hierarchy entities referenced by faulty entities
     owner_pairs: List[Tuple[str, int]] = []
