@@ -178,8 +178,8 @@ def get_serial_numbers(
 ):
     """
     Search serial numbers for hardware currently installed under a project.
-    Prefers original_serial_number (inventory SN) when present so typeahead
-    matches inventory labels even if serial_number was historically rewritten.
+    Returns both serial_number and original_serial_number when they differ so
+    typeahead matches the SN shown on installed entities and inventory labels.
     """
     from sqlalchemy import or_
     from app.models.tables import System, Subsystem, Module, Unit, Component
@@ -193,21 +193,31 @@ def get_serial_numbers(
     found: set[str] = set()
     per_level = min(limit, 100)
 
-    def preferred_serial(serial_number, original_serial_number) -> str | None:
-        original = (original_serial_number or "").strip()
-        current = (serial_number or "").strip()
-        value = original or current
-        return value or None
+    def _as_serial(value) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def collect_serials(serial_number, original_serial_number) -> None:
+        # Include both when they differ so typeahead finds the SN shown in
+        # the project UI (serial_number) and the inventory/original SN.
+        for value in (
+            _as_serial(original_serial_number),
+            _as_serial(serial_number),
+        ):
+            if value:
+                found.add(value)
 
     def collect_rows(rows) -> None:
         for row in rows:
-            if isinstance(row, (tuple, list)):
-                serial_number, original_serial_number = row[0], row[1]
-            else:
+            # SQLAlchemy Row is sequence-like but not a tuple/list — index it.
+            try:
+                serial_number = row[0]
+                original_serial_number = row[1]
+            except (TypeError, IndexError, KeyError):
                 serial_number, original_serial_number = row, None
-            value = preferred_serial(serial_number, original_serial_number)
-            if value:
-                found.add(value)
+            collect_serials(serial_number, original_serial_number)
 
     def matches_serial(model):
         return or_(
