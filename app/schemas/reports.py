@@ -12,9 +12,15 @@ from pydantic import BaseModel, Field
 class ReportType(str, Enum):
     BUILD_HISTORY_DOSSIER = "build_history_dossier"
     MAINTENANCE_HISTORY_DOSSIER = "maintenance_history_dossier"
+    HIERARCHY = "hierarchy"
     INVENTORY = "inventory"
     MAINTENANCE = "maintenance"
     EXECUTIVE = "executive"
+
+
+class HierarchyReportMode(str, Enum):
+    BHD = "bhd"
+    MMHD = "mmhd"
 
 
 class ReportRegisterRequest(BaseModel):
@@ -114,7 +120,10 @@ class HierarchyEntityNode(BaseModel):
     name: str
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
+    original_part_number: Optional[str] = None
+    original_serial_number: Optional[str] = None
     installation_date: Optional[datetime] = None
+    installed_by: Optional[str] = None
     configuration_item: Optional[str] = None
     current_status: Optional[str] = None
     previous_status: Optional[str] = None
@@ -122,10 +131,22 @@ class HierarchyEntityNode(BaseModel):
     modified_date: Optional[datetime] = None
     description: Optional[str] = None
     picture_url: Optional[str] = None
+    sku: Optional[str] = None
+    is_current_install: Optional[bool] = None
+    replacement_sequence: Optional[int] = None
+    replaced_at: Optional[datetime] = None
+    was_replaced: Optional[bool] = None
     children: List["HierarchyEntityNode"] = Field(default_factory=list)
 
 
 HierarchyEntityNode.model_rebuild()
+
+
+class HierarchyReportResponse(BaseModel):
+    mode: str
+    project: Dict[str, Any]
+    hierarchy: List[HierarchyEntityNode] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ConfigHistoryItem(BaseModel):

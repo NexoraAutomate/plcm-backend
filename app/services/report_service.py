@@ -41,6 +41,7 @@ from app.schemas.reports import (
     ExecutiveReportResponse,
     FaultyEntityItem,
     HierarchyEntityNode,
+    HierarchyReportResponse,
     ImageItem,
     InventoryReportItem,
     InventoryReportResponse,
@@ -266,6 +267,220 @@ def _node_from_hw(
         description=getattr(row, "description", None),
         picture_url=getattr(row, "picture_url", None),
         children=children or [],
+    )
+
+
+def _is_current_install(row: Any) -> bool:
+    return getattr(row, "is_current_install", True) is not False
+
+
+def _slot_root_id(row: Any) -> int:
+    root = getattr(row, "root_entity_id", None)
+    return int(root) if root is not None else int(row.id)
+
+
+def _filter_current_install(rows: List[Any]) -> List[Any]:
+    """Keep one current-install row per slot (highest replacement_sequence)."""
+    by_slot: Dict[int, Any] = {}
+    for row in rows:
+        if not _is_current_install(row):
+            continue
+        root_id = _slot_root_id(row)
+        existing = by_slot.get(root_id)
+        if existing is None:
+            by_slot[root_id] = row
+            continue
+        existing_seq = getattr(existing, "replacement_sequence", 0) or 0
+        row_seq = getattr(row, "replacement_sequence", 0) or 0
+        if row_seq > existing_seq or (row_seq == existing_seq and row.id > existing.id):
+            by_slot[root_id] = row
+    return list(by_slot.values())
+
+
+def _prefer_original(value: Optional[str], fallback: Optional[str]) -> Optional[str]:
+    if value and str(value).strip():
+        return str(value).strip()
+    return fallback
+
+
+def _node_from_hw_report(
+    session: Session,
+    entity_type: str,
+    row: Any,
+    mode: str,
+    children: Optional[List[HierarchyEntityNode]] = None,
+) -> HierarchyEntityNode:
+    tracker = _entity_tracker(session, entity_type, row.id)
+    prev_status, modified = _previous_status(session, tracker)
+    installed_by_id = getattr(row, "installed_by_id", None)
+    installer = session.get(User, installed_by_id) if installed_by_id else None
+
+    original_pn = getattr(row, "original_part_number", None)
+    original_sn = getattr(row, "original_serial_number", None)
+    current_pn = getattr(row, "part_number", None)
+    current_sn = getattr(row, "serial_number", None)
+    prefer_original = mode == "bhd"
+    part_number = _prefer_original(original_pn, current_pn) if prefer_original else current_pn
+    serial_number = _prefer_original(original_sn, current_sn) if prefer_original else current_sn
+    replacement_sequence = getattr(row, "replacement_sequence", 0) or 0
+    replaced_at = getattr(row, "replaced_at", None)
+    configuration_item = getattr(row, "configuration_item", None)
+    if not (configuration_item and str(configuration_item).strip()):
+        configuration_item = part_number
+
+    return HierarchyEntityNode(
+        entity_type=entity_type,
+        id=row.id,
+        name=row.name,
+        part_number=part_number,
+        serial_number=serial_number,
+        original_part_number=original_pn,
+        original_serial_number=original_sn,
+        installation_date=getattr(row, "installation_date", None),
+        installed_by=_user_name(installer),
+        configuration_item=configuration_item,
+        current_status=_status_name(getattr(row, "status", None)),
+        previous_status=prev_status,
+        created_date=getattr(row, "created_at", None),
+        modified_date=modified,
+        description=getattr(row, "description", None),
+        picture_url=getattr(row, "picture_url", None),
+        sku=getattr(row, "sku", None),
+        is_current_install=_is_current_install(row),
+        replacement_sequence=replacement_sequence,
+        replaced_at=replaced_at,
+        was_replaced=replacement_sequence > 0 or replaced_at is not None,
+        children=children or [],
+    )
+
+
+def _build_hierarchy_report(
+    session: Session, project_id: int, mode: str
+) -> List[HierarchyEntityNode]:
+    systems = _filter_current_install(
+        list(
+            session.exec(
+                select(System).where(System.project_id == project_id).order_by(System.id)
+            ).all()
+        )
+    )
+    tree: List[HierarchyEntityNode] = []
+    for system in systems:
+        subsystems = _filter_current_install(
+            list(
+                session.exec(
+                    select(Subsystem)
+                    .where(Subsystem.system_id == system.id)
+                    .order_by(Subsystem.id)
+                ).all()
+            )
+        )
+        subsystem_nodes: List[HierarchyEntityNode] = []
+        for subsystem in subsystems:
+            modules = _filter_current_install(
+                list(
+                    session.exec(
+                        select(Module)
+                        .where(Module.subsystem_id == subsystem.id)
+                        .order_by(Module.id)
+                    ).all()
+                )
+            )
+            module_nodes: List[HierarchyEntityNode] = []
+            for module in modules:
+                units = _filter_current_install(
+                    list(
+                        session.exec(
+                            select(Unit)
+                            .where(Unit.module_id == module.id)
+                            .order_by(Unit.id)
+                        ).all()
+                    )
+                )
+                unit_nodes: List[HierarchyEntityNode] = []
+                for unit in units:
+                    components = _filter_current_install(
+                        list(
+                            session.exec(
+                                select(Component)
+                                .where(Component.unit_id == unit.id)
+                                .order_by(Component.id)
+                            ).all()
+                        )
+                    )
+                    component_nodes = [
+                        _node_from_hw_report(session, "component", c, mode)
+                        for c in components
+                    ]
+                    unit_nodes.append(
+                        _node_from_hw_report(session, "unit", unit, mode, component_nodes)
+                    )
+                module_nodes.append(
+                    _node_from_hw_report(session, "module", module, mode, unit_nodes)
+                )
+            subsystem_nodes.append(
+                _node_from_hw_report(session, "subsystem", subsystem, mode, module_nodes)
+            )
+        tree.append(_node_from_hw_report(session, "system", system, mode, subsystem_nodes))
+    return tree
+
+
+def _count_hierarchy(nodes: List[HierarchyEntityNode]) -> Dict[str, int]:
+    counts: Dict[str, int] = defaultdict(int)
+    replaced = 0
+
+    def walk(node: HierarchyEntityNode) -> None:
+        nonlocal replaced
+        counts[node.entity_type] += 1
+        if node.was_replaced:
+            replaced += 1
+        for child in node.children:
+            walk(child)
+
+    for n in nodes:
+        walk(n)
+    return {
+        "systems": counts.get("system", 0),
+        "subsystems": counts.get("subsystem", 0),
+        "modules": counts.get("module", 0),
+        "units": counts.get("unit", 0),
+        "components": counts.get("component", 0),
+        "replaced_entities": replaced,
+        "total_entities": sum(counts.values()),
+    }
+
+
+def hierarchy_report(
+    session: Session, project_id: int, mode: str = "bhd"
+) -> HierarchyReportResponse:
+    mode_norm = (mode or "bhd").strip().lower()
+    if mode_norm not in {"bhd", "mmhd"}:
+        raise ValueError("mode must be 'bhd' or 'mmhd'")
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise ValueError("Project not found")
+
+    project_status = session.get(Status, project.status_id) if project.status_id else None
+    owner = session.get(User, project.owner_id) if project.owner_id else None
+    hierarchy = _build_hierarchy_report(session, project_id, mode_norm)
+    summary = _count_hierarchy(hierarchy)
+
+    return HierarchyReportResponse(
+        mode=mode_norm,
+        project={
+            "id": project.id,
+            "name": project.name,
+            "project_number": f"PRJ-{project.id}",
+            "description": project.description,
+            "start_date": _str(project.start_date),
+            "completion_date": _str(project.end_date),
+            "status": _status_name(project_status),
+            "project_manager": _user_name(owner),
+            "progress": project.progress,
+        },
+        hierarchy=hierarchy,
+        summary=summary,
     )
 
 

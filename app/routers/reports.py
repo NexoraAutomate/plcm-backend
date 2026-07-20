@@ -13,6 +13,7 @@ from app.routers.auth import require_permission
 from app.schemas.reports import (
     BuildHistoryDossierResponse,
     ExecutiveReportResponse,
+    HierarchyReportResponse,
     InventoryReportResponse,
     MaintenanceHistoryDossierResponse,
     MaintenanceSummaryResponse,
@@ -75,6 +76,25 @@ def get_build_history_dossier(
         return report_service.build_history_dossier(session, project_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/hierarchy/{project_id}", response_model=HierarchyReportResponse)
+def get_hierarchy_report(
+    project_id: int,
+    mode: str = Query("bhd", description="Report mode: bhd or mmhd"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_reports")),
+):
+    try:
+        return report_service.hierarchy_report(session, project_id, mode=mode)
+    except ValueError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_400_BAD_REQUEST
+            if "mode must" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=code, detail=detail) from exc
 
 
 @router.get(
