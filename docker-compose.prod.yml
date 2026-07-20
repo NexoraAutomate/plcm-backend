@@ -1,0 +1,35 @@
+services:
+
+  db:
+    image: satlife-db:latest
+    container_name: satlife-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: plcm
+    ports:
+      - "5432:5432"
+    volumes:
+      - satlife_pgdata:/var/lib/postgresql/data
+
+  backend:
+    image: satlife-backend:latest
+    container_name: satlife-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: satlife-frontend:latest
+    container_name: satlife-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  satlife_pgdata:
+  satlife_uploads:

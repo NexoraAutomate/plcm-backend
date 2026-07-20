@@ -575,6 +575,53 @@ def initialize_roles_and_permissions(session: Session):
     session.commit()
 
 
+# ==================== DEFAULT ADMIN BOOTSTRAP ====================
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_ADMIN_PASSWORD = "password@82768243"
+
+
+def _env_flag_enabled(name: str, default: bool = True) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def ensure_default_admin(session: Session) -> None:
+    """
+    Create the default Admin user on first run (after tables/roles exist).
+
+    Controlled by CREATE_DEFAULT_ADMIN (default: true). Set to false/0/no/off to disable.
+    Skips if username "admin" already exists.
+    """
+    if not _env_flag_enabled("CREATE_DEFAULT_ADMIN", default=True):
+        return
+
+    from app.models.tables import Role
+
+    existing = session.exec(
+        select(User).where(User.username == DEFAULT_ADMIN_USERNAME)
+    ).first()
+    if existing:
+        return
+
+    admin_role = session.exec(select(Role).where(Role.name == "Admin")).first()
+    if not admin_role:
+        return
+
+    admin_user = User(
+        username=DEFAULT_ADMIN_USERNAME,
+        email=None,
+        full_name="Administrator",
+        is_active=True,
+        password=hash_password(DEFAULT_ADMIN_PASSWORD),
+        updated_at=datetime.now(timezone.utc),
+    )
+    admin_user.roles = [admin_role]
+    session.add(admin_user)
+    session.commit()
+
+
 # ==================== SYNC ROLES & PERMISSIONS ====================
 def sync_roles_and_permissions(session: Session):
     """

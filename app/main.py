@@ -4,7 +4,11 @@ from app.database import init_db, close_db, engine
 from sqlmodel import Session
 from contextlib import asynccontextmanager
 from app.routers import router
-from app.auth import initialize_roles_and_permissions, sync_roles_and_permissions
+from app.auth import (
+    ensure_default_admin,
+    initialize_roles_and_permissions,
+    sync_roles_and_permissions,
+)
 from app.services.inventory_service import backfill_legacy_inventory_instances
 from app.services.security_settings_service import get_or_create_security_settings
 from app.services.inactivity_service import deactivate_inactive_users
@@ -18,6 +22,8 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         initialize_roles_and_permissions(session)
         sync_roles_and_permissions(session)
+        # First-run bootstrap: create admin / password@82768243 unless CREATE_DEFAULT_ADMIN=false
+        ensure_default_admin(session)
         # Legacy seed/import data stored qty on the parent row; project install needs instances.
         backfill_legacy_inventory_instances(session)
         get_or_create_security_settings(session)

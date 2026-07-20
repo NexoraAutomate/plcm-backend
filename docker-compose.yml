@@ -1,5 +1,5 @@
-# Standalone backend + database stack.
-# For the full stack (frontend included), use ../docker-compose.yml from SDLSLife/.
+# Full stack: database + backend + frontend.
+# Frontend uses the existing plcm-frontend image (or rebuild from ../satlife-frontend-main).
 
 services:
   db:
@@ -36,6 +36,7 @@ services:
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-me-to-a-long-random-string}
       AUTH_ALGORITHM: ${AUTH_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      CREATE_DEFAULT_ADMIN: ${CREATE_DEFAULT_ADMIN:-true}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       PLCM_UPLOAD_DIR: ${PLCM_UPLOAD_DIR:-/app/uploads}
       BACKEND_RELOAD: "false"
@@ -43,6 +44,23 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - satlife_uploads:/app/uploads
+
+  frontend:
+    image: plcm-frontend:latest
+    build:
+      context: ../satlife-frontend-main
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
+    container_name: satlife-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   satlife_pgdata:
