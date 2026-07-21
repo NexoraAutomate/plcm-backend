@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +25,15 @@ MANIFEST_NAME = "manifest.json"
 DUMP_NAME = "database.dump"
 UPLOADS_ARCHIVE_PREFIX = "uploads/"
 UPLOAD_ROOT = Path(os.environ.get("PLCM_UPLOAD_DIR", "uploads"))
+
+_COPY_REVISION_RE = re.compile(
+    r"COPY\s+(?:public\.)?alembic_version\s*\([^)]*\)\s+FROM\s+stdin;\s*\n([^\n\\]+)",
+    re.IGNORECASE,
+)
+_INSERT_REVISION_RE = re.compile(
+    r"INSERT\s+INTO\s+(?:public\.)?alembic_version\s*(?:\([^)]*\))?\s*VALUES\s*\(\s*'([^']+)'\s*\)",
+    re.IGNORECASE,
+)
 
 
 class BackupError(Exception):
@@ -130,11 +140,59 @@ def get_alembic_revision(session: Session) -> Optional[str]:
         return None
 
 
+def _parse_alembic_revision_sql(sql: str) -> Optional[str]:
+    copy_match = _COPY_REVISION_RE.search(sql)
+    if copy_match:
+        value = copy_match.group(1).strip()
+        return value or None
+    insert_match = _INSERT_REVISION_RE.search(sql)
+    if insert_match:
+        value = insert_match.group(1).strip()
+        return value or None
+    return None
+
+
+def get_alembic_revision_from_dump(dump_path: Path) -> Optional[str]:
+    """Read alembic_version.version_num from a pg_dump custom-format archive."""
+    pg_restore = _require_binary("pg_restore")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".sql") as tmp:
+        sql_path = Path(tmp.name)
+    try:
+        result = subprocess.run(
+            [
+                pg_restore,
+                "--data-only",
+                "--table=alembic_version",
+                "-f",
+                str(sql_path),
+                str(dump_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode not in (0, 1):
+            return None
+        try:
+            sql = sql_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        return _parse_alembic_revision_sql(sql)
+    finally:
+        sql_path.unlink(missing_ok=True)
+
+
 def create_backup_archive(*, created_by: str, alembic_revision: Optional[str]) -> tuple[Path, str]:
     """
     Build a ZIP backup containing manifest.json, database.dump, and uploads/.
     Returns (zip_path, filename). Caller must delete zip_path when finished.
     """
+    if not alembic_revision:
+        raise BackupError(
+            "Cannot create backup: database has no alembic revision. "
+            "Run migrations (alembic upgrade head) before backing up."
+        )
+
     pg_dump = _require_binary("pg_dump")
     db = _parse_database_url(DATABASE_URL)
     created_at = datetime.now(timezone.utc)
@@ -218,7 +276,8 @@ def restore_from_archive(
 ) -> dict[str, Any]:
     """
     Restore database and uploads from a SatLife backup ZIP.
-    Refuses restore when alembic revision is missing or does not match current DB.
+    Requires a schema revision in the archive (manifest or dump).
+    If the live DB still has a revision, it must match the backup.
     """
     pg_restore = _require_binary("pg_restore")
     db = _parse_database_url(DATABASE_URL)
@@ -247,23 +306,26 @@ def restore_from_archive(
         if manifest.get("app") != APP_LABEL:
             raise BackupError("Backup manifest is not a SatLife application backup.")
 
-        backup_revision = manifest.get("alembic_revision")
+        dump_path = extract_dir / DUMP_NAME
+        backup_revision = manifest.get("alembic_revision") or None
+        if not backup_revision:
+            backup_revision = get_alembic_revision_from_dump(dump_path)
         if not backup_revision:
             raise BackupError(
-                "Backup manifest is missing alembic_revision; refusing restore."
+                "Backup is missing alembic_revision (manifest and database.dump). "
+                "This archive was created from a database without migrations applied "
+                "and cannot be restored safely. Use an earlier backup that includes "
+                "a schema revision."
             )
-        if not current_revision:
-            raise BackupError(
-                "Current database has no alembic revision; refusing restore."
-            )
-        if backup_revision != current_revision:
+        # Allow restore into a DB that lost alembic_version (recovery). When the
+        # live DB still has a revision, require an exact match.
+        if current_revision and backup_revision != current_revision:
             raise BackupError(
                 f"Schema mismatch: backup revision '{backup_revision}' "
                 f"does not match current '{current_revision}'. "
                 "Upgrade or match application versions before restoring."
             )
 
-        dump_path = extract_dir / DUMP_NAME
         # Dispose pooled connections so --clean can drop objects safely
         engine.dispose()
 
