@@ -43,6 +43,21 @@ from app.models.base import (
 class UserCreate(UserBase):
     pass
 
+
+class UserSignup(SQLModel):
+    """Public self-registration payload. Accounts are always created inactive."""
+
+    username: str
+    password: str
+    full_name: str
+    email: Optional[str] = None
+
+
+class UserSignupResponse(SQLModel):
+    message: str
+    username: str
+
+
 class UserRead(UserBase):
     id: int
     projects: Optional[List["ProjectRead"]] = None

@@ -43,7 +43,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 oauth2_scheme:OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 ACCOUNT_DEACTIVATED_MESSAGE = (
-    "Your account has been deactivated. Please contact your system administrator."
+    "Your account is inactive or pending approval. "
+    "Please contact an administrator to activate your account."
 )
 
 
@@ -308,6 +309,69 @@ def register(
     session.commit()
     session.refresh(db_user)
     return db_user
+
+
+@router.post("/signup", response_model=schemas.UserSignupResponse, status_code=status.HTTP_201_CREATED)
+def signup(
+    user_data: schemas.UserSignup,
+    session: Session = Depends(get_session),
+):
+    """
+    Public self-registration. Creates an inactive Viewer account that cannot
+    log in until an Admin or SubAdmin activates the user.
+    """
+    username = (user_data.username or "").strip()
+    full_name = (user_data.full_name or "").strip()
+    email = (user_data.email or "").strip() or None
+    password = user_data.password or ""
+
+    if not username or not full_name or not password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username, full name, and password are required",
+        )
+
+    existing_user = session.exec(select(User).where(User.username == username)).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists",
+        )
+
+    if email:
+        existing_email = session.exec(select(User).where(User.email == email)).first()
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
+
+    default_role = session.exec(select(Role).where(Role.name == "Viewer")).first()
+    if not default_role:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Default role not initialized",
+        )
+
+    db_user = User(
+        username=username,
+        email=email,
+        full_name=full_name,
+        is_active=False,
+        password=hash_password(password),
+        updated_at=_utcnow(),
+    )
+    db_user.roles = [default_role]
+    session.add(db_user)
+    session.commit()
+
+    return schemas.UserSignupResponse(
+        message=(
+            "Account request submitted successfully. "
+            "An administrator must activate your account before you can sign in."
+        ),
+        username=username,
+    )
 
 @router.post("/change-password")
 def change_password(
