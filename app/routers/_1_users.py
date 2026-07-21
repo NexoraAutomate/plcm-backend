@@ -6,8 +6,8 @@ from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import User, Role, UserLoginHistory
 from app.schemas import schemas
-from app.routers.auth import require_permission, get_current_user, require_role
-from app.auth import check_role, hash_password
+from app.routers.auth import require_permission, require_any_role
+from app.auth import check_role, check_any_role, hash_password, PRIVILEGED_ROLE_NAMES
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.audit_service import write_audit_log
@@ -237,7 +237,7 @@ def get_user(
 def get_user_activity(
     user_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_role("Admin")),
+    current_user: User = Depends(require_any_role("Admin", "SubAdmin")),
 ):
     user = session.get(User, user_id)
     if not user:
@@ -262,7 +262,7 @@ def get_user_login_history(
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = None,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_role("Admin")),
+    current_user: User = Depends(require_any_role("Admin", "SubAdmin")),
 ):
     user = session.get(User, user_id)
     if not user:
@@ -324,10 +324,21 @@ def update_user(
     update_data = user.model_dump(exclude_unset=True)
     previous_active = db_user.is_active
 
-    if "is_active" in update_data and not check_role(current_user, "Admin"):
+    if "is_active" in update_data and not check_any_role(current_user, ["Admin", "SubAdmin"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only administrators may activate or deactivate users.",
+        )
+
+    # SubAdmin cannot activate/deactivate Admin or SubAdmin accounts
+    if (
+        "is_active" in update_data
+        and not check_role(current_user, "Admin")
+        and any(r.name in PRIVILEGED_ROLE_NAMES for r in (db_user.roles or []))
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin can activate or deactivate Admin or SubAdmin users.",
         )
 
     if "password" in update_data:
@@ -375,6 +386,12 @@ def delete_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot delete user with Admin role. Please remove Admin role before deletion.",
+        )
+
+    if user.roles and check_role(user, "SubAdmin") and not check_role(current_user, "Admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin can delete SubAdmin users.",
         )
 
     user.roles.clear()

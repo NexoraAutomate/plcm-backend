@@ -108,6 +108,24 @@ def check_permission(user, required_permission: str) -> bool:
 def check_role(user:User, required_role: str) -> bool:
     return any(role.name == required_role for role in user.roles)
 
+def check_any_role(user: User, required_roles: List[str]) -> bool:
+    """Return True if the user has any of the given roles."""
+    return any(check_role(user, role) for role in required_roles)
+
+# Permissions withheld from SubAdmin (Admin-only capabilities).
+SUBADMIN_EXCLUDED_PERMISSIONS = frozenset({
+    "view_roles",
+    "create_roles",
+    "edit_roles",
+    "delete_roles",
+    "backup_database",
+    "restore_database",
+    "manage_settings",
+})
+
+# Privileged roles that only Admin may assign / manage.
+PRIVILEGED_ROLE_NAMES = frozenset({"Admin", "SubAdmin"})
+
 # ==================== DEFAULT ROLES & PERMISSIONS ====================
 DEFAULT_PERMISSIONS = [
     # ==================== USERS MANAGEMENT ====================
@@ -274,6 +292,18 @@ DEFAULT_ROLES = [
         "name": "Admin",
         "description": "Full access to all features and endpoints",
         "permissions": [p["name"] for p in DEFAULT_PERMISSIONS]
+    },
+    {
+        "name": "SubAdmin",
+        "description": (
+            "Near-admin access excluding role management and backup/restore. "
+            "Cannot create Admin or SubAdmin users."
+        ),
+        "permissions": [
+            p["name"]
+            for p in DEFAULT_PERMISSIONS
+            if p["name"] not in SUBADMIN_EXCLUDED_PERMISSIONS
+        ],
     },
     {
         "name": "ProjectManager",

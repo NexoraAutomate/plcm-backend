@@ -17,8 +17,10 @@ from app.auth import (
     get_user_from_token,
     get_user_permissions,
     check_role,
+    check_any_role,
     check_permission,
     decode_token,
+    PRIVILEGED_ROLE_NAMES,
 )
 from datetime import datetime, timedelta, timezone
 from app.services.sorting import apply_sort
@@ -229,6 +231,18 @@ def require_role(role: str):
         return user
     return check_role_dependency
 
+
+def require_any_role(*roles: str):
+    """Dependency to check if user has any of the given roles."""
+    async def check_role_dependency(user: User = Depends(get_current_user)):
+        if not check_any_role(user, list(roles)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User does not have any of the required roles: {', '.join(roles)}",
+            )
+        return user
+    return check_role_dependency
+
 # ==================== AUTHENTICATION ENDPOINTS ====================
 
 @router.post("/login", response_model=schemas.TokenResponse)
@@ -339,10 +353,10 @@ def logout(
 def list_roles(
     sort_by: str | None = None,
     sort_order: str | None = None,
-    user: User = Depends(require_role("Admin")),
+    user: User = Depends(require_any_role("Admin", "SubAdmin")),
     session: Session = Depends(get_session),
 ):
-    """List all roles. Requires Admin role."""
+    """List roles. Admin sees all; SubAdmin cannot see Admin or SubAdmin."""
     stmt = apply_sort(
         select(Role),
         Role,
@@ -351,7 +365,9 @@ def list_roles(
         allowed_fields={"id", "name", "description"},
     )
     roles = session.exec(stmt).all()
-    return roles
+    if check_role(user, "Admin"):
+        return roles
+    return [role for role in roles if role.name not in PRIVILEGED_ROLE_NAMES]
 
 @router.get("/roles/{role_id}", response_model=schemas.RoleRead)
 def get_role(role_id: int, user: User = Depends(require_role("Admin")), session: Session = Depends(get_session)): 
@@ -448,10 +464,10 @@ def delete_role(
     role = session.get(Role, role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
-    if role.name.lower() == "admin":
+    if role.name.lower() in ("admin", "subadmin"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The Admin role cannot be deleted",
+            detail=f"The {role.name} role cannot be deleted",
         )
     assigned_count = len(role.users or [])
     if assigned_count > 0:
@@ -548,10 +564,10 @@ def delete_permission(
 @router.post("/assign-role")
 def assign_role_to_user(
     assignment: schemas.AssignRoleRequest,
-    user: User = Depends(require_role("Admin")),
+    user: User = Depends(require_any_role("Admin", "SubAdmin")),
     session: Session = Depends(get_session)
 ):
-    """Set a user's role (replaces any existing roles). Requires Admin role."""
+    """Set a user's role (replaces any existing roles). Admin or SubAdmin only."""
     target_user = session.get(User, assignment.user_id)
     if not target_user:
         raise HTTPException(
@@ -563,12 +579,38 @@ def assign_role_to_user(
         raise HTTPException(
             status_code=404, 
             detail="Role not found")
-    
-    is_admin = assignment.role_id == session.exec(select(Role.id).where(Role.name == "Admin")).first()
-    if is_admin:
+
+    caller_is_admin = check_role(user, "Admin")
+    target_is_privileged = any(
+        r.name in PRIVILEGED_ROLE_NAMES for r in (target_user.roles or [])
+    )
+
+    # Admin role can never be assigned via API (bootstrap-only).
+    # Allow a no-op when the target already has Admin (e.g. edit form re-sends it).
+    if role.name == "Admin":
+        if check_role(target_user, "Admin"):
+            return {
+                "message": f"Role '{role.name}' already assigned to user '{target_user.username}'",
+                "user_id": target_user.id,
+                "role_id": role.id,
+            }
         raise HTTPException(
-            status_code= status.HTTP_403_FORBIDDEN,
-            detail= "Admin Already exists. Cannot assign Admin role to another user."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot assign Admin role to another user.",
+        )
+
+    # Only Admin may create or manage SubAdmin users.
+    if role.name == "SubAdmin" and not caller_is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin can assign the SubAdmin role.",
+        )
+
+    # SubAdmin cannot change roles of Admin or SubAdmin users.
+    if not caller_is_admin and target_is_privileged:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin can change roles for Admin or SubAdmin users.",
         )
 
     # Replace existing roles so edit-user changes the role instead of stacking
@@ -585,10 +627,10 @@ def assign_role_to_user(
 @router.delete("/remove-role")
 def remove_role_from_user(
     assignment: schemas.AssignRoleRequest,
-    user: User = Depends(require_role("Admin")),
+    user: User = Depends(require_any_role("Admin", "SubAdmin")),
     session: Session = Depends(get_session)
 ):
-    """Remove a role from a user. Requires Admin role."""
+    """Remove a role from a user. Admin or SubAdmin only."""
     target_user = session.get(User, assignment.user_id)
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -596,11 +638,25 @@ def remove_role_from_user(
     role = session.get(Role, assignment.role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
-    
+
+    caller_is_admin = check_role(user, "Admin")
+
     if target_user.roles and check_role(target_user, "Admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot remove role from user with Admin role."
+        )
+
+    if not caller_is_admin and target_user.roles and check_role(target_user, "SubAdmin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Admin can remove roles from SubAdmin users.",
+        )
+
+    if role.name in PRIVILEGED_ROLE_NAMES and not caller_is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Only Admin can remove the {role.name} role.",
         )
 
     if role in target_user.roles:
