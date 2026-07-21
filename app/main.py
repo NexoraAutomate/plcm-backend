@@ -1,8 +1,17 @@
 import os
+from pathlib import Path
+
 from fastapi import FastAPI
-from app.database import init_db, close_db, engine
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+    get_swagger_ui_oauth2_redirect_html,
+)
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from contextlib import asynccontextmanager
+
+from app.database import init_db, close_db, engine
 from app.routers import router
 from app.auth import (
     ensure_default_admin,
@@ -13,6 +22,9 @@ from app.services.inventory_service import backfill_legacy_inventory_instances
 from app.services.security_settings_service import get_or_create_security_settings
 from app.services.inactivity_service import deactivate_inactive_users
 from app.services.schema_bootstrap import ensure_user_management_schema
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,11 +46,15 @@ async def lifespan(app: FastAPI):
     finally:
         # shutdown
         close_db()
-    
 
-app: FastAPI = FastAPI(title="PLCM System", lifespan=lifespan)
 
-from fastapi.middleware.cors import CORSMiddleware
+# Disable default CDN-backed docs; serve Swagger UI from local static assets instead.
+app: FastAPI = FastAPI(
+    title="PLCM System",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+)
 
 _default_origins = [
     "http://localhost:3000",
@@ -71,9 +87,30 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api")
 
+
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - Swagger UI",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="/static/swagger/swagger-ui-bundle.js",
+        swagger_css_url="/static/swagger/swagger-ui.css",
+        swagger_favicon_url="/static/favicon.png",
+    )
+
+
+@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
+async def swagger_ui_redirect():
+    return get_swagger_ui_oauth2_redirect_html()
+
+
 @app.get("/")
 def root():
     return {"message": "PLM FastAPI running"}
+
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 if __name__ == "__main__":
     import uvicorn
