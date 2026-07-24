@@ -82,6 +82,15 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(value: Optional[datetime]) -> datetime:
+    """Normalize naive/aware datetimes for safe comparison/sorting."""
+    if value is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _month_start(dt: datetime) -> datetime:
     return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
