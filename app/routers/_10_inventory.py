@@ -113,18 +113,26 @@ def _inventory_to_read(
     if is_component_inventory(inventory.inventory_type):
         data["instances"] = None
         if issued_to_user_id is not None:
-            # Installer: show only quantity issued to them (not full warehouse)
-            issued_qty = session.exec(
+            # Installer: held qty includes return_pending; available = installable only
+            installable_qty = session.exec(
                 select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
                     InventoryIssuance.inventory_id == inventory.id,
                     InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status.in_(RESERVED_STATUSES),
+                    InventoryIssuance.status == "issued",
                 )
             ).one()
-            issued_qty = int(issued_qty or 0)
-            data["quantity"] = issued_qty
-            data["reserved_quantity"] = 0
-            data["available_quantity"] = issued_qty
+            pending_qty = session.exec(
+                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
+                    InventoryIssuance.inventory_id == inventory.id,
+                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
+                    InventoryIssuance.status == "return_pending",
+                )
+            ).one()
+            installable_qty = int(installable_qty or 0)
+            pending_qty = int(pending_qty or 0)
+            data["quantity"] = installable_qty + pending_qty
+            data["reserved_quantity"] = pending_qty
+            data["available_quantity"] = installable_qty
     elif include_instances:
         instances = session.exec(
             select(InventoryInstance)
@@ -148,28 +156,42 @@ def _inventory_to_read(
             }
             instances = [i for i in instances if i.id in allowed_instance_ids]
             reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
-            # Installer sees issued count only (not full warehouse quantity)
-            issued_count = len(instances)
-            data["quantity"] = issued_count
-            data["reserved_quantity"] = 0
-            data["available_quantity"] = issued_count
+            # Held = all reserved to installer; available = installable (not return_pending)
+            pending_ids = {
+                iid
+                for iid, (_iss_id, status) in reserved_map.items()
+                if status == "return_pending"
+            }
+            installable_count = sum(1 for i in instances if i.id not in pending_ids)
+            pending_count = len(pending_ids)
+            data["quantity"] = len(instances)
+            data["reserved_quantity"] = pending_count
+            data["available_quantity"] = installable_count
         data["instances"] = [
             _instance_to_read(inst, reserved_map=reserved_map) for inst in instances
         ]
     else:
         data["instances"] = None
         if issued_to_user_id is not None:
-            issued_count = session.exec(
+            installable_qty = session.exec(
                 select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
                     InventoryIssuance.inventory_id == inventory.id,
                     InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status.in_(RESERVED_STATUSES),
+                    InventoryIssuance.status == "issued",
                 )
             ).one()
-            issued_count = int(issued_count or 0)
-            data["quantity"] = issued_count
-            data["reserved_quantity"] = 0
-            data["available_quantity"] = issued_count
+            pending_qty = session.exec(
+                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
+                    InventoryIssuance.inventory_id == inventory.id,
+                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
+                    InventoryIssuance.status == "return_pending",
+                )
+            ).one()
+            installable_qty = int(installable_qty or 0)
+            pending_qty = int(pending_qty or 0)
+            data["quantity"] = installable_qty + pending_qty
+            data["reserved_quantity"] = pending_qty
+            data["available_quantity"] = installable_qty
     return schemas.InventoryRead.model_validate(data)
 
 

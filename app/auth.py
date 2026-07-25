@@ -117,6 +117,26 @@ def is_inventory_manager(user: User) -> bool:
     """Admin or SubAdmin — full warehouse visibility and issue/return management."""
     return check_any_role(user, ["Admin", "SubAdmin"])
 
+
+def require_install_owner_or_manager(user: User, entity: object) -> None:
+    """
+    Non-managers may only mutate hierarchy installs they performed.
+    Admin/SubAdmin may manage any install. Entities with no installer remain open
+    to anyone who already has edit/delete permission.
+    """
+    from fastapi import HTTPException
+
+    if is_inventory_manager(user):
+        return
+    installed_by = getattr(entity, "installed_by_id", None)
+    if installed_by is None:
+        return
+    if int(installed_by) != int(user.id):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only edit, revert, or delete inventory installs you performed",
+        )
+
 # Permissions withheld from SubAdmin (Admin-only capabilities).
 SUBADMIN_EXCLUDED_PERMISSIONS = frozenset({
     "view_roles",

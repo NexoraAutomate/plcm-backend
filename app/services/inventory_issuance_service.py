@@ -119,13 +119,23 @@ def reserved_quantity(session: Session, inventory_id: int) -> int:
 def open_issuance_for_instance(
     session: Session,
     instance_id: int,
+    *,
+    statuses: tuple[str, ...] = RESERVED_STATUSES,
 ) -> Optional[InventoryIssuance]:
     return session.exec(
         select(InventoryIssuance).where(
             InventoryIssuance.inventory_instance_id == instance_id,
-            InventoryIssuance.status.in_(RESERVED_STATUSES),
+            InventoryIssuance.status.in_(statuses),
         )
     ).first()
+
+
+def installable_issuance_for_instance(
+    session: Session,
+    instance_id: int,
+) -> Optional[InventoryIssuance]:
+    """Only open `issued` rows — return_pending cannot be installed."""
+    return open_issuance_for_instance(session, instance_id, statuses=(OPEN_STATUS,))
 
 
 def available_quantity(session: Session, inventory: Inventory) -> int:
@@ -492,7 +502,18 @@ def resolve_issuance_for_consume(
             ).first()
             check_instance_id = first.id if first else None
         if check_instance_id is not None:
-            open_row = open_issuance_for_instance(session, check_instance_id)
+            pending = open_issuance_for_instance(
+                session, check_instance_id, statuses=(RETURN_PENDING_STATUS,)
+            )
+            if pending is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "This serial has a return pending admin approval and cannot "
+                        "be installed until the return is accepted or rejected."
+                    ),
+                )
+            open_row = installable_issuance_for_instance(session, check_instance_id)
             if open_row:
                 # Auto-match open issuance for this serial
                 return open_row
@@ -570,6 +591,14 @@ def consume_with_issuance(
         issuance_id=issuance_id,
         instance_id=instance_id,
     )
+    if issuance is not None and issuance.status != OPEN_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Issuance cannot be installed (status: {issuance.status}). "
+                "Return-pending stock must be accepted or rejected first."
+            ),
+        )
 
     consume_instance_id = instance_id
     if issuance and issuance.inventory_instance_id and consume_instance_id is None:
@@ -757,12 +786,12 @@ def revert_entity_to_inventory(
                 detail="You can only revert inventory that was issued to you or installed by you",
             )
     else:
+        from app.auth import require_install_owner_or_manager
+
+        require_install_owner_or_manager(closed_by, row)
         installed_by = getattr(row, "installed_by_id", None)
-        if installed_by is not None and installed_by != closed_by.id:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only revert installs performed by you",
-            )
+        if installed_by is not None:
+            issued_to_id = int(installed_by)
 
     # Collect descendants BEFORE soft-removing parent (FK walk uses current installs)
     descendants = _collect_descendants(session, normalized, entity_id)

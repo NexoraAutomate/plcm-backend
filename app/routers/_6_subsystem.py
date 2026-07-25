@@ -9,6 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
+from app.auth import require_install_owner_or_manager
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.pagination import paginated_query
 
@@ -90,6 +91,7 @@ def update_subsystem(subsystem_id: int, subsystem: schemas.SubsystemUpdate, sess
     db_subsystem = session.get(Subsystem, subsystem_id)
     if not db_subsystem:
         raise HTTPException(status_code=404, detail="Subsystem not found")
+    require_install_owner_or_manager(current_user, db_subsystem)
     for k, v in subsystem.model_dump(exclude_unset=True).items():
         setattr(db_subsystem, k, v)
     session.add(db_subsystem)
@@ -113,6 +115,7 @@ def delete_subsystem(subsystem_id: int, session: Session = Depends(get_session),
     subsystem = session.get(Subsystem, subsystem_id)
     if not subsystem:
         raise HTTPException(status_code=404, detail="Subsystem not found")
+    require_install_owner_or_manager(current_user, subsystem)
     session.delete(subsystem)
     session.commit()
     return {"ok": True}
