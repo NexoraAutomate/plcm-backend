@@ -365,7 +365,7 @@ def list_inventory_issuances(
     serial_number: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_inventory")),
+    current_user: User = Depends(require_permission("view_inventory_issuances")),
 ):
     manager = is_inventory_manager(current_user)
     effective_issued_to = issued_to_user_id
@@ -392,7 +392,7 @@ def list_inventory_issuances(
 def get_inventory_issuance(
     issuance_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_inventory")),
+    current_user: User = Depends(require_permission("view_inventory_issuances")),
 ):
     row = session.get(InventoryIssuance, issuance_id)
     if not row:

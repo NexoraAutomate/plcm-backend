@@ -199,6 +199,7 @@ DEFAULT_PERMISSIONS = [
     {"name": "delete_inventory", "description": "Delete inventory items"},
     {"name": "issue_inventory", "description": "Issue and return inventory to developers"},
     {"name": "revert_inventory_install", "description": "Revert accidental installs back to inventory"},
+    {"name": "view_inventory_issuances", "description": "View inventory issuances ledger"},
 
     # ==================== MAINTENANCE MANAGEMENT ====================
     {"name": "view_maintenance", "description": "View maintenance logs"},
@@ -333,6 +334,7 @@ DEFAULT_ROLES = [
             "view_components", "create_components", "edit_components",
             # Inventory — issued-to-me list + revert installs
             "view_inventory",
+            "view_inventory_issuances",
             "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance",
@@ -411,6 +413,7 @@ DEFAULT_ROLES = [
             "view_components", "create_components", "edit_components",
             # Inventory
             "view_inventory",
+            "view_inventory_issuances",
             "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance", "close_maintenance",
@@ -482,6 +485,7 @@ DEFAULT_ROLES = [
             "view_components", "create_components", "edit_components",
             # Inventory — issued-to-me list + revert installs
             "view_inventory",
+            "view_inventory_issuances",
             "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance", "close_maintenance",
@@ -565,6 +569,7 @@ DEFAULT_ROLES = [
             "view_components",
             # Inventory
             "view_inventory",
+            "view_inventory_issuances",
             # Maintenance
             "view_maintenance",
             # Entities
