@@ -381,9 +381,17 @@ def admin_hierarchy_replace(
         from app.services.entity_replacement_service import (
             replace_children_from_inventory_composition,
         )
-        from app.services.inventory_service import consume_inventory_unit
+        from app.services.inventory_issuance_service import consume_with_issuance
 
-        consume_inventory_unit(session, inventory, instance_id=inventory_instance_id)
+        consumed, issuance = consume_with_issuance(
+            session,
+            inventory,
+            instance_id=inventory_instance_id,
+            installed_by_id=performed_by.id,
+            installed_entity_type=entity_type.value if hasattr(entity_type, "value") else str(entity_type),
+            installed_entity_id=new_row.id if new_row is not None else None,
+        )
+        _ = consumed, issuance
 
         # Install / version children from inventory composition (create missing slots).
         if new_row is not None and prefetched_child_links:

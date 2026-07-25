@@ -467,6 +467,8 @@ class InventoryInstanceCreate(InventoryInstanceCommon):
 class InventoryInstanceRead(InventoryInstanceBase):
     id: int
     inventory_id: int
+    is_reserved: bool = False
+    open_issuance_id: Optional[int] = None
 
     class Config:
         orm_mode = True
@@ -493,12 +495,78 @@ class InventoryCreate(InventoryBase):
 class InventoryRead(InventoryBase):
     id: int
     instances: Optional[List[InventoryInstanceRead]] = None
+    reserved_quantity: int = 0
+    available_quantity: Optional[int] = None
 
     class Config:
         orm_mode = True
 
 class InventoryConsumeRequest(SQLModel):
     instance_id: Optional[int] = None
+    issuance_id: Optional[int] = None
+    installed_entity_type: Optional[str] = None
+    installed_entity_id: Optional[int] = None
+
+
+class InventoryIssueRequest(SQLModel):
+    issued_to_user_id: int
+    quantity: int = 1
+    instance_id: Optional[int] = None
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class InventoryIssuanceRead(SQLModel):
+    id: int
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    quantity: int
+    issued_to_user_id: int
+    issued_by_user_id: int
+    issued_at: datetime
+    status: str
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+    inventory_type: Optional[str] = None
+    notes: Optional[str] = None
+    installed_at: Optional[datetime] = None
+    installed_entity_type: Optional[str] = None
+    installed_entity_id: Optional[int] = None
+    installed_by_id: Optional[int] = None
+    closed_at: Optional[datetime] = None
+    closed_by_id: Optional[int] = None
+    issued_to_name: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    installed_by_name: Optional[str] = None
+    closed_by_name: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class InventoryIssuanceReturnRequest(SQLModel):
+    notes: Optional[str] = None
+
+
+class InventoryIssuanceLinkInstallRequest(SQLModel):
+    installed_entity_type: str
+    installed_entity_id: int
+
+
+class InventoryRevertToStockRequest(SQLModel):
+    entity_type: str
+    entity_id: int
+    notes: Optional[str] = None
+
+
+class InventoryRevertToStockRead(SQLModel):
+    inventory: InventoryRead
+    restored_instance: Optional[InventoryInstanceRead] = None
+    issuance: Optional[InventoryIssuanceRead] = None
 
 
 class InventoryChildLinkItem(SQLModel):
@@ -528,6 +596,7 @@ class InventoryChildrenReplace(SQLModel):
 class InventoryConsumeRead(SQLModel):
     inventory: InventoryRead
     consumed_instance: Optional[InventoryInstanceRead] = None
+    issuance: Optional[InventoryIssuanceRead] = None
 
 class InventoryUpdate(SQLModel):
     name: Optional[str] = None

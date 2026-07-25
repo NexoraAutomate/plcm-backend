@@ -123,8 +123,20 @@ def consume_inventory_unit(
     *,
     instance_id: Optional[int] = None,
     instance_serial: Optional[str] = None,
+    allow_reserved: bool = False,
 ) -> Optional[InventoryInstance]:
     if is_component_inventory(inventory.inventory_type):
+        if not allow_reserved:
+            from app.services.inventory_issuance_service import available_quantity
+
+            if available_quantity(session, inventory) < 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No available (unreserved) stock. Provide issuance_id to install "
+                        "reserved units, or return an issuance first."
+                    ),
+                )
         if inventory.quantity <= 0:
             raise HTTPException(status_code=400, detail="Inventory item is out of stock")
         inventory.quantity = max(0, inventory.quantity - 1)
@@ -151,6 +163,20 @@ def consume_inventory_unit(
         ).first()
     if not instance:
         raise HTTPException(status_code=400, detail="Inventory item is out of stock")
+
+    if not allow_reserved and instance.id is not None:
+        from app.services.inventory_issuance_service import open_issuance_for_instance
+
+        open_row = open_issuance_for_instance(session, instance.id)
+        if open_row:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This serial is reserved/issued. Provide issuance_id to install, "
+                    "or return the issuance first."
+                ),
+            )
+
     session.delete(instance)
     session.flush()
     sync_inventory_quantity(session, inventory)

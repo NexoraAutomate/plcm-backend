@@ -21,6 +21,7 @@ from app.models.tables import (
     EntityStatusHistory,
     FaultyEntity,
     Inventory,
+    InventoryIssuance,
     MaintenanceAction,
     MaintenanceCase,
     MaintenanceDelivery,
@@ -1023,6 +1024,80 @@ def inventory_report(
     status_name: Optional[str] = None,
 ) -> InventoryReportResponse:
     placeholders: List[str] = []
+
+    # Issuance ledger modes
+    if mode in ("issued", "reserved", "movements"):
+        from app.models.base import IssuanceStatus
+        from app.services.inventory_issuance_service import issuance_to_dict
+
+        stmt = select(InventoryIssuance)
+        if mode == "issued":
+            stmt = stmt.where(InventoryIssuance.status == IssuanceStatus.ISSUED.value)
+        elif mode == "reserved":
+            stmt = stmt.where(InventoryIssuance.status == IssuanceStatus.ISSUED.value)
+        # movements = all ledger rows
+        if part_number:
+            stmt = stmt.where(InventoryIssuance.part_number.ilike(f"%{part_number}%"))
+        if serial_number:
+            stmt = stmt.where(InventoryIssuance.serial_number.ilike(f"%{serial_number}%"))
+        if search:
+            like = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    InventoryIssuance.inventory_name.ilike(like),
+                    InventoryIssuance.part_number.ilike(like),
+                    InventoryIssuance.serial_number.ilike(like),
+                )
+            )
+        rows = session.exec(stmt.order_by(InventoryIssuance.issued_at.desc())).all()
+        items: List[InventoryReportItem] = []
+        for row in rows:
+            data = issuance_to_dict(session, row)
+            entity_detail = None
+            if row.installed_entity_type and row.installed_entity_id:
+                entity_detail = f"{row.installed_entity_type} #{row.installed_entity_id}"
+            elif row.target_entity_type and row.target_entity_id:
+                entity_detail = f"{row.target_entity_type} #{row.target_entity_id}"
+            items.append(
+                InventoryReportItem(
+                    id=row.inventory_id,
+                    name=row.inventory_name or f"Inventory #{row.inventory_id}",
+                    inventory_type=row.inventory_type,
+                    part_number=row.part_number,
+                    serial_number=row.serial_number,
+                    quantity=row.quantity,
+                    location=None,
+                    status_name=row.status,
+                    sku=None,
+                    oem_name=None,
+                    entity_id=row.installed_entity_id or row.target_entity_id,
+                    configuration_item=entity_detail,
+                    added_date=row.issued_at,
+                    issuance_id=row.id,
+                    issued_to_name=data.get("issued_to_name"),
+                    issued_by_name=data.get("issued_by_name"),
+                    issued_at=row.issued_at,
+                    issuance_status=row.status,
+                    target_entity_type=row.target_entity_type,
+                    target_entity_id=row.target_entity_id,
+                    installed_entity_type=row.installed_entity_type,
+                    installed_entity_id=row.installed_entity_id,
+                )
+            )
+        summary = {
+            "total_items": len(items),
+            "total_quantity": sum(i.quantity or 0 for i in items),
+            "mode": mode,
+        }
+        return InventoryReportResponse(
+            mode=mode, items=items, summary=summary, placeholders=placeholders
+        )
+
+    from app.services.inventory_issuance_service import (
+        available_quantity,
+        reserved_quantity,
+    )
+
     stmt = select(Inventory)
     if search:
         like = f"%{search}%"
@@ -1073,29 +1148,23 @@ def inventory_report(
             stmt = stmt.where(Inventory.id == -1)
 
     rows = session.exec(stmt.order_by(Inventory.id)).all()
-    items: List[InventoryReportItem] = []
+    items = []
     for row in rows:
         status = session.get(Status, row.status_id) if row.status_id else None
         sname = _status_name(status)
         if status_name and (not sname or status_name.lower() not in sname.lower()):
             continue
         qty = row.quantity or 0
-        sname_l = (sname or "").lower()
+        reserved = reserved_quantity(session, row.id)
+        avail = available_quantity(session, row)
 
         include = True
         if mode == "low":
-            include = 0 < qty <= 5
+            include = 0 < avail <= 5
         elif mode == "out":
-            include = qty <= 0
-        elif mode == "reserved":
-            include = "reserv" in sname_l
-        elif mode == "issued":
-            include = "issu" in sname_l
+            include = avail <= 0
         elif mode == "available":
-            include = qty > 0 and "issu" not in sname_l and "reserv" not in sname_l
-        elif mode == "movements":
-            include = False
-            placeholders = ["Inventory movement ledger is not available in the current schema"]
+            include = avail > 0
         elif mode == "valuation":
             include = False
             placeholders = ["Stock valuation / unit cost is not available in the current schema"]
@@ -1120,6 +1189,8 @@ def inventory_report(
                 entity_id=row.entity_id,
                 configuration_item=row.configuration_item,
                 added_date=row.added_date,
+                reserved_quantity=reserved,
+                available_quantity=avail,
             )
         )
 

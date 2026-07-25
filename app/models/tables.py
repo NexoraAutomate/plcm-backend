@@ -211,6 +211,7 @@ class Inventory(InventoryBase, table=True):
             "cascade": "all, delete-orphan",
         },
     )
+    issuances: List["InventoryIssuance"] = Relationship(back_populates="inventory")
 
 
 class InventoryInstance(InventoryInstanceBase, table=True):
@@ -218,6 +219,7 @@ class InventoryInstance(InventoryInstanceBase, table=True):
     inventory_id: int = Field(foreign_key="inventory.id", index=True, ondelete="CASCADE")
     inventory: Optional[Inventory] = Relationship(back_populates="instances")
     status: Optional[Status] = Relationship()
+    issuances: List["InventoryIssuance"] = Relationship(back_populates="inventory_instance")
 
 
 class InventoryChildLink(InventoryChildLinkBase, table=True):
@@ -231,6 +233,35 @@ class InventoryChildLink(InventoryChildLinkBase, table=True):
         default=None, foreign_key="inventoryinstance.id", ondelete="SET NULL"
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InventoryIssuance(InventoryIssuanceBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None,
+        foreign_key="inventoryinstance.id",
+        index=True,
+        ondelete="SET NULL",
+    )
+    issued_to_user_id: int = Field(foreign_key="user.id", index=True)
+    issued_by_user_id: int = Field(foreign_key="user.id", index=True)
+    installed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    inventory: Optional[Inventory] = Relationship(back_populates="issuances")
+    inventory_instance: Optional[InventoryInstance] = Relationship(back_populates="issuances")
+    issued_to_user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryIssuance.issued_to_user_id]"}
+    )
+    issued_by_user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryIssuance.issued_by_user_id]"}
+    )
+    installed_by_user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryIssuance.installed_by_id]"}
+    )
+    closed_by_user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryIssuance.closed_by_id]"}
+    )
 
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """

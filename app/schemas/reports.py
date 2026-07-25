@@ -262,6 +262,18 @@ class InventoryReportItem(BaseModel):
     entity_id: Optional[int] = None
     configuration_item: Optional[str] = None
     added_date: Optional[datetime] = None
+    # Issuance ledger fields (issued / reserved / movements modes)
+    issuance_id: Optional[int] = None
+    issued_to_name: Optional[str] = None
+    issued_by_name: Optional[str] = None
+    issued_at: Optional[datetime] = None
+    issuance_status: Optional[str] = None
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    installed_entity_type: Optional[str] = None
+    installed_entity_id: Optional[int] = None
+    reserved_quantity: Optional[int] = None
+    available_quantity: Optional[int] = None
 
 
 class InventoryReportResponse(BaseModel):

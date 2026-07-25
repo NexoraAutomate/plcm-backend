@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, User
+from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, InventoryIssuance, User
 from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
@@ -11,12 +11,23 @@ from app.services.inventory_service import (
     is_component_inventory,
     find_inventory_group,
     create_inventory_instance,
-    consume_inventory_unit,
     sync_inventory_quantity,
     normalize_part_number,
     list_inventory_child_links,
     replace_inventory_child_links,
     delete_inventory_item,
+)
+from app.services.inventory_issuance_service import (
+    available_quantity,
+    reserved_quantity,
+    instance_reservation_map,
+    issue_inventory_unit,
+    return_issuance,
+    list_issuances,
+    issuance_to_dict,
+    consume_with_issuance,
+    revert_entity_to_inventory,
+    link_issuance_installed_entity,
 )
 
 router = APIRouter()
@@ -32,6 +43,20 @@ def _normalize_inventory_quantity(inventory_type: str, quantity: int | None) -> 
     return 0
 
 
+def _instance_to_read(
+    instance: InventoryInstance,
+    *,
+    reserved_map: dict[int, int] | None = None,
+) -> schemas.InventoryInstanceRead:
+    data = instance.model_dump()
+    open_id = None
+    if reserved_map and instance.id is not None:
+        open_id = reserved_map.get(instance.id)
+    data["is_reserved"] = open_id is not None
+    data["open_issuance_id"] = open_id
+    return schemas.InventoryInstanceRead.model_validate(data)
+
+
 def _inventory_to_read(
     session: Session,
     inventory: Inventory,
@@ -39,6 +64,10 @@ def _inventory_to_read(
     include_instances: bool = False,
 ) -> schemas.InventoryRead:
     data = inventory.model_dump()
+    reserved = reserved_quantity(session, inventory.id)
+    avail = available_quantity(session, inventory)
+    data["reserved_quantity"] = reserved
+    data["available_quantity"] = avail
     if is_component_inventory(inventory.inventory_type):
         data["instances"] = None
     elif include_instances:
@@ -47,10 +76,17 @@ def _inventory_to_read(
             .where(InventoryInstance.inventory_id == inventory.id)
             .order_by(InventoryInstance.id)
         ).all()
-        data["instances"] = instances
+        reserved_map = instance_reservation_map(session, inventory.id)
+        data["instances"] = [
+            _instance_to_read(inst, reserved_map=reserved_map) for inst in instances
+        ]
     else:
         data["instances"] = None
     return schemas.InventoryRead.model_validate(data)
+
+
+def _issuance_to_read(session: Session, row: InventoryIssuance) -> schemas.InventoryIssuanceRead:
+    return schemas.InventoryIssuanceRead.model_validate(issuance_to_dict(session, row))
 
 
 def _extract_instance_fields(data: dict) -> dict:
@@ -204,6 +240,133 @@ def list_inventory_by_entity(
     return [_inventory_to_read(session, item, include_instances=True) for item in items]
 
 
+# ===================== ISSUANCE ENDPOINTS (before /inventory/{id}) =====================
+@router.get(
+    "/inventory/issuances/",
+    response_model=List[schemas.InventoryIssuanceRead],
+    tags=["inventory"],
+)
+def list_inventory_issuances(
+    status: Optional[str] = Query(None),
+    issued_to_user_id: Optional[int] = Query(None),
+    issued_by_user_id: Optional[int] = Query(None),
+    inventory_id: Optional[int] = Query(None),
+    part_number: Optional[str] = Query(None),
+    serial_number: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    rows = list_issuances(
+        session,
+        status=status,
+        issued_to_user_id=issued_to_user_id,
+        issued_by_user_id=issued_by_user_id,
+        inventory_id=inventory_id,
+        part_number=part_number,
+        serial_number=serial_number,
+        search=search,
+    )
+    return [_issuance_to_read(session, row) for row in rows]
+
+
+@router.get(
+    "/inventory/issuances/{issuance_id}/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def get_inventory_issuance(
+    issuance_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    return _issuance_to_read(session, row)
+
+
+@router.post(
+    "/inventory/issuances/{issuance_id}/return/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def return_inventory_issuance(
+    issuance_id: int,
+    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("issue_inventory")),
+):
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    updated = return_issuance(
+        session,
+        row,
+        closed_by_id=current_user.id,
+        notes=body.notes,
+    )
+    session.commit()
+    session.refresh(updated)
+    return _issuance_to_read(session, updated)
+
+
+@router.post(
+    "/inventory/issuances/{issuance_id}/link-install/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def link_issuance_install(
+    issuance_id: int,
+    body: schemas.InventoryIssuanceLinkInstallRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_inventory")),
+):
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    updated = link_issuance_installed_entity(
+        session,
+        row,
+        installed_entity_type=body.installed_entity_type,
+        installed_entity_id=body.installed_entity_id,
+    )
+    session.commit()
+    session.refresh(updated)
+    return _issuance_to_read(session, updated)
+
+
+@router.post(
+    "/inventory/revert-to-stock/",
+    response_model=schemas.InventoryRevertToStockRead,
+    tags=["inventory"],
+)
+def revert_install_to_inventory(
+    body: schemas.InventoryRevertToStockRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("revert_inventory_install")),
+):
+    inventory, restored, issuance = revert_entity_to_inventory(
+        session,
+        entity_type=body.entity_type,
+        entity_id=body.entity_id,
+        closed_by_id=current_user.id,
+        notes=body.notes,
+    )
+    restored_read = None
+    if restored is not None:
+        reserved_map = instance_reservation_map(session, inventory.id)
+        restored_read = _instance_to_read(restored, reserved_map=reserved_map)
+    issuance_read = _issuance_to_read(session, issuance) if issuance else None
+    session.commit()
+    session.refresh(inventory)
+    return schemas.InventoryRevertToStockRead(
+        inventory=_inventory_to_read(session, inventory, include_instances=True),
+        restored_instance=restored_read,
+        issuance=issuance_read,
+    )
+
+
 @router.get("/inventory/{inventory_id}/", response_model=schemas.InventoryRead, tags=["inventory"])
 def get_inventory(
     inventory_id: int,
@@ -334,6 +497,36 @@ def can_add_inventory_children_type(inventory_type: str) -> bool:
 
 
 @router.post(
+    "/inventory/{inventory_id}/issue/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def issue_inventory(
+    inventory_id: int,
+    body: schemas.InventoryIssueRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("issue_inventory")),
+):
+    inventory = session.get(Inventory, inventory_id)
+    if not inventory:
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    issuance = issue_inventory_unit(
+        session,
+        inventory,
+        issued_to_user_id=body.issued_to_user_id,
+        issued_by_user_id=current_user.id,
+        quantity=body.quantity,
+        instance_id=body.instance_id,
+        target_entity_type=body.target_entity_type,
+        target_entity_id=body.target_entity_id,
+        notes=body.notes,
+    )
+    session.commit()
+    session.refresh(issuance)
+    return _issuance_to_read(session, issuance)
+
+
+@router.post(
     "/inventory/{inventory_id}/consume/",
     response_model=schemas.InventoryConsumeRead,
     tags=["inventory"],
@@ -347,16 +540,34 @@ def consume_inventory(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    consumed = consume_inventory_unit(session, inventory, instance_id=body.instance_id)
+    consumed, issuance = consume_with_issuance(
+        session,
+        inventory,
+        instance_id=body.instance_id,
+        issuance_id=body.issuance_id,
+        installed_by_id=current_user.id,
+        installed_entity_type=body.installed_entity_type,
+        installed_entity_id=body.installed_entity_id,
+    )
     # Snapshot before commit — deleted instances expire and lose attribute access.
     consumed_read = (
-        schemas.InventoryInstanceRead.model_validate(consumed) if consumed else None
+        schemas.InventoryInstanceRead.model_validate(
+            {
+                **consumed.model_dump(),
+                "is_reserved": False,
+                "open_issuance_id": None,
+            }
+        )
+        if consumed
+        else None
     )
+    issuance_read = _issuance_to_read(session, issuance) if issuance else None
     session.commit()
     session.refresh(inventory)
     return schemas.InventoryConsumeRead(
         inventory=_inventory_to_read(session, inventory, include_instances=True),
         consumed_instance=consumed_read,
+        issuance=issuance_read,
     )
 
 
@@ -376,11 +587,13 @@ def list_inventory_instances(
         raise HTTPException(status_code=404, detail="Inventory not found")
     if is_component_inventory(inventory.inventory_type):
         raise HTTPException(status_code=400, detail="Component inventory does not use instances")
-    return session.exec(
+    reserved_map = instance_reservation_map(session, inventory_id)
+    instances = session.exec(
         select(InventoryInstance)
         .where(InventoryInstance.inventory_id == inventory_id)
         .order_by(InventoryInstance.id)
     ).all()
+    return [_instance_to_read(inst, reserved_map=reserved_map) for inst in instances]
 
 
 @router.post(

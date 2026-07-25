@@ -192,6 +192,8 @@ DEFAULT_PERMISSIONS = [
     {"name": "create_inventory", "description": "Create inventory items"},
     {"name": "edit_inventory", "description": "Edit inventory items"},
     {"name": "delete_inventory", "description": "Delete inventory items"},
+    {"name": "issue_inventory", "description": "Issue and return inventory to developers"},
+    {"name": "revert_inventory_install", "description": "Revert accidental installs back to inventory"},
 
     # ==================== MAINTENANCE MANAGEMENT ====================
     {"name": "view_maintenance", "description": "View maintenance logs"},
@@ -399,6 +401,8 @@ DEFAULT_ROLES = [
             "view_components", "edit_components",
             # Inventory
             "view_inventory",
+            "issue_inventory",
+            "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance", "close_maintenance",
             # Entities

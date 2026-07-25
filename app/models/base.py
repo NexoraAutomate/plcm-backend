@@ -321,6 +321,41 @@ class InventoryChildLinkBase(SQLModel):
     stock_consumed: bool = False
 
 
+class IssuanceStatus(str, Enum):
+    ISSUED = "issued"
+    INSTALLED = "installed"
+    RETURNED = "returned"
+    REVERTED = "reverted"
+
+
+class InventoryIssuanceBase(SQLModel):
+    """Ledger row for issue → reserve → install / return / revert."""
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    quantity: int = 1
+    issued_to_user_id: int
+    issued_by_user_id: int
+    issued_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: str = Field(default=IssuanceStatus.ISSUED.value, index=True)
+    # Planned / target entity detail at issue time
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    # Snapshots for reporting after instance is consumed
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+    inventory_type: Optional[str] = None
+    notes: Optional[str] = None
+    # Install link
+    installed_at: Optional[datetime] = None
+    installed_entity_type: Optional[str] = None
+    installed_entity_id: Optional[int] = None
+    installed_by_id: Optional[int] = None
+    # Return / revert close
+    closed_at: Optional[datetime] = None
+    closed_by_id: Optional[int] = None
+
+
 class EntityType(str, Enum):
     PROJECT   = "project"
     SYSTEM    = "system"
