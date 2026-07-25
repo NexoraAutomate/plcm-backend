@@ -323,6 +323,7 @@ class InventoryChildLinkBase(SQLModel):
 
 class IssuanceStatus(str, Enum):
     ISSUED = "issued"
+    RETURN_PENDING = "return_pending"
     INSTALLED = "installed"
     RETURNED = "returned"
     REVERTED = "reverted"
@@ -354,6 +355,8 @@ class InventoryIssuanceBase(SQLModel):
     # Return / revert close
     closed_at: Optional[datetime] = None
     closed_by_id: Optional[int] = None
+    # When installer requested return (pending admin accept/reject)
+    return_requested_at: Optional[datetime] = None
 
 
 class InventoryReturnNoticeBase(SQLModel):
@@ -367,6 +370,11 @@ class InventoryReturnNoticeBase(SQLModel):
     returned_by_name: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     read_at: Optional[datetime] = None
+    # pending | accepted | rejected — pending until admin decides
+    decision: Optional[str] = Field(default="pending", index=True)
+    decided_at: Optional[datetime] = None
+    decided_by_id: Optional[int] = None
+    decision_notes: Optional[str] = None
 
 
 class EntityType(str, Enum):

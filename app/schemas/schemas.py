@@ -469,6 +469,7 @@ class InventoryInstanceRead(InventoryInstanceBase):
     inventory_id: int
     is_reserved: bool = False
     open_issuance_id: Optional[int] = None
+    open_issuance_status: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -539,6 +540,7 @@ class InventoryIssuanceRead(SQLModel):
     installed_by_id: Optional[int] = None
     closed_at: Optional[datetime] = None
     closed_by_id: Optional[int] = None
+    return_requested_at: Optional[datetime] = None
     issued_to_name: Optional[str] = None
     issued_by_name: Optional[str] = None
     installed_by_name: Optional[str] = None
@@ -580,6 +582,10 @@ class InventoryReturnNoticeRead(SQLModel):
     returned_by_name: Optional[str] = None
     created_at: datetime
     read_at: Optional[datetime] = None
+    decision: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    decided_by_id: Optional[int] = None
+    decision_notes: Optional[str] = None
 
     class Config:
         orm_mode = True

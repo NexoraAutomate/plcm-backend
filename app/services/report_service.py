@@ -1032,9 +1032,17 @@ def inventory_report(
 
         stmt = select(InventoryIssuance)
         if mode == "issued":
-            stmt = stmt.where(InventoryIssuance.status == IssuanceStatus.ISSUED.value)
+            stmt = stmt.where(
+                InventoryIssuance.status.in_(
+                    [IssuanceStatus.ISSUED.value, IssuanceStatus.RETURN_PENDING.value]
+                )
+            )
         elif mode == "reserved":
-            stmt = stmt.where(InventoryIssuance.status == IssuanceStatus.ISSUED.value)
+            stmt = stmt.where(
+                InventoryIssuance.status.in_(
+                    [IssuanceStatus.ISSUED.value, IssuanceStatus.RETURN_PENDING.value]
+                )
+            )
         # movements = all ledger rows
         if part_number:
             stmt = stmt.where(InventoryIssuance.part_number.ilike(f"%{part_number}%"))

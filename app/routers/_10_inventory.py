@@ -24,6 +24,8 @@ from app.services.inventory_issuance_service import (
     instance_reservation_map,
     issue_inventory_unit,
     return_issuance,
+    accept_return_issuance,
+    reject_return_issuance,
     list_issuances,
     issuance_to_dict,
     consume_with_issuance,
@@ -35,6 +37,8 @@ from app.services.inventory_issuance_service import (
     list_return_notices,
     mark_return_notice_read,
     mark_all_return_notices_read,
+    create_return_notice_read,
+    RESERVED_STATUSES,
 )
 
 router = APIRouter()
@@ -79,14 +83,18 @@ def _normalize_inventory_quantity(inventory_type: str, quantity: int | None) -> 
 def _instance_to_read(
     instance: InventoryInstance,
     *,
-    reserved_map: dict[int, int] | None = None,
+    reserved_map: dict[int, tuple[int, str]] | None = None,
 ) -> schemas.InventoryInstanceRead:
     data = instance.model_dump()
     open_id = None
+    open_status = None
     if reserved_map and instance.id is not None:
-        open_id = reserved_map.get(instance.id)
+        entry = reserved_map.get(instance.id)
+        if entry is not None:
+            open_id, open_status = entry
     data["is_reserved"] = open_id is not None
     data["open_issuance_id"] = open_id
+    data["open_issuance_status"] = open_status
     return schemas.InventoryInstanceRead.model_validate(data)
 
 
@@ -110,7 +118,7 @@ def _inventory_to_read(
                 select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
                     InventoryIssuance.inventory_id == inventory.id,
                     InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status == "issued",
+                    InventoryIssuance.status.in_(RESERVED_STATUSES),
                 )
             ).one()
             issued_qty = int(issued_qty or 0)
@@ -132,7 +140,7 @@ def _inventory_to_read(
                     select(InventoryIssuance).where(
                         InventoryIssuance.inventory_id == inventory.id,
                         InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                        InventoryIssuance.status == "issued",
+                        InventoryIssuance.status.in_(RESERVED_STATUSES),
                         InventoryIssuance.inventory_instance_id.is_not(None),
                     )
                 ).all()
@@ -155,7 +163,7 @@ def _inventory_to_read(
                 select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
                     InventoryIssuance.inventory_id == inventory.id,
                     InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status == "issued",
+                    InventoryIssuance.status.in_(RESERVED_STATUSES),
                 )
             ).one()
             issued_count = int(issued_count or 0)
@@ -428,6 +436,58 @@ def return_inventory_issuance(
     return _issuance_to_read(session, updated)
 
 
+@router.post(
+    "/inventory/issuances/{issuance_id}/accept-return/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def accept_inventory_return(
+    issuance_id: int,
+    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    _require_inventory_manager(current_user)
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    updated, _notice = accept_return_issuance(
+        session,
+        row,
+        decided_by=current_user,
+        notes=body.notes,
+    )
+    session.commit()
+    session.refresh(updated)
+    return _issuance_to_read(session, updated)
+
+
+@router.post(
+    "/inventory/issuances/{issuance_id}/reject-return/",
+    response_model=schemas.InventoryIssuanceRead,
+    tags=["inventory"],
+)
+def reject_inventory_return(
+    issuance_id: int,
+    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    _require_inventory_manager(current_user)
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    updated, _notice = reject_return_issuance(
+        session,
+        row,
+        decided_by=current_user,
+        notes=body.notes,
+    )
+    session.commit()
+    session.refresh(updated)
+    return _issuance_to_read(session, updated)
+
+
 @router.get(
     "/inventory/return-notices/",
     response_model=List[schemas.InventoryReturnNoticeRead],
@@ -435,12 +495,18 @@ def return_inventory_issuance(
 )
 def get_inventory_return_notices(
     unread_only: bool = Query(False),
+    pending_only: bool = Query(False),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
     _require_inventory_manager(current_user)
-    rows = list_return_notices(session, unread_only=unread_only)
-    return [schemas.InventoryReturnNoticeRead.model_validate(r) for r in rows]
+    rows = list_return_notices(
+        session, unread_only=unread_only, pending_only=pending_only
+    )
+    return [
+        schemas.InventoryReturnNoticeRead.model_validate(create_return_notice_read(r))
+        for r in rows
+    ]
 
 
 @router.post(
@@ -460,7 +526,9 @@ def read_inventory_return_notice(
     updated = mark_return_notice_read(session, row)
     session.commit()
     session.refresh(updated)
-    return schemas.InventoryReturnNoticeRead.model_validate(updated)
+    return schemas.InventoryReturnNoticeRead.model_validate(
+        create_return_notice_read(updated)
+    )
 
 
 @router.post(
@@ -776,6 +844,7 @@ def consume_inventory(
                 **consumed.model_dump(),
                 "is_reserved": False,
                 "open_issuance_id": None,
+                "open_issuance_status": None,
             }
         )
         if consumed
@@ -826,7 +895,7 @@ def list_inventory_instances(
                 select(InventoryIssuance).where(
                     InventoryIssuance.inventory_id == inventory_id,
                     InventoryIssuance.issued_to_user_id == current_user.id,
-                    InventoryIssuance.status == "issued",
+                    InventoryIssuance.status.in_(RESERVED_STATUSES),
                     InventoryIssuance.inventory_instance_id.is_not(None),
                 )
             ).all()

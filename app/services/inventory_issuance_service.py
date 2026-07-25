@@ -28,14 +28,17 @@ from app.services.inventory_service import (
 
 
 OPEN_STATUS = IssuanceStatus.ISSUED.value
+RETURN_PENDING_STATUS = IssuanceStatus.RETURN_PENDING.value
+# Still reserved / visible on installer inventory list
+RESERVED_STATUSES = (OPEN_STATUS, RETURN_PENDING_STATUS)
 
 
 def inventory_ids_issued_to_user(session: Session, user_id: int) -> list[int]:
-    """Inventory group IDs with an open issuance to this user."""
+    """Inventory group IDs with an open or return-pending issuance to this user."""
     rows = session.exec(
         select(InventoryIssuance.inventory_id).where(
             InventoryIssuance.issued_to_user_id == user_id,
-            InventoryIssuance.status == OPEN_STATUS,
+            InventoryIssuance.status.in_(RESERVED_STATUSES),
         )
     ).all()
     return list({int(r) for r in rows if r is not None})
@@ -59,12 +62,29 @@ def _user_display_name(user: Optional[User]) -> Optional[str]:
     return (user.full_name or user.username or "").strip() or None
 
 
+def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize naive datetimes to UTC so API JSON includes a timezone offset."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     issued_to = session.get(User, row.issued_to_user_id) if row.issued_to_user_id else None
     issued_by = session.get(User, row.issued_by_user_id) if row.issued_by_user_id else None
     installed_by = session.get(User, row.installed_by_id) if row.installed_by_id else None
     closed_by = session.get(User, row.closed_by_id) if row.closed_by_id else None
     data = row.model_dump()
+    for key in (
+        "issued_at",
+        "installed_at",
+        "closed_at",
+        "return_requested_at",
+    ):
+        if key in data:
+            data[key] = _ensure_utc(data.get(key))
     data["issued_to_name"] = _user_display_name(issued_to)
     data["issued_by_name"] = _user_display_name(issued_by)
     data["installed_by_name"] = _user_display_name(installed_by)
@@ -80,7 +100,7 @@ def list_open_issuances_for_inventory(
         session.exec(
             select(InventoryIssuance).where(
                 InventoryIssuance.inventory_id == inventory_id,
-                InventoryIssuance.status == OPEN_STATUS,
+                InventoryIssuance.status.in_(RESERVED_STATUSES),
             )
         ).all()
     )
@@ -90,7 +110,7 @@ def reserved_quantity(session: Session, inventory_id: int) -> int:
     total = session.exec(
         select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
             InventoryIssuance.inventory_id == inventory_id,
-            InventoryIssuance.status == OPEN_STATUS,
+            InventoryIssuance.status.in_(RESERVED_STATUSES),
         )
     ).one()
     return int(total or 0)
@@ -103,7 +123,7 @@ def open_issuance_for_instance(
     return session.exec(
         select(InventoryIssuance).where(
             InventoryIssuance.inventory_instance_id == instance_id,
-            InventoryIssuance.status == OPEN_STATUS,
+            InventoryIssuance.status.in_(RESERVED_STATUSES),
         )
     ).first()
 
@@ -117,17 +137,17 @@ def available_quantity(session: Session, inventory: Inventory) -> int:
 def instance_reservation_map(
     session: Session,
     inventory_id: int,
-) -> dict[int, int]:
-    """Map instance_id -> open issuance id."""
+) -> dict[int, tuple[int, str]]:
+    """Map instance_id -> (open/pending issuance id, status)."""
     rows = session.exec(
         select(InventoryIssuance).where(
             InventoryIssuance.inventory_id == inventory_id,
-            InventoryIssuance.status == OPEN_STATUS,
+            InventoryIssuance.status.in_(RESERVED_STATUSES),
             InventoryIssuance.inventory_instance_id.is_not(None),
         )
     ).all()
     return {
-        int(r.inventory_instance_id): int(r.id)
+        int(r.inventory_instance_id): (int(r.id), str(r.status))
         for r in rows
         if r.inventory_instance_id is not None and r.id is not None
     }
@@ -216,22 +236,44 @@ def return_issuance(
     is_manager: bool,
     notes: Optional[str] = None,
 ) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
+    """
+    Installer: request return (status → return_pending; still reserved until admin accepts).
+    Manager force-return of open issued stock: finalize immediately to returned.
+    """
+    if is_manager:
+        if issuance.status not in (OPEN_STATUS, RETURN_PENDING_STATUS):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Only issued / return-pending issuances can be returned "
+                    f"(current status: {issuance.status})"
+                ),
+            )
+        return accept_return_issuance(
+            session,
+            issuance,
+            decided_by=closed_by,
+            notes=notes,
+            create_notice_if_missing=issuance.status == OPEN_STATUS,
+            returned_by_user_id=issuance.issued_to_user_id,
+        )
+
     if issuance.status != OPEN_STATUS:
         raise HTTPException(
             status_code=400,
             detail=f"Only open issuances can be returned (current status: {issuance.status})",
         )
-    if not is_manager and issuance.issued_to_user_id != closed_by.id:
+    if issuance.issued_to_user_id != closed_by.id:
         raise HTTPException(
             status_code=403,
             detail="You can only return inventory issued to you",
         )
 
-    issuance.status = IssuanceStatus.RETURNED.value
-    issuance.closed_at = datetime.now(timezone.utc)
-    issuance.closed_by_id = closed_by.id
+    now = datetime.now(timezone.utc)
+    issuance.status = RETURN_PENDING_STATUS
+    issuance.return_requested_at = now
     if notes:
-        issuance.notes = ((issuance.notes or "") + f"\nReturn: {notes}").strip()
+        issuance.notes = ((issuance.notes or "") + f"\nReturn requested: {notes}").strip()
     session.add(issuance)
     session.flush()
 
@@ -244,24 +286,146 @@ def return_issuance(
         serial_number=issuance.serial_number,
         returned_by_user_id=closed_by.id,
         returned_by_name=returned_by_name,
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
+        decision="pending",
     )
     session.add(notice)
     session.flush()
     return issuance, notice
 
 
+def _pending_notice_for_issuance(
+    session: Session,
+    issuance_id: int,
+) -> Optional[InventoryReturnNotice]:
+    return session.exec(
+        select(InventoryReturnNotice)
+        .where(
+            InventoryReturnNotice.issuance_id == issuance_id,
+            InventoryReturnNotice.decision == "pending",
+        )
+        .order_by(col(InventoryReturnNotice.created_at).desc())
+    ).first()
+
+
+def accept_return_issuance(
+    session: Session,
+    issuance: InventoryIssuance,
+    *,
+    decided_by: User,
+    notes: Optional[str] = None,
+    create_notice_if_missing: bool = False,
+    returned_by_user_id: Optional[int] = None,
+) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
+    """Admin accepts return → status returned; stock no longer reserved."""
+    if issuance.status not in (OPEN_STATUS, RETURN_PENDING_STATUS):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only issued / return-pending issuances can be accepted "
+                f"(current status: {issuance.status})"
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    issuance.status = IssuanceStatus.RETURNED.value
+    issuance.closed_at = now
+    issuance.closed_by_id = decided_by.id
+    if notes:
+        issuance.notes = ((issuance.notes or "") + f"\nReturn accepted: {notes}").strip()
+    session.add(issuance)
+    session.flush()
+
+    notice = _pending_notice_for_issuance(session, issuance.id)
+    if notice is None and create_notice_if_missing:
+        by_id = returned_by_user_id or issuance.issued_to_user_id
+        by_user = session.get(User, by_id) if by_id else None
+        notice = InventoryReturnNotice(
+            issuance_id=issuance.id,
+            inventory_id=issuance.inventory_id,
+            inventory_name=issuance.inventory_name,
+            part_number=issuance.part_number,
+            serial_number=issuance.serial_number,
+            returned_by_user_id=by_id,
+            returned_by_name=_user_display_name(by_user),
+            created_at=now,
+            decision="pending",
+        )
+        session.add(notice)
+        session.flush()
+
+    if notice is None:
+        raise HTTPException(status_code=404, detail="No pending return notice for this issuance")
+
+    notice.decision = "accepted"
+    notice.decided_at = now
+    notice.decided_by_id = decided_by.id
+    notice.read_at = now
+    if notes:
+        notice.decision_notes = notes
+    session.add(notice)
+    session.flush()
+    return issuance, notice
+
+
+def reject_return_issuance(
+    session: Session,
+    issuance: InventoryIssuance,
+    *,
+    decided_by: User,
+    notes: Optional[str] = None,
+) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
+    """Admin rejects return → reissue to installer (status back to issued)."""
+    if issuance.status != RETURN_PENDING_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only return-pending issuances can be rejected "
+                f"(current status: {issuance.status})"
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+    issuance.status = OPEN_STATUS
+    issuance.return_requested_at = None
+    if notes:
+        issuance.notes = ((issuance.notes or "") + f"\nReturn rejected: {notes}").strip()
+    session.add(issuance)
+    session.flush()
+
+    notice = _pending_notice_for_issuance(session, issuance.id)
+    if notice is None:
+        raise HTTPException(status_code=404, detail="No pending return notice for this issuance")
+
+    notice.decision = "rejected"
+    notice.decided_at = now
+    notice.decided_by_id = decided_by.id
+    notice.read_at = now
+    if notes:
+        notice.decision_notes = notes
+    session.add(notice)
+    session.flush()
+    return issuance, notice
+
+
 def create_return_notice_read(notice: InventoryReturnNotice) -> dict:
-    return notice.model_dump()
+    data = notice.model_dump()
+    for key in ("created_at", "read_at", "decided_at"):
+        if key in data:
+            data[key] = _ensure_utc(data.get(key))
+    return data
 
 
 def list_return_notices(
     session: Session,
     *,
     unread_only: bool = False,
+    pending_only: bool = False,
 ) -> List[InventoryReturnNotice]:
     stmt = select(InventoryReturnNotice).order_by(col(InventoryReturnNotice.created_at).desc())
-    if unread_only:
+    if pending_only:
+        stmt = stmt.where(InventoryReturnNotice.decision == "pending")
+    elif unread_only:
         stmt = stmt.where(InventoryReturnNotice.read_at.is_(None))
     return list(session.exec(stmt).all())
 
