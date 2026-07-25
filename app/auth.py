@@ -229,7 +229,8 @@ DEFAULT_PERMISSIONS = [
     
     # ==================== REPORTS & ANALYTICS ====================
     {"name": "view_reports", "description": "View reports"},
-    {"name": "view_executive_dashboard", "description": "View executive dashboard analytics"},
+    {"name": "view_executive_dashboard", "description": "View executive dashboard"},
+    {"name": "view_hierarchy_dashboard", "description": "View hierarchy dashboard"},
     {"name": "export_reports", "description": "Export reports"},
     {"name": "print_reports", "description": "Print reports"},
     {"name": "export_data", "description": "Export system data"},
@@ -338,6 +339,7 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "view_hierarchy_dashboard",
             "export_reports",
             "print_reports",
             "generate_build_dossier",
@@ -421,6 +423,7 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "view_hierarchy_dashboard",
             "print_reports",
 
             # Maintenance Cases
@@ -491,6 +494,7 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "view_hierarchy_dashboard",
             "print_reports",
             "generate_maintenance_dossier",
 
@@ -574,6 +578,7 @@ DEFAULT_ROLES = [
             # Reports
             "view_reports",
             "view_executive_dashboard",
+            "view_hierarchy_dashboard",
 
             # Maintenance Cases
             "view_maintenance_cases",
