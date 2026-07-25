@@ -68,6 +68,7 @@ def list_units(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
+        where=Unit.is_current_install == True,  # noqa: E712
     )
 
 @router.get("/units/{unit_id}/", response_model=schemas.UnitRead, tags=["units"])
@@ -79,7 +80,7 @@ def get_unit(unit_id: int, session: Session = Depends(get_session), current_user
     return schemas.UnitRead(
         **unit.model_dump(),
         status_name=status_name,
-        components=unit.components
+        components=filter_current_installs(unit.components)
     )
 
 @router.put("/units/{unit_id}/", response_model=schemas.UnitRead, tags=["units"])

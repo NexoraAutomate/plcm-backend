@@ -70,6 +70,7 @@ def list_modules(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
+        where=Module.is_current_install == True,  # noqa: E712
     )
 
 @router.get("/modules/{module_id}/", response_model=schemas.ModuleRead, tags=["modules"])
@@ -81,7 +82,7 @@ def get_module(module_id: int, session: Session = Depends(get_session), current_
     return schemas.ModuleRead(
         **module.model_dump(),
         status_name=status_name,
-        units=module.units
+        units=filter_current_installs(module.units)
     )
 
 @router.put("/modules/{module_id}/", response_model=schemas.ModuleRead, tags=["modules"])

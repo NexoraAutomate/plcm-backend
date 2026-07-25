@@ -10,7 +10,14 @@ from sqlmodel import Session, select, func, col
 
 from app.models.base import EntityType, IssuanceStatus
 from app.models.helpers import _ENTITY_MODEL_MAP
-from app.models.tables import Inventory, InventoryInstance, InventoryIssuance, User
+from app.models.tables import (
+    Inventory,
+    InventoryInstance,
+    InventoryIssuance,
+    InventoryChildLink,
+    InventoryReturnNotice,
+    User,
+)
 from app.services.inventory_service import (
     is_component_inventory,
     consume_inventory_unit,
@@ -21,6 +28,29 @@ from app.services.inventory_service import (
 
 
 OPEN_STATUS = IssuanceStatus.ISSUED.value
+
+
+def inventory_ids_issued_to_user(session: Session, user_id: int) -> list[int]:
+    """Inventory group IDs with an open issuance to this user."""
+    rows = session.exec(
+        select(InventoryIssuance.inventory_id).where(
+            InventoryIssuance.issued_to_user_id == user_id,
+            InventoryIssuance.status == OPEN_STATUS,
+        )
+    ).all()
+    return list({int(r) for r in rows if r is not None})
+
+
+def user_can_access_inventory(
+    session: Session,
+    user: User,
+    inventory_id: int,
+    *,
+    is_manager: bool,
+) -> bool:
+    if is_manager:
+        return True
+    return inventory_id in inventory_ids_issued_to_user(session, user.id)
 
 
 def _user_display_name(user: Optional[User]) -> Optional[str]:
@@ -182,22 +212,80 @@ def return_issuance(
     session: Session,
     issuance: InventoryIssuance,
     *,
-    closed_by_id: int,
+    closed_by: User,
+    is_manager: bool,
     notes: Optional[str] = None,
-) -> InventoryIssuance:
+) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
     if issuance.status != OPEN_STATUS:
         raise HTTPException(
             status_code=400,
             detail=f"Only open issuances can be returned (current status: {issuance.status})",
         )
+    if not is_manager and issuance.issued_to_user_id != closed_by.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only return inventory issued to you",
+        )
+
     issuance.status = IssuanceStatus.RETURNED.value
     issuance.closed_at = datetime.now(timezone.utc)
-    issuance.closed_by_id = closed_by_id
+    issuance.closed_by_id = closed_by.id
     if notes:
         issuance.notes = ((issuance.notes or "") + f"\nReturn: {notes}").strip()
     session.add(issuance)
     session.flush()
-    return issuance
+
+    returned_by_name = _user_display_name(closed_by) or closed_by.username
+    notice = InventoryReturnNotice(
+        issuance_id=issuance.id,
+        inventory_id=issuance.inventory_id,
+        inventory_name=issuance.inventory_name,
+        part_number=issuance.part_number,
+        serial_number=issuance.serial_number,
+        returned_by_user_id=closed_by.id,
+        returned_by_name=returned_by_name,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(notice)
+    session.flush()
+    return issuance, notice
+
+
+def create_return_notice_read(notice: InventoryReturnNotice) -> dict:
+    return notice.model_dump()
+
+
+def list_return_notices(
+    session: Session,
+    *,
+    unread_only: bool = False,
+) -> List[InventoryReturnNotice]:
+    stmt = select(InventoryReturnNotice).order_by(col(InventoryReturnNotice.created_at).desc())
+    if unread_only:
+        stmt = stmt.where(InventoryReturnNotice.read_at.is_(None))
+    return list(session.exec(stmt).all())
+
+
+def mark_return_notice_read(
+    session: Session,
+    notice: InventoryReturnNotice,
+) -> InventoryReturnNotice:
+    notice.read_at = datetime.now(timezone.utc)
+    session.add(notice)
+    session.flush()
+    return notice
+
+
+def mark_all_return_notices_read(session: Session) -> int:
+    rows = session.exec(
+        select(InventoryReturnNotice).where(InventoryReturnNotice.read_at.is_(None))
+    ).all()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.read_at = now
+        session.add(row)
+    session.flush()
+    return len(rows)
 
 
 def resolve_issuance_for_consume(
@@ -389,14 +477,89 @@ def find_issuance_for_installed_entity(
     ).first()
 
 
+def _ensure_inventory_group(
+    session: Session,
+    *,
+    name: str,
+    inventory_type: str,
+    part_number: str,
+    configuration_item: Optional[str] = None,
+) -> Inventory:
+    inventory = find_inventory_group(
+        session,
+        name=name,
+        inventory_type=inventory_type,
+        part_number=part_number,
+    )
+    if inventory:
+        return inventory
+    inventory = Inventory(
+        name=name,
+        inventory_type=inventory_type,
+        part_number=part_number,
+        quantity=0,
+        configuration_item=configuration_item or part_number,
+        description=f"Restored from hierarchy ({inventory_type})",
+    )
+    session.add(inventory)
+    session.flush()
+    return inventory
+
+
+def _restore_entity_as_stock(
+    session: Session,
+    *,
+    entity_type: str,
+    entity_row,
+) -> Tuple[Inventory, Optional[InventoryInstance]]:
+    part_number = getattr(entity_row, "part_number", None) or getattr(
+        entity_row, "original_part_number", None
+    )
+    serial_number = getattr(entity_row, "serial_number", None) or getattr(
+        entity_row, "original_serial_number", None
+    )
+    name = getattr(entity_row, "name", None) or part_number or f"{entity_type}-{entity_row.id}"
+    if not part_number:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{entity_type} #{entity_row.id} has no part number; cannot restore",
+        )
+    inventory = _ensure_inventory_group(
+        session,
+        name=name,
+        inventory_type=entity_type,
+        part_number=part_number,
+        configuration_item=getattr(entity_row, "configuration_item", None),
+    )
+    restored: Optional[InventoryInstance] = None
+    if is_component_inventory(inventory.inventory_type):
+        restore_inventory_unit(session, inventory, serial_number=serial_number)
+    else:
+        restored = restore_inventory_unit(session, inventory, serial_number=serial_number)
+        if restored is not None:
+            restored.original_part_number = part_number
+            restored.original_serial_number = serial_number
+            restored.configuration_item = (
+                getattr(entity_row, "configuration_item", None) or part_number
+            )
+            restored.installation_date = None
+            restored.installed_by_id = None
+            session.add(restored)
+            sync_inventory_quantity(session, inventory)
+    return inventory, restored
+
+
 def revert_entity_to_inventory(
     session: Session,
     *,
     entity_type: str,
     entity_id: int,
-    closed_by_id: int,
+    closed_by: User,
     notes: Optional[str] = None,
 ) -> Tuple[Inventory, Optional[InventoryInstance], Optional[InventoryIssuance]]:
+    """Cascade soft-remove install tree; restore assembly; re-issue to installer."""
+    from app.models.helpers import _collect_descendants
+
     normalized = entity_type.strip().lower()
     try:
         et = EntityType(normalized)
@@ -415,99 +578,159 @@ def revert_entity_to_inventory(
     if getattr(row, "is_current_install", True) is False:
         raise HTTPException(status_code=400, detail="Entity is not a current install")
 
-    part_number = getattr(row, "part_number", None) or getattr(row, "original_part_number", None)
-    serial_number = getattr(row, "serial_number", None) or getattr(row, "original_serial_number", None)
-    name = getattr(row, "name", None) or part_number or f"{normalized}-{entity_id}"
-    inventory_type = normalized
-
-    if not part_number:
-        raise HTTPException(
-            status_code=400,
-            detail="Entity has no part number; cannot restore to inventory",
-        )
-
-    inventory = find_inventory_group(
-        session,
-        name=name,
-        inventory_type=inventory_type,
-        part_number=part_number,
-    )
-    if not inventory:
-        # Create catalog group matching the installed identity
-        inventory = Inventory(
-            name=name,
-            inventory_type=inventory_type,
-            part_number=part_number,
-            quantity=0,
-            configuration_item=getattr(row, "configuration_item", None) or part_number,
-            oem_name=None,
-            description=f"Restored from accidental install of {normalized} #{entity_id}",
-        )
-        session.add(inventory)
-        session.flush()
-
-    restored: Optional[InventoryInstance] = None
-    if is_component_inventory(inventory.inventory_type):
-        restore_inventory_unit(session, inventory, serial_number=serial_number)
-    else:
-        restored = restore_inventory_unit(
-            session,
-            inventory,
-            serial_number=serial_number,
-        )
-        if restored is not None:
-            # Preserve identity fields from the installed entity
-            restored.original_part_number = part_number
-            restored.original_serial_number = serial_number
-            restored.configuration_item = (
-                getattr(row, "configuration_item", None) or part_number
+    prior = find_issuance_for_installed_entity(session, normalized, entity_id)
+    issued_to_id = closed_by.id
+    if prior:
+        issued_to_id = prior.issued_to_user_id or closed_by.id
+        allowed_ids = {
+            prior.issued_to_user_id,
+            prior.installed_by_id,
+            getattr(row, "installed_by_id", None),
+        }
+        if closed_by.id not in allowed_ids:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only revert inventory that was issued to you or installed by you",
             )
-            session.add(restored)
-            sync_inventory_quantity(session, inventory)
+    else:
+        installed_by = getattr(row, "installed_by_id", None)
+        if installed_by is not None and installed_by != closed_by.id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only revert installs performed by you",
+            )
 
-    # Soft-remove current install
+    # Collect descendants BEFORE soft-removing parent (FK walk uses current installs)
+    descendants = _collect_descendants(session, normalized, entity_id)
+
+    # Soft-remove root + clear install metadata
     row.is_current_install = False
     row.replaced_at = datetime.now(timezone.utc)
+    row.installation_date = None
+    row.installed_by_id = None
     session.add(row)
 
-    issuance = find_issuance_for_installed_entity(session, normalized, entity_id)
-    if issuance:
-        issuance.status = IssuanceStatus.REVERTED.value
-        issuance.closed_at = datetime.now(timezone.utc)
-        issuance.closed_by_id = closed_by_id
-        if notes:
-            issuance.notes = ((issuance.notes or "") + f"\nRevert: {notes}").strip()
-        # Re-link restored instance if any
-        if restored and restored.id:
-            issuance.inventory_instance_id = restored.id
-        session.add(issuance)
-    else:
-        # Ledger entry for direct (non-issued) installs that were reverted
-        issuance = InventoryIssuance(
-            inventory_id=inventory.id,
-            inventory_instance_id=restored.id if restored else None,
-            quantity=1,
-            issued_to_user_id=closed_by_id,
-            issued_by_user_id=closed_by_id,
-            issued_at=datetime.now(timezone.utc),
-            status=IssuanceStatus.REVERTED.value,
-            part_number=part_number,
-            serial_number=serial_number,
-            inventory_name=inventory.name,
-            inventory_type=inventory.inventory_type,
-            installed_entity_type=normalized,
-            installed_entity_id=entity_id,
-            installed_at=getattr(row, "installation_date", None),
-            installed_by_id=getattr(row, "installed_by_id", None),
-            closed_at=datetime.now(timezone.utc),
-            closed_by_id=closed_by_id,
-            notes=notes or "Reverted accidental install (no prior issuance)",
-        )
-        session.add(issuance)
-        session.flush()
+    # Soft-remove descendants (deepest first so UI trees clear cleanly)
+    for desc in reversed(descendants):
+        d_type = (desc.entity_type if isinstance(desc.entity_type, str) else str(desc.entity_type)).lower()
+        try:
+            d_et = EntityType(d_type)
+        except ValueError:
+            continue
+        d_entry = _ENTITY_MODEL_MAP.get(d_et)
+        if not d_entry:
+            continue
+        child_row = session.get(d_entry[0], desc.entity_id)
+        if not child_row:
+            continue
+        child_row.is_current_install = False
+        child_row.replaced_at = datetime.now(timezone.utc)
+        child_row.installation_date = None
+        child_row.installed_by_id = None
+        session.add(child_row)
 
     session.flush()
-    return inventory, restored, issuance
+
+    # Restore parent stock
+    inventory, restored = _restore_entity_as_stock(
+        session, entity_type=normalized, entity_row=row
+    )
+    parent_serial = (
+        (restored.serial_number if restored else None)
+        or getattr(row, "serial_number", None)
+        or getattr(row, "original_serial_number", None)
+    )
+
+    # Restore each descendant as composed child under parent
+    for desc in descendants:
+        d_type = (desc.entity_type if isinstance(desc.entity_type, str) else str(desc.entity_type)).lower()
+        try:
+            d_et = EntityType(d_type)
+        except ValueError:
+            continue
+        d_entry = _ENTITY_MODEL_MAP.get(d_et)
+        if not d_entry:
+            continue
+        child_row = session.get(d_entry[0], desc.entity_id)
+        if not child_row:
+            continue
+        child_part = getattr(child_row, "part_number", None) or getattr(
+            child_row, "original_part_number", None
+        )
+        if not child_part:
+            continue
+        try:
+            child_inv, child_inst = _restore_entity_as_stock(
+                session, entity_type=d_type, entity_row=child_row
+            )
+        except HTTPException:
+            continue
+        child_serial = (
+            (child_inst.serial_number if child_inst else None)
+            or getattr(child_row, "serial_number", None)
+            or getattr(child_row, "original_serial_number", None)
+        )
+        # Link as composed child (already restored into stock; mark consumed into parent)
+        # First remove the free instance/qty we just restored so composition matches warehouse rules:
+        # create link with stock_consumed and consume the restored unit.
+        if is_component_inventory(child_inv.inventory_type):
+            if (child_inv.quantity or 0) > 0:
+                child_inv.quantity = max(0, (child_inv.quantity or 0) - 1)
+                session.add(child_inv)
+            child_instance_id = None
+        else:
+            if child_inst and child_inst.id:
+                child_instance_id = child_inst.id
+                # Delete free instance — composition holds the serial snapshot
+                session.delete(child_inst)
+                session.flush()
+                sync_inventory_quantity(session, child_inv)
+            else:
+                child_instance_id = None
+
+        link = InventoryChildLink(
+            parent_inventory_id=inventory.id,
+            parent_instance_id=restored.id if restored else None,
+            parent_instance_serial=parent_serial,
+            child_category_name=getattr(child_row, "name", None) or d_type,
+            child_inventory_id=child_inv.id,
+            child_instance_id=None,
+            child_instance_serial=child_serial,
+            stock_consumed=True,
+        )
+        session.add(link)
+        _ = child_instance_id
+
+    session.flush()
+
+    # Close prior installed issuance as reverted (history)
+    if prior:
+        prior.status = IssuanceStatus.REVERTED.value
+        prior.closed_at = datetime.now(timezone.utc)
+        prior.closed_by_id = closed_by.id
+        if notes:
+            prior.notes = ((prior.notes or "") + f"\nRevert: {notes}").strip()
+        session.add(prior)
+
+    # New open issuance so the assembly appears on the installer's list
+    new_issuance = InventoryIssuance(
+        inventory_id=inventory.id,
+        inventory_instance_id=restored.id if restored else None,
+        quantity=1,
+        issued_to_user_id=issued_to_id,
+        issued_by_user_id=closed_by.id,
+        issued_at=datetime.now(timezone.utc),
+        status=OPEN_STATUS,
+        part_number=inventory.part_number,
+        serial_number=parent_serial,
+        inventory_name=inventory.name,
+        inventory_type=inventory.inventory_type,
+        notes=notes or "Reopened after revert from hierarchy",
+    )
+    session.add(new_issuance)
+    session.flush()
+
+    return inventory, restored, new_issuance
 
 
 def list_issuances(

@@ -1,11 +1,12 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from app.database import get_session
-from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, InventoryIssuance, User
+from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, InventoryIssuance, InventoryReturnNotice, User
 from app.schemas import schemas
 from app.routers.auth import require_permission
+from app.auth import is_inventory_manager
 from app.services.pagination import paginated_query
 from app.services.inventory_service import (
     is_component_inventory,
@@ -26,11 +27,43 @@ from app.services.inventory_issuance_service import (
     list_issuances,
     issuance_to_dict,
     consume_with_issuance,
+    resolve_issuance_for_consume,
     revert_entity_to_inventory,
     link_issuance_installed_entity,
+    inventory_ids_issued_to_user,
+    user_can_access_inventory,
+    list_return_notices,
+    mark_return_notice_read,
+    mark_all_return_notices_read,
 )
 
 router = APIRouter()
+
+
+def _require_inventory_manager(user: User) -> None:
+    if not is_inventory_manager(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only Admin or SubAdmin can manage warehouse inventory issuance",
+        )
+
+
+def _require_installer_not_manager(user: User) -> None:
+    if is_inventory_manager(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Admin/SubAdmin cannot revert installs; installers revert, managers issue/accept returns",
+        )
+
+
+def _scoped_inventory_filter(session: Session, current_user: User):
+    """Return SQLAlchemy where clause fragment or None for managers."""
+    if is_inventory_manager(current_user):
+        return None
+    ids = inventory_ids_issued_to_user(session, current_user.id)
+    if not ids:
+        return Inventory.id == -1
+    return Inventory.id.in_(ids)
 
 
 def _normalize_inventory_quantity(inventory_type: str, quantity: int | None) -> int:
@@ -62,6 +95,7 @@ def _inventory_to_read(
     inventory: Inventory,
     *,
     include_instances: bool = False,
+    issued_to_user_id: Optional[int] = None,
 ) -> schemas.InventoryRead:
     data = inventory.model_dump()
     reserved = reserved_quantity(session, inventory.id)
@@ -70,6 +104,19 @@ def _inventory_to_read(
     data["available_quantity"] = avail
     if is_component_inventory(inventory.inventory_type):
         data["instances"] = None
+        if issued_to_user_id is not None:
+            # Installer: show only quantity issued to them (not full warehouse)
+            issued_qty = session.exec(
+                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
+                    InventoryIssuance.inventory_id == inventory.id,
+                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
+                    InventoryIssuance.status == "issued",
+                )
+            ).one()
+            issued_qty = int(issued_qty or 0)
+            data["quantity"] = issued_qty
+            data["reserved_quantity"] = 0
+            data["available_quantity"] = issued_qty
     elif include_instances:
         instances = session.exec(
             select(InventoryInstance)
@@ -77,12 +124,61 @@ def _inventory_to_read(
             .order_by(InventoryInstance.id)
         ).all()
         reserved_map = instance_reservation_map(session, inventory.id)
+        if issued_to_user_id is not None:
+            # Installer: only serials open-issued to them
+            allowed_instance_ids = {
+                int(r.inventory_instance_id)
+                for r in session.exec(
+                    select(InventoryIssuance).where(
+                        InventoryIssuance.inventory_id == inventory.id,
+                        InventoryIssuance.issued_to_user_id == issued_to_user_id,
+                        InventoryIssuance.status == "issued",
+                        InventoryIssuance.inventory_instance_id.is_not(None),
+                    )
+                ).all()
+                if r.inventory_instance_id is not None
+            }
+            instances = [i for i in instances if i.id in allowed_instance_ids]
+            reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
+            # Installer sees issued count only (not full warehouse quantity)
+            issued_count = len(instances)
+            data["quantity"] = issued_count
+            data["reserved_quantity"] = 0
+            data["available_quantity"] = issued_count
         data["instances"] = [
             _instance_to_read(inst, reserved_map=reserved_map) for inst in instances
         ]
     else:
         data["instances"] = None
+        if issued_to_user_id is not None:
+            issued_count = session.exec(
+                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
+                    InventoryIssuance.inventory_id == inventory.id,
+                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
+                    InventoryIssuance.status == "issued",
+                )
+            ).one()
+            issued_count = int(issued_count or 0)
+            data["quantity"] = issued_count
+            data["reserved_quantity"] = 0
+            data["available_quantity"] = issued_count
     return schemas.InventoryRead.model_validate(data)
+
+
+def _read_for_user(
+    session: Session,
+    inventory: Inventory,
+    current_user: User,
+    *,
+    include_instances: bool = True,
+) -> schemas.InventoryRead:
+    issued_to = None if is_inventory_manager(current_user) else current_user.id
+    return _inventory_to_read(
+        session,
+        inventory,
+        include_instances=include_instances,
+        issued_to_user_id=issued_to,
+    )
 
 
 def _issuance_to_read(session: Session, row: InventoryIssuance) -> schemas.InventoryIssuanceRead:
@@ -117,6 +213,7 @@ def create_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("create_inventory")),
 ):
+    _require_inventory_manager(current_user)
     data = inventory.model_dump()
     inventory_type = data["inventory_type"]
 
@@ -195,7 +292,14 @@ def list_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
-    where = Inventory.inventory_type == inventory_type if inventory_type else None
+    scope = _scoped_inventory_filter(session, current_user)
+    type_filter = Inventory.inventory_type == inventory_type if inventory_type else None
+    if scope is not None and type_filter is not None:
+        where = (scope) & (type_filter)
+    elif scope is not None:
+        where = scope
+    else:
+        where = type_filter
     items = paginated_query(
         session,
         Inventory,
@@ -206,7 +310,7 @@ def list_inventory(
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    return [_inventory_to_read(session, item, include_instances=True) for item in items]
+    return [_read_for_user(session, item, current_user) for item in items]
 
 
 @router.get("/inventory/by-type/{inventory_type}/", response_model=List[schemas.InventoryRead], tags=["inventory"])
@@ -223,9 +327,12 @@ def list_inventory_by_type(
     from app.services.sorting import apply_sort
 
     query = select(Inventory).where(Inventory.inventory_type == inventory_type)
+    scope = _scoped_inventory_filter(session, current_user)
+    if scope is not None:
+        query = query.where(scope)
     query = apply_sort(query, Inventory, sort_by=sort_by, sort_order=sort_order)
     items = session.exec(query.offset(skip).limit(limit)).all()
-    return [_inventory_to_read(session, item, include_instances=True) for item in items]
+    return [_read_for_user(session, item, current_user) for item in items]
 
 
 @router.get("/inventory/by-entity/{entity_id}/", response_model=List[schemas.InventoryRead], tags=["inventory"])
@@ -236,8 +343,11 @@ def list_inventory_by_entity(
 ):
     """Get all inventory items associated with a specific entity."""
     query = select(Inventory).where(Inventory.entity_id == entity_id)
+    scope = _scoped_inventory_filter(session, current_user)
+    if scope is not None:
+        query = query.where(scope)
     items = session.exec(query).all()
-    return [_inventory_to_read(session, item, include_instances=True) for item in items]
+    return [_read_for_user(session, item, current_user) for item in items]
 
 
 # ===================== ISSUANCE ENDPOINTS (before /inventory/{id}) =====================
@@ -257,11 +367,15 @@ def list_inventory_issuances(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
+    manager = is_inventory_manager(current_user)
+    effective_issued_to = issued_to_user_id
+    if not manager:
+        effective_issued_to = current_user.id
     rows = list_issuances(
         session,
         status=status,
-        issued_to_user_id=issued_to_user_id,
-        issued_by_user_id=issued_by_user_id,
+        issued_to_user_id=effective_issued_to,
+        issued_by_user_id=issued_by_user_id if manager else None,
         inventory_id=inventory_id,
         part_number=part_number,
         serial_number=serial_number,
@@ -283,6 +397,8 @@ def get_inventory_issuance(
     row = session.get(InventoryIssuance, issuance_id)
     if not row:
         raise HTTPException(status_code=404, detail="Issuance not found")
+    if not is_inventory_manager(current_user) and row.issued_to_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed to view this issuance")
     return _issuance_to_read(session, row)
 
 
@@ -295,20 +411,70 @@ def return_inventory_issuance(
     issuance_id: int,
     body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("issue_inventory")),
+    current_user: User = Depends(require_permission("view_inventory")),
 ):
     row = session.get(InventoryIssuance, issuance_id)
     if not row:
         raise HTTPException(status_code=404, detail="Issuance not found")
-    updated = return_issuance(
+    updated, _notice = return_issuance(
         session,
         row,
-        closed_by_id=current_user.id,
+        closed_by=current_user,
+        is_manager=is_inventory_manager(current_user),
         notes=body.notes,
     )
     session.commit()
     session.refresh(updated)
     return _issuance_to_read(session, updated)
+
+
+@router.get(
+    "/inventory/return-notices/",
+    response_model=List[schemas.InventoryReturnNoticeRead],
+    tags=["inventory"],
+)
+def get_inventory_return_notices(
+    unread_only: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    _require_inventory_manager(current_user)
+    rows = list_return_notices(session, unread_only=unread_only)
+    return [schemas.InventoryReturnNoticeRead.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/inventory/return-notices/{notice_id}/read/",
+    response_model=schemas.InventoryReturnNoticeRead,
+    tags=["inventory"],
+)
+def read_inventory_return_notice(
+    notice_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    _require_inventory_manager(current_user)
+    row = session.get(InventoryReturnNotice, notice_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Return notice not found")
+    updated = mark_return_notice_read(session, row)
+    session.commit()
+    session.refresh(updated)
+    return schemas.InventoryReturnNoticeRead.model_validate(updated)
+
+
+@router.post(
+    "/inventory/return-notices/read-all/",
+    tags=["inventory"],
+)
+def read_all_inventory_return_notices(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    _require_inventory_manager(current_user)
+    count = mark_all_return_notices_read(session)
+    session.commit()
+    return {"ok": True, "marked": count}
 
 
 @router.post(
@@ -320,11 +486,20 @@ def link_issuance_install(
     issuance_id: int,
     body: schemas.InventoryIssuanceLinkInstallRequest,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_inventory")),
+    current_user: User = Depends(require_permission("view_inventory")),
 ):
     row = session.get(InventoryIssuance, issuance_id)
     if not row:
         raise HTTPException(status_code=404, detail="Issuance not found")
+    if (
+        not is_inventory_manager(current_user)
+        and row.issued_to_user_id != current_user.id
+        and row.installed_by_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only link installs for your own issuances",
+        )
     updated = link_issuance_installed_entity(
         session,
         row,
@@ -346,11 +521,12 @@ def revert_install_to_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("revert_inventory_install")),
 ):
+    _require_installer_not_manager(current_user)
     inventory, restored, issuance = revert_entity_to_inventory(
         session,
         entity_type=body.entity_type,
         entity_id=body.entity_id,
-        closed_by_id=current_user.id,
+        closed_by=current_user,
         notes=body.notes,
     )
     restored_read = None
@@ -376,7 +552,11 @@ def get_inventory(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    return _inventory_to_read(session, inventory, include_instances=True)
+    if not user_can_access_inventory(
+        session, current_user, inventory.id, is_manager=is_inventory_manager(current_user)
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to view this inventory item")
+    return _read_for_user(session, inventory, current_user)
 
 
 @router.put("/inventory/{inventory_id}/", response_model=schemas.InventoryRead, tags=["inventory"])
@@ -386,6 +566,7 @@ def update_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("edit_inventory")),
 ):
+    _require_inventory_manager(current_user)
     db_inventory = session.get(Inventory, inventory_id)
     if not db_inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -432,6 +613,7 @@ def delete_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("delete_inventory")),
 ):
+    _require_inventory_manager(current_user)
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -507,6 +689,7 @@ def issue_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("issue_inventory")),
 ):
+    _require_inventory_manager(current_user)
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -535,16 +718,53 @@ def consume_inventory(
     inventory_id: int,
     body: schemas.InventoryConsumeRequest = schemas.InventoryConsumeRequest(),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_inventory")),
+    current_user: User = Depends(require_permission("view_inventory")),
 ):
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
+
+    manager = is_inventory_manager(current_user)
+    effective_issuance_id = body.issuance_id
+
+    if not manager:
+        if not user_can_access_inventory(
+            session, current_user, inventory.id, is_manager=False
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="You can only install inventory issued to you",
+            )
+        issuance = resolve_issuance_for_consume(
+            session,
+            inventory,
+            issuance_id=effective_issuance_id,
+            instance_id=body.instance_id,
+        )
+        if issuance is None:
+            # Components / auto-match: pick caller's open issuance for this group
+            issuance = session.exec(
+                select(InventoryIssuance)
+                .where(
+                    InventoryIssuance.inventory_id == inventory.id,
+                    InventoryIssuance.issued_to_user_id == current_user.id,
+                    InventoryIssuance.status == "issued",
+                )
+                .order_by(InventoryIssuance.id)
+            ).first()
+            if issuance is not None:
+                effective_issuance_id = issuance.id
+        if issuance is None or issuance.issued_to_user_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only install inventory issued to you",
+            )
+
     consumed, issuance = consume_with_issuance(
         session,
         inventory,
         instance_id=body.instance_id,
-        issuance_id=body.issuance_id,
+        issuance_id=effective_issuance_id,
         installed_by_id=current_user.id,
         installed_entity_type=body.installed_entity_type,
         installed_entity_id=body.installed_entity_id,
@@ -565,7 +785,7 @@ def consume_inventory(
     session.commit()
     session.refresh(inventory)
     return schemas.InventoryConsumeRead(
-        inventory=_inventory_to_read(session, inventory, include_instances=True),
+        inventory=_read_for_user(session, inventory, current_user, include_instances=True),
         consumed_instance=consumed_read,
         issuance=issuance_read,
     )
@@ -587,12 +807,34 @@ def list_inventory_instances(
         raise HTTPException(status_code=404, detail="Inventory not found")
     if is_component_inventory(inventory.inventory_type):
         raise HTTPException(status_code=400, detail="Component inventory does not use instances")
+    if not user_can_access_inventory(
+        session, current_user, inventory_id, is_manager=is_inventory_manager(current_user)
+    ):
+        raise HTTPException(status_code=403, detail="Not allowed to view this inventory")
+
     reserved_map = instance_reservation_map(session, inventory_id)
     instances = session.exec(
         select(InventoryInstance)
         .where(InventoryInstance.inventory_id == inventory_id)
         .order_by(InventoryInstance.id)
     ).all()
+
+    if not is_inventory_manager(current_user):
+        allowed_instance_ids = {
+            int(r.inventory_instance_id)
+            for r in session.exec(
+                select(InventoryIssuance).where(
+                    InventoryIssuance.inventory_id == inventory_id,
+                    InventoryIssuance.issued_to_user_id == current_user.id,
+                    InventoryIssuance.status == "issued",
+                    InventoryIssuance.inventory_instance_id.is_not(None),
+                )
+            ).all()
+            if r.inventory_instance_id is not None
+        }
+        instances = [i for i in instances if i.id in allowed_instance_ids]
+        reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
+
     return [_instance_to_read(inst, reserved_map=reserved_map) for inst in instances]
 
 

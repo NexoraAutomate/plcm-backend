@@ -71,6 +71,7 @@ def list_systems(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
+        where=System.is_current_install == True,  # noqa: E712
     )
 
 @router.get("/systems/{system_id}/", response_model=schemas.SystemRead, tags=["systems"])
@@ -82,7 +83,7 @@ def get_system(system_id: int, session: Session = Depends(get_session), current_
     return schemas.SystemRead(
         **system.model_dump(),
         status_name=status_name,
-        subsystems=system.subsystems
+        subsystems=filter_current_installs(system.subsystems)
     )
 
 @router.put("/systems/{system_id}/", response_model=schemas.SystemRead, tags=["systems"])

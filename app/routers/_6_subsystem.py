@@ -70,6 +70,7 @@ def list_subsystems(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
+        where=Subsystem.is_current_install == True,  # noqa: E712
     )
 
 @router.get("/subsystems/{subsystem_id}/", response_model=schemas.SubsystemRead, tags=["subsystems"])
@@ -81,7 +82,7 @@ def get_subsystem(subsystem_id: int, session: Session = Depends(get_session), cu
     return schemas.SubsystemRead(
         **subsystem.model_dump(),
         status_name=status_name,
-        modules=subsystem.modules
+        modules=filter_current_installs(subsystem.modules)
     )
 
 @router.put("/subsystems/{subsystem_id}/", response_model=schemas.SubsystemRead, tags=["subsystems"])

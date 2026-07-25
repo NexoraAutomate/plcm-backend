@@ -67,6 +67,7 @@ def list_components(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
+        where=Component.is_current_install == True,  # noqa: E712
     )
 
 @router.get("/components/{component_id}/", response_model=schemas.ComponentRead, tags=["components"])

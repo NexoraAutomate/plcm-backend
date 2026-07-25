@@ -569,6 +569,22 @@ class InventoryRevertToStockRead(SQLModel):
     issuance: Optional[InventoryIssuanceRead] = None
 
 
+class InventoryReturnNoticeRead(SQLModel):
+    id: int
+    issuance_id: int
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    returned_by_user_id: int
+    returned_by_name: Optional[str] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
 class InventoryChildLinkItem(SQLModel):
     child_category_name: str
     child_inventory_id: int

@@ -356,6 +356,19 @@ class InventoryIssuanceBase(SQLModel):
     closed_by_id: Optional[int] = None
 
 
+class InventoryReturnNoticeBase(SQLModel):
+    """Admin/SubAdmin notification when an installer returns issued stock."""
+    issuance_id: int
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    returned_by_user_id: int
+    returned_by_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read_at: Optional[datetime] = None
+
+
 class EntityType(str, Enum):
     PROJECT   = "project"
     SYSTEM    = "system"

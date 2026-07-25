@@ -112,6 +112,11 @@ def check_any_role(user: User, required_roles: List[str]) -> bool:
     """Return True if the user has any of the given roles."""
     return any(check_role(user, role) for role in required_roles)
 
+
+def is_inventory_manager(user: User) -> bool:
+    """Admin or SubAdmin — full warehouse visibility and issue/return management."""
+    return check_any_role(user, ["Admin", "SubAdmin"])
+
 # Permissions withheld from SubAdmin (Admin-only capabilities).
 SUBADMIN_EXCLUDED_PERMISSIONS = frozenset({
     "view_roles",
@@ -322,9 +327,12 @@ DEFAULT_ROLES = [
             # Modules
             "view_modules", "create_modules", "edit_modules",
             # Units
-            "view_units", "view_units",
+            "view_units", "create_units", "edit_units",
             # Components
-            "view_components",
+            "view_components", "create_components", "edit_components",
+            # Inventory — issued-to-me list + revert installs
+            "view_inventory",
+            "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance",
             # Reports
@@ -390,25 +398,26 @@ DEFAULT_ROLES = [
             # Projects
             "view_projects",
             # Systems
-            "view_systems",
+            "view_systems", "create_systems", "edit_systems",
             # Subsystems
-            "view_subsystems", "edit_subsystems",
+            "view_subsystems", "create_subsystems", "edit_subsystems",
             # Modules
-            "view_modules", "edit_modules",
+            "view_modules", "create_modules", "edit_modules",
             # Units
-            "view_units", "edit_units",
+            "view_units", "create_units", "edit_units",
             # Components
-            "view_components", "edit_components",
+            "view_components", "create_components", "edit_components",
             # Inventory
             "view_inventory",
-            "issue_inventory",
             "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance", "close_maintenance",
             # Entities
-            "view_entities", "edit_entities",
+            "view_entities", "create_entities", "edit_entities",
             # Status
             "view_statuses", "view_status_history",
+            # Hierarchy templates (needed to filter installable inventory on entity pages)
+            "view_hierarchy",
             # Reports
             "view_reports",
             "view_executive_dashboard",
@@ -459,21 +468,26 @@ DEFAULT_ROLES = [
             # Projects
             "view_projects",
             # Systems
-            "view_systems",
+            "view_systems", "create_systems", "edit_systems",
             # Subsystems
-            "view_subsystems",
+            "view_subsystems", "create_subsystems", "edit_subsystems",
             # Modules
-            "view_modules",
+            "view_modules", "create_modules", "edit_modules",
             # Units
-            "view_units",
+            "view_units", "create_units", "edit_units",
             # Components
-            "view_components",
+            "view_components", "create_components", "edit_components",
+            # Inventory — issued-to-me list + revert installs
+            "view_inventory",
+            "revert_inventory_install",
             # Maintenance
             "view_maintenance", "create_maintenance", "edit_maintenance", "close_maintenance",
             # Entities
-            "view_entities",
+            "view_entities", "create_entities", "edit_entities",
             # Status
             "view_statuses", "view_status_history",
+            # Hierarchy templates (needed to filter installable inventory on entity pages)
+            "view_hierarchy",
             # Reports
             "view_reports",
             "view_executive_dashboard",

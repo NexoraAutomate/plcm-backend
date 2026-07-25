@@ -263,6 +263,14 @@ class InventoryIssuance(InventoryIssuanceBase, table=True):
         sa_relationship_kwargs={"foreign_keys": "[InventoryIssuance.closed_by_id]"}
     )
 
+
+class InventoryReturnNotice(InventoryReturnNoticeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    issuance_id: int = Field(foreign_key="inventoryissuance.id", index=True)
+    inventory_id: Optional[int] = Field(default=None, foreign_key="inventory.id", index=True)
+    returned_by_user_id: int = Field(foreign_key="user.id", index=True)
+
+
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
     PostgreSQL table: maintenance_case
