@@ -15,6 +15,7 @@ class UserCommon(SQLModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     is_active: bool = True
+    avatar_url: Optional[str] = None
   # Password hash, required for auth
 
 class UserBase(UserCommon):

@@ -4,7 +4,7 @@ Handles user login, logout, password changes, and role management
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, status, Header, Request, Response, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Request, Response, Query, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlmodel import Session, select, SQLModel, func, col
 from app.database import get_session
@@ -391,6 +391,33 @@ def change_password(
     session.commit()
     return {"message": "Password changed successfully"}
 
+
+@router.post("/avatar")
+@router.post("/avatar/", include_in_schema=False)
+async def upload_own_avatar(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Upload or replace the current user's profile picture."""
+    from app.services.user_avatar import save_user_avatar
+
+    updated = await save_user_avatar(session, user, file)
+    return {"avatar_url": updated.avatar_url}
+
+
+@router.delete("/avatar")
+@router.delete("/avatar/", include_in_schema=False)
+def delete_own_avatar(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Remove the current user's profile picture."""
+    from app.services.user_avatar import clear_user_avatar
+
+    updated = clear_user_avatar(session, user)
+    return {"avatar_url": updated.avatar_url}
+
 @router.post("/logout")
 def logout(
     request: Request,
@@ -755,6 +782,7 @@ def get_current_user_info(
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
+        avatar_url=user.avatar_url,
         created_at=user.created_at,
         roles=[role.name for role in user.roles],
         permissions=get_user_permissions(user),

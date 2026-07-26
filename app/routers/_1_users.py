@@ -1,17 +1,19 @@
 from typing import List, Optional
 from datetime import datetime, timezone, date
-from fastapi import APIRouter, HTTPException, Depends, status, Response, Request, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Response, Request, Query, File, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import User, Role, UserLoginHistory
 from app.schemas import schemas
-from app.routers.auth import require_permission, require_any_role
+from app.routers.auth import require_permission, require_any_role, get_current_user
 from app.auth import check_role, check_any_role, hash_password, PRIVILEGED_ROLE_NAMES
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.audit_service import write_audit_log
 from app.services.login_history_service import close_open_sessions_for_user, client_ip
+from app.services.user_avatar import save_user_avatar, clear_user_avatar, resolve_avatar_file
 
 router = APIRouter()
 
@@ -27,6 +29,7 @@ def _user_with_roles(user: User) -> schemas.UserWithRoles:
         full_name=user.full_name or "",
         email=user.email,
         is_active=user.is_active,
+        avatar_url=user.avatar_url,
         roles=[role.name for role in user.roles],
         created_at=user.created_at,
         updated_at=user.updated_at,
@@ -210,11 +213,58 @@ def list_users_with_roles(
         User,
         sort_by=sort_by,
         sort_order=sort_order,
-        allowed_fields={"id", "username", "full_name", "email", "is_active"},
+        allowed_fields={"id", "username", "full_name", "email", "is_active", "created_at"},
         default_order=[User.id.asc()],
     )
     users = session.exec(stmt.offset(skip).limit(limit)).all()
     return [_user_with_roles(user) for user in users]
+
+
+@router.get("/users/{user_id}/avatar/", tags=["users"])
+def get_user_avatar(
+    user_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    avatar_url = user.avatar_url
+    if not avatar_url:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    if avatar_url.startswith(("http://", "https://")):
+        return RedirectResponse(avatar_url)
+    file_path = resolve_avatar_file(avatar_url)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Avatar file not found")
+    return FileResponse(file_path)
+
+
+@router.post("/users/{user_id}/avatar/", tags=["users"])
+async def upload_user_avatar(
+    user_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_users")),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    updated = await save_user_avatar(session, user, file)
+    return {"avatar_url": updated.avatar_url}
+
+
+@router.delete("/users/{user_id}/avatar/", tags=["users"])
+def delete_user_avatar(
+    user_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_users")),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    updated = clear_user_avatar(session, user)
+    return {"avatar_url": updated.avatar_url}
 
 
 @router.get("/users/{user_id}/", response_model=schemas.UserReadWithRoles, tags=["users"])

@@ -15,6 +15,7 @@ USER_COLUMN_DDL = [
     ("failed_login_count", "INTEGER DEFAULT 0 NOT NULL"),
     ("locked_until", "TIMESTAMP WITH TIME ZONE"),
     ("created_by_id", "INTEGER"),
+    ("avatar_url", "VARCHAR"),
 ]
 
 ISSUANCE_COLUMN_DDL = [
