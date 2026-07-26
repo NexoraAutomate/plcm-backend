@@ -27,6 +27,7 @@ from app.services.inventory_issuance_service import (
     accept_return_issuance,
     reject_return_issuance,
     list_issuances,
+    list_issuance_history,
     issuance_to_dict,
     consume_with_issuance,
     resolve_issuance_for_consume,
@@ -433,6 +434,40 @@ def get_inventory_issuance(
     return _issuance_to_read(session, row)
 
 
+@router.get(
+    "/inventory/issuances/{issuance_id}/history/",
+    response_model=List[schemas.InventoryIssuanceEventRead],
+    tags=["inventory"],
+)
+def get_inventory_issuance_history(
+    issuance_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory_issuances")),
+):
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    if not is_inventory_manager(current_user) and row.issued_to_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed to view this issuance")
+    events = list_issuance_history(session, row)
+    if not is_inventory_manager(current_user):
+        # Keep chain visible only for this installer's own issuances
+        own_ids = {
+            int(r)
+            for r in session.exec(
+                select(InventoryIssuance.id).where(
+                    InventoryIssuance.issued_to_user_id == current_user.id
+                )
+            ).all()
+            if r is not None
+        }
+        events = [e for e in events if int(e.get("issuance_id") or 0) in own_ids]
+    return [
+        schemas.InventoryIssuanceEventRead.model_validate(event)
+        for event in events
+    ]
+
+
 @router.post(
     "/inventory/issuances/{issuance_id}/return/",
     response_model=schemas.InventoryIssuanceRead,
@@ -440,7 +475,7 @@ def get_inventory_issuance(
 )
 def return_inventory_issuance(
     issuance_id: int,
-    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    body: schemas.InventoryIssuanceReturnRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
@@ -466,7 +501,7 @@ def return_inventory_issuance(
 )
 def accept_inventory_return(
     issuance_id: int,
-    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    body: schemas.InventoryIssuanceReturnRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
@@ -492,7 +527,7 @@ def accept_inventory_return(
 )
 def reject_inventory_return(
     issuance_id: int,
-    body: schemas.InventoryIssuanceReturnRequest = schemas.InventoryIssuanceReturnRequest(),
+    body: schemas.InventoryIssuanceReturnRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):

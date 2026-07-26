@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Response
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Component, User)
@@ -10,6 +10,7 @@ from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
 from app.auth import require_install_owner_or_manager
+from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("component")
@@ -48,6 +49,10 @@ def list_components(
     include_total: bool = True,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    search: Optional[str] = Query(None),
+    status_id: Optional[int] = Query(None),
+    unit_id: Optional[int] = Query(None),
+    installed_by_id: Optional[int] = Query(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_components")),
 ):
@@ -68,7 +73,13 @@ def list_components(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
-        where=Component.is_current_install == True,  # noqa: E712
+        where=hierarchy_list_where(
+            Component,
+            search=search,
+            status_id=status_id,
+            unit_id=unit_id,
+            installed_by_id=installed_by_id,
+        ),
     )
 
 @router.get("/components/{component_id}/", response_model=schemas.ComponentRead, tags=["components"])

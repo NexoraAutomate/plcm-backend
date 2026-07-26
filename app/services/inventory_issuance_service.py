@@ -8,12 +8,13 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException
 from sqlmodel import Session, select, func, col
 
-from app.models.base import EntityType, IssuanceStatus
+from app.models.base import EntityType, IssuanceStatus, IssuanceEventType
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Inventory,
     InventoryInstance,
     InventoryIssuance,
+    InventoryIssuanceEvent,
     InventoryChildLink,
     InventoryReturnNotice,
     User,
@@ -60,6 +61,198 @@ def _user_display_name(user: Optional[User]) -> Optional[str]:
     if not user:
         return None
     return (user.full_name or user.username or "").strip() or None
+
+
+def _require_notes(notes: Optional[str], *, label: str = "Remarks") -> str:
+    cleaned = (notes or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail=f"{label} are required")
+    return cleaned
+
+
+def record_issuance_event(
+    session: Session,
+    issuance: InventoryIssuance,
+    *,
+    event_type: str,
+    actor: Optional[User] = None,
+    notes: Optional[str] = None,
+) -> InventoryIssuanceEvent:
+    installer = (
+        session.get(User, issuance.issued_to_user_id)
+        if issuance.issued_to_user_id
+        else None
+    )
+    event = InventoryIssuanceEvent(
+        issuance_id=issuance.id,
+        inventory_id=issuance.inventory_id,
+        inventory_instance_id=issuance.inventory_instance_id,
+        event_type=event_type,
+        quantity=issuance.quantity or 1,
+        actor_user_id=actor.id if actor else None,
+        actor_name=_user_display_name(actor),
+        installer_user_id=issuance.issued_to_user_id,
+        installer_name=_user_display_name(installer),
+        notes=(notes or "").strip() or None,
+        part_number=issuance.part_number,
+        serial_number=issuance.serial_number,
+        inventory_name=issuance.inventory_name,
+        inventory_type=issuance.inventory_type,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(event)
+    session.flush()
+    return event
+
+
+def related_issuance_ids(session: Session, issuance: InventoryIssuance) -> list[int]:
+    """Issuances that share the same physical unit (instance and/or serial)."""
+    ids: set[int] = {int(issuance.id)} if issuance.id is not None else set()
+    if issuance.inventory_instance_id is not None:
+        rows = session.exec(
+            select(InventoryIssuance.id).where(
+                InventoryIssuance.inventory_instance_id == issuance.inventory_instance_id
+            )
+        ).all()
+        ids.update(int(r) for r in rows if r is not None)
+    serial = (issuance.serial_number or "").strip()
+    if serial and issuance.inventory_id is not None:
+        rows = session.exec(
+            select(InventoryIssuance.id).where(
+                InventoryIssuance.inventory_id == issuance.inventory_id,
+                func.lower(func.coalesce(InventoryIssuance.serial_number, ""))
+                == serial.lower(),
+            )
+        ).all()
+        ids.update(int(r) for r in rows if r is not None)
+    return sorted(ids)
+
+
+def issuance_event_to_dict(event: InventoryIssuanceEvent) -> dict:
+    data = event.model_dump()
+    data["created_at"] = _ensure_utc(data.get("created_at"))
+    return data
+
+
+def list_issuance_history(
+    session: Session,
+    issuance: InventoryIssuance,
+) -> List[dict]:
+    """Full ping-pong timeline for a unit, newest last."""
+    chain_ids = related_issuance_ids(session, issuance)
+    events = list(
+        session.exec(
+            select(InventoryIssuanceEvent)
+            .where(InventoryIssuanceEvent.issuance_id.in_(chain_ids))
+            .order_by(col(InventoryIssuanceEvent.created_at).asc(), col(InventoryIssuanceEvent.id).asc())
+        ).all()
+    )
+    if events:
+        return [issuance_event_to_dict(e) for e in events]
+
+    # Fallback for legacy rows created before the event ledger existed.
+    synthesized: list[dict] = []
+    rows = list(
+        session.exec(
+            select(InventoryIssuance)
+            .where(InventoryIssuance.id.in_(chain_ids))
+            .order_by(col(InventoryIssuance.issued_at).asc(), col(InventoryIssuance.id).asc())
+        ).all()
+    )
+    for row in rows:
+        issued_to = session.get(User, row.issued_to_user_id) if row.issued_to_user_id else None
+        issued_by = session.get(User, row.issued_by_user_id) if row.issued_by_user_id else None
+        base = {
+            "id": None,
+            "issuance_id": row.id,
+            "inventory_id": row.inventory_id,
+            "inventory_instance_id": row.inventory_instance_id,
+            "quantity": row.quantity or 1,
+            "installer_user_id": row.issued_to_user_id,
+            "installer_name": _user_display_name(issued_to),
+            "part_number": row.part_number,
+            "serial_number": row.serial_number,
+            "inventory_name": row.inventory_name,
+            "inventory_type": row.inventory_type,
+        }
+        synthesized.append(
+            {
+                **base,
+                "event_type": IssuanceEventType.ISSUED.value,
+                "actor_user_id": row.issued_by_user_id,
+                "actor_name": _user_display_name(issued_by),
+                "notes": row.notes,
+                "created_at": _ensure_utc(row.issued_at),
+            }
+        )
+        notices = list(
+            session.exec(
+                select(InventoryReturnNotice)
+                .where(InventoryReturnNotice.issuance_id == row.id)
+                .order_by(col(InventoryReturnNotice.created_at).asc())
+            ).all()
+        )
+        for notice in notices:
+            synthesized.append(
+                {
+                    **base,
+                    "event_type": IssuanceEventType.RETURN_REQUESTED.value,
+                    "actor_user_id": notice.returned_by_user_id,
+                    "actor_name": notice.returned_by_name,
+                    "notes": notice.request_notes,
+                    "created_at": _ensure_utc(notice.created_at),
+                }
+            )
+            if notice.decision == "accepted":
+                decided_by = session.get(User, notice.decided_by_id) if notice.decided_by_id else None
+                synthesized.append(
+                    {
+                        **base,
+                        "event_type": IssuanceEventType.RETURN_ACCEPTED.value,
+                        "actor_user_id": notice.decided_by_id,
+                        "actor_name": _user_display_name(decided_by),
+                        "notes": notice.decision_notes,
+                        "created_at": _ensure_utc(notice.decided_at or notice.created_at),
+                    }
+                )
+            elif notice.decision == "rejected":
+                decided_by = session.get(User, notice.decided_by_id) if notice.decided_by_id else None
+                synthesized.append(
+                    {
+                        **base,
+                        "event_type": IssuanceEventType.RETURN_REJECTED.value,
+                        "actor_user_id": notice.decided_by_id,
+                        "actor_name": _user_display_name(decided_by),
+                        "notes": notice.decision_notes,
+                        "created_at": _ensure_utc(notice.decided_at or notice.created_at),
+                    }
+                )
+        if row.status == IssuanceStatus.INSTALLED.value and row.installed_at:
+            installed_by = session.get(User, row.installed_by_id) if row.installed_by_id else None
+            synthesized.append(
+                {
+                    **base,
+                    "event_type": IssuanceEventType.INSTALLED.value,
+                    "actor_user_id": row.installed_by_id,
+                    "actor_name": _user_display_name(installed_by),
+                    "notes": None,
+                    "created_at": _ensure_utc(row.installed_at),
+                }
+            )
+        if row.status == IssuanceStatus.REVERTED.value and row.closed_at:
+            closed_by = session.get(User, row.closed_by_id) if row.closed_by_id else None
+            synthesized.append(
+                {
+                    **base,
+                    "event_type": IssuanceEventType.REVERTED.value,
+                    "actor_user_id": row.closed_by_id,
+                    "actor_name": _user_display_name(closed_by),
+                    "notes": row.notes,
+                    "created_at": _ensure_utc(row.closed_at),
+                }
+            )
+    synthesized.sort(key=lambda e: (e.get("created_at") or datetime.min.replace(tzinfo=timezone.utc), e.get("issuance_id") or 0))
+    return synthesized
 
 
 def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -233,6 +426,14 @@ def issue_inventory_unit(
     )
     session.add(issuance)
     session.flush()
+    actor = session.get(User, issued_by_user_id)
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.ISSUED.value,
+        actor=actor,
+        notes=notes,
+    )
     return issuance
 
 
@@ -248,6 +449,8 @@ def return_issuance(
     Installer: request return (status → return_pending; still reserved until admin accepts).
     Manager force-return of open issued stock: finalize immediately to returned.
     """
+    cleaned_notes = _require_notes(notes, label="Return remarks")
+
     if is_manager:
         if issuance.status not in (OPEN_STATUS, RETURN_PENDING_STATUS):
             raise HTTPException(
@@ -261,9 +464,10 @@ def return_issuance(
             session,
             issuance,
             decided_by=closed_by,
-            notes=notes,
+            notes=cleaned_notes,
             create_notice_if_missing=issuance.status == OPEN_STATUS,
             returned_by_user_id=issuance.issued_to_user_id,
+            request_notes=cleaned_notes if issuance.status == OPEN_STATUS else None,
         )
 
     if issuance.status != OPEN_STATUS:
@@ -280,8 +484,7 @@ def return_issuance(
     now = datetime.now(timezone.utc)
     issuance.status = RETURN_PENDING_STATUS
     issuance.return_requested_at = now
-    if notes:
-        issuance.notes = ((issuance.notes or "") + f"\nReturn requested: {notes}").strip()
+    issuance.notes = ((issuance.notes or "") + f"\nReturn requested: {cleaned_notes}").strip()
     session.add(issuance)
     session.flush()
 
@@ -296,9 +499,17 @@ def return_issuance(
         returned_by_name=returned_by_name,
         created_at=now,
         decision="pending",
+        request_notes=cleaned_notes,
     )
     session.add(notice)
     session.flush()
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.RETURN_REQUESTED.value,
+        actor=closed_by,
+        notes=cleaned_notes,
+    )
     return issuance, notice
 
 
@@ -324,8 +535,11 @@ def accept_return_issuance(
     notes: Optional[str] = None,
     create_notice_if_missing: bool = False,
     returned_by_user_id: Optional[int] = None,
+    request_notes: Optional[str] = None,
 ) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
     """Admin accepts return → status returned; stock no longer reserved."""
+    cleaned_notes = _require_notes(notes, label="Admin remarks")
+
     if issuance.status not in (OPEN_STATUS, RETURN_PENDING_STATUS):
         raise HTTPException(
             status_code=400,
@@ -339,8 +553,7 @@ def accept_return_issuance(
     issuance.status = IssuanceStatus.RETURNED.value
     issuance.closed_at = now
     issuance.closed_by_id = decided_by.id
-    if notes:
-        issuance.notes = ((issuance.notes or "") + f"\nReturn accepted: {notes}").strip()
+    issuance.notes = ((issuance.notes or "") + f"\nReturn accepted: {cleaned_notes}").strip()
     session.add(issuance)
     session.flush()
 
@@ -358,6 +571,7 @@ def accept_return_issuance(
             returned_by_name=_user_display_name(by_user),
             created_at=now,
             decision="pending",
+            request_notes=request_notes,
         )
         session.add(notice)
         session.flush()
@@ -369,10 +583,16 @@ def accept_return_issuance(
     notice.decided_at = now
     notice.decided_by_id = decided_by.id
     notice.read_at = now
-    if notes:
-        notice.decision_notes = notes
+    notice.decision_notes = cleaned_notes
     session.add(notice)
     session.flush()
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.RETURN_ACCEPTED.value,
+        actor=decided_by,
+        notes=cleaned_notes,
+    )
     return issuance, notice
 
 
@@ -384,6 +604,8 @@ def reject_return_issuance(
     notes: Optional[str] = None,
 ) -> Tuple[InventoryIssuance, InventoryReturnNotice]:
     """Admin rejects return → reissue to installer (status back to issued)."""
+    cleaned_notes = _require_notes(notes, label="Admin remarks")
+
     if issuance.status != RETURN_PENDING_STATUS:
         raise HTTPException(
             status_code=400,
@@ -396,8 +618,7 @@ def reject_return_issuance(
     now = datetime.now(timezone.utc)
     issuance.status = OPEN_STATUS
     issuance.return_requested_at = None
-    if notes:
-        issuance.notes = ((issuance.notes or "") + f"\nReturn rejected: {notes}").strip()
+    issuance.notes = ((issuance.notes or "") + f"\nReturn rejected: {cleaned_notes}").strip()
     session.add(issuance)
     session.flush()
 
@@ -409,10 +630,16 @@ def reject_return_issuance(
     notice.decided_at = now
     notice.decided_by_id = decided_by.id
     notice.read_at = now
-    if notes:
-        notice.decision_notes = notes
+    notice.decision_notes = cleaned_notes
     session.add(notice)
     session.flush()
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.RETURN_REJECTED.value,
+        actor=decided_by,
+        notes=cleaned_notes,
+    )
     return issuance, notice
 
 
@@ -551,6 +778,14 @@ def mark_issuance_installed(
     issuance.inventory_instance_id = None
     session.add(issuance)
     session.flush()
+    actor = session.get(User, installed_by_id)
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.INSTALLED.value,
+        actor=actor,
+        notes=None,
+    )
     return issuance
 
 
@@ -902,6 +1137,13 @@ def revert_entity_to_inventory(
         if notes:
             prior.notes = ((prior.notes or "") + f"\nRevert: {notes}").strip()
         session.add(prior)
+        record_issuance_event(
+            session,
+            prior,
+            event_type=IssuanceEventType.REVERTED.value,
+            actor=closed_by,
+            notes=notes,
+        )
 
     # New open issuance so the assembly appears on the installer's list
     new_issuance = InventoryIssuance(
@@ -920,6 +1162,13 @@ def revert_entity_to_inventory(
     )
     session.add(new_issuance)
     session.flush()
+    record_issuance_event(
+        session,
+        new_issuance,
+        event_type=IssuanceEventType.ISSUED.value,
+        actor=closed_by,
+        notes=notes or "Reopened after revert from hierarchy",
+    )
 
     return inventory, restored, new_issuance
 

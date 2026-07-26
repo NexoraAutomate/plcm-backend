@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Response
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Subsystem, User)
@@ -11,6 +11,7 @@ from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
 from app.auth import require_install_owner_or_manager
 from app.services.entity_replacement_service import filter_current_installs
+from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("subsystem")
@@ -50,6 +51,10 @@ def list_subsystems(
     include_total: bool = True,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    search: Optional[str] = Query(None),
+    status_id: Optional[int] = Query(None),
+    system_id: Optional[int] = Query(None),
+    installed_by_id: Optional[int] = Query(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_subsystems")),
 ):
@@ -71,7 +76,13 @@ def list_subsystems(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
-        where=Subsystem.is_current_install == True,  # noqa: E712
+        where=hierarchy_list_where(
+            Subsystem,
+            search=search,
+            status_id=status_id,
+            system_id=system_id,
+            installed_by_id=installed_by_id,
+        ),
     )
 
 @router.get("/subsystems/{subsystem_id}/", response_model=schemas.SubsystemRead, tags=["subsystems"])

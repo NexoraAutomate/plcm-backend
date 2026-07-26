@@ -271,6 +271,20 @@ class InventoryReturnNotice(InventoryReturnNoticeBase, table=True):
     returned_by_user_id: int = Field(foreign_key="user.id", index=True)
 
 
+class InventoryIssuanceEvent(InventoryIssuanceEventBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    issuance_id: int = Field(foreign_key="inventoryissuance.id", index=True)
+    inventory_id: Optional[int] = Field(default=None, foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None,
+        foreign_key="inventoryinstance.id",
+        index=True,
+        ondelete="SET NULL",
+    )
+    actor_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    installer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
     PostgreSQL table: maintenance_case

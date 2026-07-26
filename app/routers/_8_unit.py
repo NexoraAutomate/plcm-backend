@@ -1,5 +1,5 @@
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Response
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Unit, User)
@@ -11,6 +11,7 @@ from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
 from app.auth import require_install_owner_or_manager
 from app.services.entity_replacement_service import filter_current_installs
+from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
 
 entity_config = ENTITY_CONFIG.get("unit")
@@ -48,6 +49,10 @@ def list_units(
     include_total: bool = True,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    search: Optional[str] = Query(None),
+    status_id: Optional[int] = Query(None),
+    module_id: Optional[int] = Query(None),
+    installed_by_id: Optional[int] = Query(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_units")),
 ):
@@ -69,7 +74,13 @@ def list_units(
         include_total=include_total,
         sort_by=sort_by,
         sort_order=sort_order,
-        where=Unit.is_current_install == True,  # noqa: E712
+        where=hierarchy_list_where(
+            Unit,
+            search=search,
+            status_id=status_id,
+            module_id=module_id,
+            installed_by_id=installed_by_id,
+        ),
     )
 
 @router.get("/units/{unit_id}/", response_model=schemas.UnitRead, tags=["units"])

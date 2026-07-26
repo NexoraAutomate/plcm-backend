@@ -375,6 +375,36 @@ class InventoryReturnNoticeBase(SQLModel):
     decided_at: Optional[datetime] = None
     decided_by_id: Optional[int] = None
     decision_notes: Optional[str] = None
+    # Installer's reason when requesting return
+    request_notes: Optional[str] = None
+
+
+class IssuanceEventType(str, Enum):
+    ISSUED = "issued"
+    RETURN_REQUESTED = "return_requested"
+    RETURN_ACCEPTED = "return_accepted"
+    RETURN_REJECTED = "return_rejected"
+    INSTALLED = "installed"
+    REVERTED = "reverted"
+
+
+class InventoryIssuanceEventBase(SQLModel):
+    """Immutable ledger of issue / return / reissue / install events for a unit."""
+    issuance_id: int
+    inventory_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
+    event_type: str = Field(index=True)
+    quantity: int = 1
+    actor_user_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    installer_user_id: Optional[int] = None
+    installer_name: Optional[str] = None
+    notes: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+    inventory_type: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EntityType(str, Enum):

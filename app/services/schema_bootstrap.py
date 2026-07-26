@@ -26,7 +26,29 @@ RETURN_NOTICE_COLUMN_DDL = [
     ("decided_at", "TIMESTAMP WITH TIME ZONE"),
     ("decided_by_id", "INTEGER"),
     ("decision_notes", "VARCHAR"),
+    ("request_notes", "VARCHAR"),
 ]
+
+ISSUANCE_EVENT_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryissuanceevent (
+    id SERIAL PRIMARY KEY,
+    issuance_id INTEGER NOT NULL REFERENCES inventoryissuance(id),
+    inventory_id INTEGER REFERENCES inventory(id),
+    inventory_instance_id INTEGER,
+    event_type VARCHAR NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    actor_user_id INTEGER,
+    actor_name VARCHAR,
+    installer_user_id INTEGER,
+    installer_name VARCHAR,
+    notes VARCHAR,
+    part_number VARCHAR,
+    serial_number VARCHAR,
+    inventory_name VARCHAR,
+    inventory_type VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE
+)
+"""
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -99,6 +121,31 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryreturnnotice_decision
                 ON inventoryreturnnotice (decision)
+                """
+            )
+        )
+        conn.execute(text(ISSUANCE_EVENT_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryissuanceevent_issuance_id
+                ON inventoryissuanceevent (issuance_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryissuanceevent_event_type
+                ON inventoryissuanceevent (event_type)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryissuanceevent_serial_number
+                ON inventoryissuanceevent (serial_number)
                 """
             )
         )

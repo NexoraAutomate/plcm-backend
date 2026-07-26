@@ -551,7 +551,29 @@ class InventoryIssuanceRead(SQLModel):
 
 
 class InventoryIssuanceReturnRequest(SQLModel):
+    notes: str
+
+
+class InventoryIssuanceEventRead(SQLModel):
+    id: Optional[int] = None
+    issuance_id: int
+    inventory_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
+    event_type: str
+    quantity: int = 1
+    actor_user_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    installer_user_id: Optional[int] = None
+    installer_name: Optional[str] = None
     notes: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+    inventory_type: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 
 class InventoryIssuanceLinkInstallRequest(SQLModel):
@@ -586,6 +608,7 @@ class InventoryReturnNoticeRead(SQLModel):
     decided_at: Optional[datetime] = None
     decided_by_id: Optional[int] = None
     decision_notes: Optional[str] = None
+    request_notes: Optional[str] = None
 
     class Config:
         orm_mode = True
