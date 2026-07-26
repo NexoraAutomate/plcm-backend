@@ -141,32 +141,33 @@ def _inventory_to_read(
         ).all()
         reserved_map = instance_reservation_map(session, inventory.id)
         if issued_to_user_id is not None:
-            # Installer: only serials open-issued to them
-            allowed_instance_ids = {
-                int(r.inventory_instance_id)
-                for r in session.exec(
+            # Installer: only serials open-issued / return-pending to them
+            open_rows = list(
+                session.exec(
                     select(InventoryIssuance).where(
                         InventoryIssuance.inventory_id == inventory.id,
                         InventoryIssuance.issued_to_user_id == issued_to_user_id,
                         InventoryIssuance.status.in_(RESERVED_STATUSES),
-                        InventoryIssuance.inventory_instance_id.is_not(None),
                     )
                 ).all()
+            )
+            allowed_instance_ids = {
+                int(r.inventory_instance_id)
+                for r in open_rows
                 if r.inventory_instance_id is not None
             }
             instances = [i for i in instances if i.id in allowed_instance_ids]
             reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
-            # Held = all reserved to installer; available = installable (not return_pending)
-            pending_ids = {
-                iid
-                for iid, (_iss_id, status) in reserved_map.items()
-                if status == "return_pending"
-            }
-            installable_count = sum(1 for i in instances if i.id not in pending_ids)
-            pending_count = len(pending_ids)
-            data["quantity"] = len(instances)
-            data["reserved_quantity"] = pending_count
-            data["available_quantity"] = installable_count
+            # Quantity comes from issuance ledger (not just linked instance rows)
+            installable_qty = sum(
+                int(r.quantity or 0) for r in open_rows if r.status == "issued"
+            )
+            pending_qty = sum(
+                int(r.quantity or 0) for r in open_rows if r.status == "return_pending"
+            )
+            data["quantity"] = installable_qty + pending_qty
+            data["reserved_quantity"] = pending_qty
+            data["available_quantity"] = installable_qty
         data["instances"] = [
             _instance_to_read(inst, reserved_map=reserved_map) for inst in instances
         ]
