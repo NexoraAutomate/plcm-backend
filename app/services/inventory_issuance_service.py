@@ -63,12 +63,10 @@ def _user_display_name(user: Optional[User]) -> Optional[str]:
 
 
 def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
-    """Normalize naive datetimes to UTC so API JSON includes a timezone offset."""
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+    """Normalize datetimes to UTC-aware for API serialization."""
+    from app.utils.datetimes import to_api_utc
+
+    return to_api_utc(value)
 
 
 def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:

@@ -23,6 +23,13 @@ from app.services.security_settings_service import get_or_create_security_settin
 from app.services.inactivity_service import deactivate_inactive_users
 from app.services.schema_bootstrap import ensure_user_management_schema
 
+# Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
+from datetime import datetime as _datetime
+from fastapi.encoders import ENCODERS_BY_TYPE
+from app.utils.datetimes import to_api_utc_iso
+
+ENCODERS_BY_TYPE[_datetime] = to_api_utc_iso
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
