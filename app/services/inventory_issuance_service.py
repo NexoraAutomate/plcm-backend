@@ -132,27 +132,54 @@ def create_installer_notice(
     return notice
 
 
-def create_installer_notice_read(notice: InventoryInstallerNotice) -> dict:
+def create_installer_notice_read(
+    notice: InventoryInstallerNotice,
+    session: Optional[Session] = None,
+) -> dict:
     data = notice.model_dump()
     for key in ("created_at", "read_at"):
         if key in data:
             data[key] = _ensure_utc(data.get(key))
+    user_name = None
+    if session is not None and notice.user_id is not None:
+        user = session.get(User, notice.user_id)
+        user_name = _user_display_name(user)
+    data["user_name"] = user_name
     return data
 
 
 def list_installer_notices(
     session: Session,
-    user_id: int,
     *,
+    user_id: Optional[int] = None,
     unread_only: bool = False,
+    search: Optional[str] = None,
 ) -> List[InventoryInstallerNotice]:
-    stmt = (
-        select(InventoryInstallerNotice)
-        .where(InventoryInstallerNotice.user_id == user_id)
-        .order_by(col(InventoryInstallerNotice.created_at).desc())
+    stmt = select(InventoryInstallerNotice).order_by(
+        col(InventoryInstallerNotice.created_at).desc()
     )
+    if user_id is not None:
+        stmt = stmt.where(InventoryInstallerNotice.user_id == user_id)
     if unread_only:
         stmt = stmt.where(InventoryInstallerNotice.read_at.is_(None))
+    term = (search or "").strip()
+    if term:
+        like = f"%{term.lower()}%"
+        stmt = stmt.where(
+            func.lower(
+                func.coalesce(InventoryInstallerNotice.message, "")
+                + " "
+                + func.coalesce(InventoryInstallerNotice.inventory_name, "")
+                + " "
+                + func.coalesce(InventoryInstallerNotice.part_number, "")
+                + " "
+                + func.coalesce(InventoryInstallerNotice.serial_number, "")
+                + " "
+                + func.coalesce(InventoryInstallerNotice.notes, "")
+                + " "
+                + func.coalesce(InventoryInstallerNotice.notice_type, "")
+            ).like(like)
+        )
     return list(session.exec(stmt).all())
 
 
@@ -167,15 +194,17 @@ def mark_installer_notice_read(
     return notice
 
 
-def mark_all_installer_notices_read(session: Session, user_id: int) -> int:
-    rows = list(
-        session.exec(
-            select(InventoryInstallerNotice).where(
-                InventoryInstallerNotice.user_id == user_id,
-                InventoryInstallerNotice.read_at.is_(None),
-            )
-        ).all()
+def mark_all_installer_notices_read(
+    session: Session,
+    *,
+    user_id: Optional[int] = None,
+) -> int:
+    stmt = select(InventoryInstallerNotice).where(
+        InventoryInstallerNotice.read_at.is_(None)
     )
+    if user_id is not None:
+        stmt = stmt.where(InventoryInstallerNotice.user_id == user_id)
+    rows = list(session.exec(stmt).all())
     now = datetime.now(timezone.utc)
     for row in rows:
         row.read_at = now
@@ -763,12 +792,33 @@ def list_return_notices(
     *,
     unread_only: bool = False,
     pending_only: bool = False,
+    search: Optional[str] = None,
 ) -> List[InventoryReturnNotice]:
     stmt = select(InventoryReturnNotice).order_by(col(InventoryReturnNotice.created_at).desc())
     if pending_only:
         stmt = stmt.where(InventoryReturnNotice.decision == "pending")
     elif unread_only:
         stmt = stmt.where(InventoryReturnNotice.read_at.is_(None))
+    term = (search or "").strip()
+    if term:
+        like = f"%{term.lower()}%"
+        stmt = stmt.where(
+            func.lower(
+                func.coalesce(InventoryReturnNotice.inventory_name, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.part_number, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.serial_number, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.returned_by_name, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.decision_notes, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.request_notes, "")
+                + " "
+                + func.coalesce(InventoryReturnNotice.decision, "")
+            ).like(like)
+        )
     return list(session.exec(stmt).all())
 
 

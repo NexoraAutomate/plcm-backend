@@ -627,6 +627,7 @@ class InventoryInstallerNoticeRead(SQLModel):
     notes: Optional[str] = None
     created_at: datetime
     read_at: Optional[datetime] = None
+    user_name: Optional[str] = None
 
     class Config:
         orm_mode = True

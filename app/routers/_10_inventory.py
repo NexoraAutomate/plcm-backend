@@ -566,12 +566,16 @@ def reject_inventory_return(
 def get_inventory_return_notices(
     unread_only: bool = Query(False),
     pending_only: bool = Query(False),
+    search: Optional[str] = Query(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
     _require_inventory_manager(current_user)
     rows = list_return_notices(
-        session, unread_only=unread_only, pending_only=pending_only
+        session,
+        unread_only=unread_only,
+        pending_only=pending_only,
+        search=search,
     )
     return [
         schemas.InventoryReturnNoticeRead.model_validate(create_return_notice_read(r))
@@ -622,14 +626,30 @@ def read_all_inventory_return_notices(
 )
 def get_inventory_installer_notices(
     unread_only: bool = Query(False),
+    search: Optional[str] = Query(None),
+    all_users: bool = Query(
+        False,
+        description="Admin/SubAdmin only: list notices for every installer",
+    ),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
-    rows = list_installer_notices(
-        session, current_user.id, unread_only=unread_only
-    )
+    if all_users:
+        _require_inventory_manager(current_user)
+        rows = list_installer_notices(
+            session, user_id=None, unread_only=unread_only, search=search
+        )
+    else:
+        rows = list_installer_notices(
+            session,
+            user_id=current_user.id,
+            unread_only=unread_only,
+            search=search,
+        )
     return [
-        schemas.InventoryInstallerNoticeRead.model_validate(create_installer_notice_read(r))
+        schemas.InventoryInstallerNoticeRead.model_validate(
+            create_installer_notice_read(r, session)
+        )
         for r in rows
     ]
 
@@ -645,13 +665,15 @@ def read_inventory_installer_notice(
     current_user: User = Depends(require_permission("view_inventory")),
 ):
     row = session.get(InventoryInstallerNotice, notice_id)
-    if not row or row.user_id != current_user.id:
+    if not row:
+        raise HTTPException(status_code=404, detail="Installer notice not found")
+    if not is_inventory_manager(current_user) and row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Installer notice not found")
     updated = mark_installer_notice_read(session, row)
     session.commit()
     session.refresh(updated)
     return schemas.InventoryInstallerNoticeRead.model_validate(
-        create_installer_notice_read(updated)
+        create_installer_notice_read(updated, session)
     )
 
 
@@ -660,10 +682,15 @@ def read_inventory_installer_notice(
     tags=["inventory"],
 )
 def read_all_inventory_installer_notices(
+    all_users: bool = Query(False),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
-    count = mark_all_installer_notices_read(session, current_user.id)
+    if all_users:
+        _require_inventory_manager(current_user)
+        count = mark_all_installer_notices_read(session, user_id=None)
+    else:
+        count = mark_all_installer_notices_read(session, user_id=current_user.id)
     session.commit()
     return {"ok": True, "marked": count}
 
