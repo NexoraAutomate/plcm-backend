@@ -614,6 +614,24 @@ class InventoryReturnNoticeRead(SQLModel):
         orm_mode = True
 
 
+class InventoryInstallerNoticeRead(SQLModel):
+    id: int
+    user_id: int
+    notice_type: str
+    issuance_id: Optional[int] = None
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    message: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
 class InventoryChildLinkItem(SQLModel):
     child_category_name: str
     child_inventory_id: int

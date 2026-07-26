@@ -3,7 +3,15 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select, func
 from app.database import get_session
-from app.models.tables import Inventory, InventoryInstance, InventoryChildLink, InventoryIssuance, InventoryReturnNotice, User
+from app.models.tables import (
+    Inventory,
+    InventoryInstance,
+    InventoryChildLink,
+    InventoryIssuance,
+    InventoryReturnNotice,
+    InventoryInstallerNotice,
+    User,
+)
 from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.auth import is_inventory_manager
@@ -39,6 +47,10 @@ from app.services.inventory_issuance_service import (
     mark_return_notice_read,
     mark_all_return_notices_read,
     create_return_notice_read,
+    list_installer_notices,
+    mark_installer_notice_read,
+    mark_all_installer_notices_read,
+    create_installer_notice_read,
     RESERVED_STATUSES,
 )
 
@@ -599,6 +611,59 @@ def read_all_inventory_return_notices(
 ):
     _require_inventory_manager(current_user)
     count = mark_all_return_notices_read(session)
+    session.commit()
+    return {"ok": True, "marked": count}
+
+
+@router.get(
+    "/inventory/installer-notices/",
+    response_model=List[schemas.InventoryInstallerNoticeRead],
+    tags=["inventory"],
+)
+def get_inventory_installer_notices(
+    unread_only: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    rows = list_installer_notices(
+        session, current_user.id, unread_only=unread_only
+    )
+    return [
+        schemas.InventoryInstallerNoticeRead.model_validate(create_installer_notice_read(r))
+        for r in rows
+    ]
+
+
+@router.post(
+    "/inventory/installer-notices/{notice_id}/read/",
+    response_model=schemas.InventoryInstallerNoticeRead,
+    tags=["inventory"],
+)
+def read_inventory_installer_notice(
+    notice_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    row = session.get(InventoryInstallerNotice, notice_id)
+    if not row or row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Installer notice not found")
+    updated = mark_installer_notice_read(session, row)
+    session.commit()
+    session.refresh(updated)
+    return schemas.InventoryInstallerNoticeRead.model_validate(
+        create_installer_notice_read(updated)
+    )
+
+
+@router.post(
+    "/inventory/installer-notices/read-all/",
+    tags=["inventory"],
+)
+def read_all_inventory_installer_notices(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    count = mark_all_installer_notices_read(session, current_user.id)
     session.commit()
     return {"ok": True, "marked": count}
 

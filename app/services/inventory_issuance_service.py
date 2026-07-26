@@ -8,13 +8,14 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException
 from sqlmodel import Session, select, func, col
 
-from app.models.base import EntityType, IssuanceStatus, IssuanceEventType
+from app.models.base import EntityType, IssuanceStatus, IssuanceEventType, InstallerNoticeType
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Inventory,
     InventoryInstance,
     InventoryIssuance,
     InventoryIssuanceEvent,
+    InventoryInstallerNotice,
     InventoryChildLink,
     InventoryReturnNotice,
     User,
@@ -103,6 +104,84 @@ def record_issuance_event(
     session.add(event)
     session.flush()
     return event
+
+
+def create_installer_notice(
+    session: Session,
+    *,
+    user_id: int,
+    notice_type: str,
+    issuance: InventoryIssuance,
+    message: str,
+    notes: Optional[str] = None,
+) -> InventoryInstallerNotice:
+    notice = InventoryInstallerNotice(
+        user_id=user_id,
+        notice_type=notice_type,
+        issuance_id=issuance.id,
+        inventory_id=issuance.inventory_id,
+        inventory_name=issuance.inventory_name,
+        part_number=issuance.part_number,
+        serial_number=issuance.serial_number,
+        message=message,
+        notes=(notes or "").strip() or None,
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(notice)
+    session.flush()
+    return notice
+
+
+def create_installer_notice_read(notice: InventoryInstallerNotice) -> dict:
+    data = notice.model_dump()
+    for key in ("created_at", "read_at"):
+        if key in data:
+            data[key] = _ensure_utc(data.get(key))
+    return data
+
+
+def list_installer_notices(
+    session: Session,
+    user_id: int,
+    *,
+    unread_only: bool = False,
+) -> List[InventoryInstallerNotice]:
+    stmt = (
+        select(InventoryInstallerNotice)
+        .where(InventoryInstallerNotice.user_id == user_id)
+        .order_by(col(InventoryInstallerNotice.created_at).desc())
+    )
+    if unread_only:
+        stmt = stmt.where(InventoryInstallerNotice.read_at.is_(None))
+    return list(session.exec(stmt).all())
+
+
+def mark_installer_notice_read(
+    session: Session,
+    notice: InventoryInstallerNotice,
+) -> InventoryInstallerNotice:
+    if notice.read_at is None:
+        notice.read_at = datetime.now(timezone.utc)
+        session.add(notice)
+        session.flush()
+    return notice
+
+
+def mark_all_installer_notices_read(session: Session, user_id: int) -> int:
+    rows = list(
+        session.exec(
+            select(InventoryInstallerNotice).where(
+                InventoryInstallerNotice.user_id == user_id,
+                InventoryInstallerNotice.read_at.is_(None),
+            )
+        ).all()
+    )
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.read_at = now
+        session.add(row)
+    session.flush()
+    return len(rows)
 
 
 def related_issuance_ids(session: Session, issuance: InventoryIssuance) -> list[int]:
@@ -434,6 +513,16 @@ def issue_inventory_unit(
         actor=actor,
         notes=notes,
     )
+    item_label = issuance.inventory_name or issuance.part_number or f"Inventory #{issuance.inventory_id}"
+    create_installer_notice(
+        session,
+        user_id=issued_to_user_id,
+        notice_type=InstallerNoticeType.ISSUED.value,
+        issuance=issuance,
+        message=f"Inventory issued to you: {item_label}"
+        + (f" ({issuance.serial_number})" if issuance.serial_number else ""),
+        notes=notes,
+    )
     return issuance
 
 
@@ -593,6 +682,15 @@ def accept_return_issuance(
         actor=decided_by,
         notes=cleaned_notes,
     )
+    item_label = issuance.inventory_name or issuance.part_number or f"Inventory #{issuance.inventory_id}"
+    create_installer_notice(
+        session,
+        user_id=issuance.issued_to_user_id,
+        notice_type=InstallerNoticeType.RETURN_ACCEPTED.value,
+        issuance=issuance,
+        message=f"Your return of {item_label} was accepted",
+        notes=cleaned_notes,
+    )
     return issuance, notice
 
 
@@ -638,6 +736,15 @@ def reject_return_issuance(
         issuance,
         event_type=IssuanceEventType.RETURN_REJECTED.value,
         actor=decided_by,
+        notes=cleaned_notes,
+    )
+    item_label = issuance.inventory_name or issuance.part_number or f"Inventory #{issuance.inventory_id}"
+    create_installer_notice(
+        session,
+        user_id=issuance.issued_to_user_id,
+        notice_type=InstallerNoticeType.RETURN_REJECTED.value,
+        issuance=issuance,
+        message=f"Your return of {item_label} was rejected — item remains issued to you",
         notes=cleaned_notes,
     )
     return issuance, notice
@@ -1167,6 +1274,20 @@ def revert_entity_to_inventory(
         new_issuance,
         event_type=IssuanceEventType.ISSUED.value,
         actor=closed_by,
+        notes=notes or "Reopened after revert from hierarchy",
+    )
+    item_label = (
+        new_issuance.inventory_name
+        or new_issuance.part_number
+        or f"Inventory #{new_issuance.inventory_id}"
+    )
+    create_installer_notice(
+        session,
+        user_id=issued_to_id,
+        notice_type=InstallerNoticeType.ISSUED.value,
+        issuance=new_issuance,
+        message=f"Inventory reissued to you after revert: {item_label}"
+        + (f" ({new_issuance.serial_number})" if new_issuance.serial_number else ""),
         notes=notes or "Reopened after revert from hierarchy",
     )
 

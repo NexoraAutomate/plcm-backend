@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS inventoryissuanceevent (
 )
 """
 
+INSTALLER_NOTICE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryinstallernotice (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES "user"(id),
+    notice_type VARCHAR NOT NULL,
+    issuance_id INTEGER REFERENCES inventoryissuance(id),
+    inventory_id INTEGER REFERENCES inventory(id),
+    inventory_name VARCHAR,
+    part_number VARCHAR,
+    serial_number VARCHAR,
+    message VARCHAR,
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    read_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 
 def _column_exists(conn, table: str, column: str) -> bool:
     row = conn.execute(
@@ -146,6 +163,23 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryissuanceevent_serial_number
                 ON inventoryissuanceevent (serial_number)
+                """
+            )
+        )
+        conn.execute(text(INSTALLER_NOTICE_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryinstallernotice_user_id
+                ON inventoryinstallernotice (user_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryinstallernotice_notice_type
+                ON inventoryinstallernotice (notice_type)
                 """
             )
         )

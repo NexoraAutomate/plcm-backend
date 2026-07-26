@@ -407,6 +407,27 @@ class InventoryIssuanceEventBase(SQLModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InstallerNoticeType(str, Enum):
+    ISSUED = "issued"
+    RETURN_ACCEPTED = "return_accepted"
+    RETURN_REJECTED = "return_rejected"
+
+
+class InventoryInstallerNoticeBase(SQLModel):
+    """In-app notice for the installer (issue / return decision)."""
+    user_id: int
+    notice_type: str = Field(index=True)
+    issuance_id: Optional[int] = None
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    message: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read_at: Optional[datetime] = None
+
+
 class EntityType(str, Enum):
     PROJECT   = "project"
     SYSTEM    = "system"

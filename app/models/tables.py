@@ -285,6 +285,13 @@ class InventoryIssuanceEvent(InventoryIssuanceEventBase, table=True):
     installer_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
 
+class InventoryInstallerNotice(InventoryInstallerNoticeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    issuance_id: Optional[int] = Field(default=None, foreign_key="inventoryissuance.id", index=True)
+    inventory_id: Optional[int] = Field(default=None, foreign_key="inventory.id", index=True)
+
+
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
     PostgreSQL table: maintenance_case
