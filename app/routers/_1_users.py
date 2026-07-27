@@ -13,6 +13,7 @@ from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.audit_service import write_audit_log
 from app.services.login_history_service import close_open_sessions_for_user, client_ip
+from app.services.password_policy_service import enforce_password_policy, set_user_password
 from app.services.user_avatar import save_user_avatar, clear_user_avatar, resolve_avatar_file
 
 router = APIRouter()
@@ -103,6 +104,7 @@ def create_user(
             detail="Default role 'Viewer' not found. Please ensure it exists in the database.",
         )
 
+    enforce_password_policy(session, user.password)
     hashed_password = hash_password(user.password)
     db_user = User(
         username=user.username,
@@ -110,6 +112,7 @@ def create_user(
         email=user.email,
         is_active=True if user.is_active is None else user.is_active,
         password=hashed_password,
+        password_changed_at=_utcnow(),
         created_by_id=current_user.id,
         updated_at=_utcnow(),
     )
@@ -394,7 +397,7 @@ def update_user(
     if "password" in update_data:
         password = update_data.pop("password")
         if password:
-            db_user.password = hash_password(password)
+            set_user_password(session, db_user, password)
 
     for k, v in update_data.items():
         setattr(db_user, k, v)

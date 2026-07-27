@@ -13,6 +13,22 @@ from sqlmodel import Session, select
 from app.models.tables import User, UserLoginHistory
 
 
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Normalize DB datetimes so aware/naive values can be compared safely."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _session_duration_seconds(login_time: Optional[datetime], now: datetime) -> Optional[int]:
+    started = _as_utc(login_time)
+    if started is None:
+        return None
+    return int((_as_utc(now) - started).total_seconds())
+
+
 def client_ip(request: Optional[Request]) -> Optional[str]:
     if request is None:
         return None
@@ -128,8 +144,9 @@ def close_open_sessions_for_user(
     ).all()
     for entry in open_sessions:
         entry.logout_time = now
-        if entry.login_time:
-            entry.session_duration = int((now - entry.login_time).total_seconds())
+        duration = _session_duration_seconds(entry.login_time, now)
+        if duration is not None:
+            entry.session_duration = duration
         entry.last_activity = now
         session.add(entry)
     if commit:
@@ -155,8 +172,9 @@ def close_session_by_id(
         return False
     now = datetime.now(timezone.utc)
     entry.logout_time = now
-    if entry.login_time:
-        entry.session_duration = int((now - entry.login_time).total_seconds())
+    duration = _session_duration_seconds(entry.login_time, now)
+    if duration is not None:
+        entry.session_duration = duration
     entry.last_activity = now
     session.add(entry)
     if commit:
@@ -164,3 +182,48 @@ def close_session_by_id(
     else:
         session.flush()
     return True
+
+
+def is_session_active(session: Session, session_id: str) -> bool:
+    """Return True when the session_id has an open successful login row."""
+    if not session_id:
+        return False
+    entry = session.exec(
+        select(UserLoginHistory).where(
+            UserLoginHistory.session_id == session_id,
+            UserLoginHistory.login_status == "Success",
+            UserLoginHistory.logout_time.is_(None),  # type: ignore[union-attr]
+        )
+    ).first()
+    return entry is not None
+
+
+def list_active_sessions(
+    session: Session,
+    *,
+    user_id: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[UserLoginHistory]:
+    stmt = select(UserLoginHistory).where(
+        UserLoginHistory.login_status == "Success",
+        UserLoginHistory.logout_time.is_(None),  # type: ignore[union-attr]
+    )
+    if user_id is not None:
+        stmt = stmt.where(UserLoginHistory.user_id == user_id)
+    stmt = stmt.order_by(UserLoginHistory.login_time.desc()).offset(skip).limit(limit)
+    return list(session.exec(stmt).all())
+
+
+def touch_session_activity(session: Session, session_id: str) -> None:
+    entry = session.exec(
+        select(UserLoginHistory).where(
+            UserLoginHistory.session_id == session_id,
+            UserLoginHistory.logout_time.is_(None),  # type: ignore[union-attr]
+        )
+    ).first()
+    if not entry:
+        return
+    entry.last_activity = datetime.now(timezone.utc)
+    session.add(entry)
+    session.flush()

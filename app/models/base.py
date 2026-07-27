@@ -29,6 +29,11 @@ class UserBase(UserCommon):
     last_activity_at: Optional[datetime] = None
     failed_login_count: int = 0
     locked_until: Optional[datetime] = None
+    password_changed_at: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    # JSON array of previous password hashes (newest first), for history policy
+    password_history: Optional[str] = None
     created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
 
@@ -138,6 +143,8 @@ class StatusCommon(SQLModel):
     status_name: str
     description: Optional[str] = None
     status_type: Optional[str] = None
+    # Hex color for badges across the UI (e.g. #059669)
+    color: Optional[str] = None
     
 class StatusBase(StatusCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

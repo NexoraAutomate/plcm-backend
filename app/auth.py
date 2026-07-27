@@ -50,18 +50,27 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 # ==================== USER RETRIEVAL ====================
 def get_user_from_token(token: str, session: Session):
-    """Get user object from JWT token."""
-    # print("Getting user from token:", token)
+    """Get user from JWT; require a live session id (sid) bound at login."""
     from app.models.tables import User
+    from app.services.login_history_service import is_session_active
+
     payload = decode_token(token)
     user_id = payload.get("sub")
-    # print("USER ID FROM TOKEN:", user_id)
-    
+
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+        )
+
+    session_id = payload.get("sid")
+    # Tokens without sid (pre-session binding) or closed sessions are rejected so
+    # admin terminate actually ends access on the other device.
+    if not session_id or not is_session_active(session, session_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has been terminated",
         )
     return user
 

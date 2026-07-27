@@ -16,6 +16,12 @@ USER_COLUMN_DDL = [
     ("locked_until", "TIMESTAMP WITH TIME ZONE"),
     ("created_by_id", "INTEGER"),
     ("avatar_url", "VARCHAR"),
+    ("password_changed_at", "TIMESTAMP WITH TIME ZONE"),
+    ("password_history", "TEXT"),
+]
+
+STATUS_COLUMN_DDL = [
+    ("color", "VARCHAR"),
 ]
 
 ISSUANCE_COLUMN_DDL = [
@@ -100,6 +106,7 @@ def _add_columns_if_missing(table: str, columns: list[tuple[str, str]]) -> None:
 def ensure_user_management_schema() -> None:
     """Idempotent column bootstrap for environments that skip Alembic."""
     _add_columns_if_missing('"user"', USER_COLUMN_DDL)
+    _add_columns_if_missing("status", STATUS_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
 
     with engine.begin() as conn:

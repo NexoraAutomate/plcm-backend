@@ -30,10 +30,16 @@ from app.services.login_history_service import (
     close_open_sessions_for_user,
     close_session_by_id,
     client_ip,
+    list_active_sessions,
 )
 from app.services.security_settings_service import (
     get_or_create_security_settings,
     update_security_settings,
+)
+from app.services.password_policy_service import (
+    enforce_password_policy,
+    set_user_password,
+    public_password_policy,
 )
 from app.services.inactivity_service import deactivate_inactive_users
 from app.services.audit_service import write_audit_log
@@ -157,7 +163,12 @@ def authenticate_user(
     return user, session_id
 
 
-def build_token_response(user: User) -> schemas.TokenResponse:
+def build_token_response(user: User, session_id: Optional[str] = None) -> schemas.TokenResponse:
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login session could not be created",
+        )
     role_names = [role.name for role in user.roles]
     permissions = get_user_permissions(user)
     token_data = {
@@ -165,6 +176,7 @@ def build_token_response(user: User) -> schemas.TokenResponse:
         "username": user.username,
         "roles": role_names,
         "permissions": permissions,
+        "sid": session_id,
     }
     access_token = create_access_token(data=token_data, expires_delta=timedelta(days=30))
     return schemas.TokenResponse(
@@ -175,6 +187,7 @@ def build_token_response(user: User) -> schemas.TokenResponse:
         email=user.email,
         roles=role_names,
         permissions=permissions,
+        session_id=session_id,
     )
 
 # ==================== DEPENDENCY FUNCTIONS ====================
@@ -205,9 +218,8 @@ def require_permission(permission: str):
         token: str = Depends(oauth2_scheme),
         session: Session = Depends(get_session),
     ):
-        payload = decode_token(token)
-        user = session.get(User, payload["sub"])
-        if not user or not user.is_active:
+        user = get_user_from_token(token, session)
+        if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User is inactive or not found",
@@ -253,10 +265,10 @@ def login(
     session: Session = Depends(get_session),
 ):
     """Login endpoint. Returns JWT token with user info and permissions."""
-    user, _session_id = authenticate_user(
+    user, session_id = authenticate_user(
         session, form_data.username, form_data.password, request=request
     )
-    return build_token_response(user)
+    return build_token_response(user, session_id=session_id)
 
 
 @router.post("/token/", response_model=schemas.TokenResponse)
@@ -266,10 +278,10 @@ def login_token(
     session: Session = Depends(get_session),
 ):
     """OAuth2-compatible token endpoint (alias of /login)."""
-    user, _session_id = authenticate_user(
+    user, session_id = authenticate_user(
         session, form_data.username, form_data.password, request=request
     )
-    return build_token_response(user)
+    return build_token_response(user, session_id=session_id)
 
 @router.post("/register", response_model=schemas.UserReadWithRoles)
 def register(
@@ -295,6 +307,7 @@ def register(
             detail="Default role not initialized",
         )
     
+    enforce_password_policy(session, user_data.password)
     hashed_password = hash_password(user_data.password)
     db_user = User(
         username=user_data.username,
@@ -302,6 +315,7 @@ def register(
         full_name=user_data.full_name,
         is_active=True if user_data.is_active is None else user_data.is_active,
         password=hashed_password,
+        password_changed_at=_utcnow(),
         updated_at=_utcnow(),
     )
     db_user.roles = [default_role]
@@ -353,12 +367,14 @@ def signup(
             detail="Default role not initialized",
         )
 
+    enforce_password_policy(session, password)
     db_user = User(
         username=username,
         email=email,
         full_name=full_name,
         is_active=False,
         password=hash_password(password),
+        password_changed_at=_utcnow(),
         updated_at=_utcnow(),
     )
     db_user.roles = [default_role]
@@ -385,8 +401,7 @@ def change_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
         )
-    user.password = hash_password(change_pwd.new_password)
-    user.updated_at = _utcnow()
+    set_user_password(session, user, change_pwd.new_password)
     session.add(user)
     session.commit()
     return {"message": "Password changed successfully"}
@@ -769,8 +784,7 @@ def get_current_user_info(
     session: Session = Depends(get_session),
 ):
     """Get current logged-in user's information including roles and permissions."""
-    payload = decode_token(token)
-    user = session.get(User, payload["sub"])
+    user = get_user_from_token(token, session)
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -830,6 +844,96 @@ def put_security_settings(
         actor=user,
         ip_address=client_ip(request),
     )
+
+
+@router.get("/password-policy", response_model=schemas.PasswordPolicyPublic)
+def get_password_policy(session: Session = Depends(get_session)):
+    """Public password complexity rules for signup / change-password forms."""
+    return public_password_policy(session)
+
+
+@router.get("/sessions", response_model=List[schemas.ActiveSessionRead])
+def get_active_sessions(
+    token: str = Depends(oauth2_scheme),
+    user: User = Depends(require_permission("manage_settings")),
+    session: Session = Depends(get_session),
+    skip: int = 0,
+    limit: int = 100,
+):
+    """List open login sessions across devices (Admin / manage_settings)."""
+    payload = decode_token(token)
+    current_sid = payload.get("sid")
+    rows = list_active_sessions(session, skip=skip, limit=limit)
+    return [
+        schemas.ActiveSessionRead(
+            id=row.id,
+            session_id=row.session_id or "",
+            user_id=row.user_id,
+            username=row.username,
+            device_name=row.device_name,
+            browser=row.browser,
+            operating_system=row.operating_system,
+            ip_address=row.ip_address,
+            login_time=row.login_time,
+            last_activity=row.last_activity,
+            status="Active",
+            is_current=bool(current_sid and row.session_id == current_sid),
+        )
+        for row in rows
+        if row.session_id
+    ]
+
+
+@router.delete("/sessions/{session_id}")
+def terminate_session(
+    session_id: str,
+    user: User = Depends(require_permission("manage_settings")),
+    session: Session = Depends(get_session),
+):
+    """Terminate a single active session (invalidates its JWT on next request)."""
+    closed = close_session_by_id(session, session_id, commit=True)
+    if not closed:
+        raise HTTPException(status_code=404, detail="Active session not found")
+    write_audit_log(
+        session,
+        action="Session Terminated",
+        actor=user,
+        resource_type="session",
+        resource_id=session_id,
+        details=f"Terminated session {session_id}",
+    )
+    session.commit()
+    return {"message": "Session terminated", "session_id": session_id}
+
+
+@router.delete("/sessions")
+def terminate_all_sessions(
+    token: str = Depends(oauth2_scheme),
+    user: User = Depends(require_permission("manage_settings")),
+    session: Session = Depends(get_session),
+    except_current: bool = Query(default=True),
+):
+    """Terminate all active sessions. Keeps the caller's session when except_current=true."""
+    payload = decode_token(token)
+    current_sid = payload.get("sid")
+    rows = list_active_sessions(session, skip=0, limit=10_000)
+    closed = 0
+    for row in rows:
+        if not row.session_id:
+            continue
+        if except_current and current_sid and row.session_id == current_sid:
+            continue
+        if close_session_by_id(session, row.session_id):
+            closed += 1
+    write_audit_log(
+        session,
+        action="Sessions Terminated",
+        actor=user,
+        resource_type="session",
+        details=f"Terminated {closed} session(s)",
+    )
+    session.commit()
+    return {"message": f"Terminated {closed} session(s)", "terminated": closed}
 
 
 @router.post("/run-inactivity-check")

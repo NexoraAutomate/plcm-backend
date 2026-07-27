@@ -246,6 +246,38 @@ class StatusRead(StatusBase):
 class StatusUpdate(SQLModel):
     status_name: Optional[str] = None
     description: Optional[str] = None
+    status_type: Optional[str] = None
+    color: Optional[str] = None
+
+
+class PasswordPolicyPublic(SQLModel):
+    """Public subset of password rules for signup / change-password forms."""
+    min_password_length: int
+    require_uppercase: bool
+    require_lowercase: bool
+    require_numbers: bool
+    require_special: bool
+    password_history_length: int
+    password_expiry_days: int
+
+
+class ActiveSessionRead(SQLModel):
+    id: int
+    session_id: str
+    user_id: Optional[int] = None
+    username: str
+    device_name: Optional[str] = None
+    browser: Optional[str] = None
+    operating_system: Optional[str] = None
+    ip_address: Optional[str] = None
+    login_time: datetime
+    last_activity: Optional[datetime] = None
+    status: str = "Active"
+    is_current: bool = False
+
+    class Config:
+        orm_mode = True
+
 
 class HierarchyCreate(HierarchyBase):
     pass
@@ -818,6 +850,7 @@ class TokenResponse(SQLModel):
     email: Optional[str] = None
     roles: List[str] = []
     permissions: List[str] = []
+    session_id: Optional[str] = None
 
 
 class LoginRequest(SQLModel):
