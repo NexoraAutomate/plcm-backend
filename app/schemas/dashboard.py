@@ -35,6 +35,8 @@ class ProjectProgressItem(BaseModel):
     name: str
     progress: float
     status_name: Optional[str] = None
+    end_date: Optional[datetime] = None
+    days_overdue: Optional[int] = None
 
 
 class TreemapNode(BaseModel):
@@ -70,6 +72,7 @@ class ExecutiveKpisSection(BaseModel):
 class ProjectAnalyticsSection(BaseModel):
     status_distribution: List[ChartDataPoint]
     timeline: List[ChartDataPoint]
+    completed_timeline: List[ChartDataPoint] = Field(default_factory=list)
     progress: List[ProjectProgressItem]
 
 

@@ -51,6 +51,9 @@ STATUS_PROGRESS = {
     "On Hold": 0,
 }
 
+# Active lifecycle statuses (schedule-derived On Track / Delayed apply only here).
+LIFECYCLE_STATUSES = ["Initiation", "Planning", "Execution", "Monitoring"]
+
 OPEN_CASE_STATUSES = [
     CaseStatus.OPEN,
     CaseStatus.UNDER_INSPECTION,
@@ -80,6 +83,12 @@ class DashboardFilters:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _month_start(dt: datetime) -> datetime:
@@ -212,9 +221,9 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(project_cond or []),
+            Status.status_name.in_(LIFECYCLE_STATUSES),
             Project.end_date.isnot(None),
             Project.end_date < now,
-            or_(Status.status_name.is_(None), Status.status_name != "Completed"),
         )
     ).one()
 
@@ -268,6 +277,45 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
 
     config_this_month = _count_query(session, ConfigurationHistory, *config_cond)
 
+    # Prior-month program health (as of month_start) for MoM % point change.
+    # Portfolio that existed before this month:
+    prev_total = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .where(*(project_cond or []), Project.created_at < month_start)
+    ).one()
+    # Delayed as of month_start: past end date by then, and either still not completed
+    # or completed during the current month (was open/overdue entering this month).
+    prev_delayed = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *(project_cond or []),
+            Project.created_at < month_start,
+            Project.end_date.isnot(None),
+            Project.end_date < month_start,
+            or_(
+                Status.status_name.in_(LIFECYCLE_STATUSES),
+                and_(Status.status_name == "Completed", Project.updated_at >= month_start),
+            ),
+        )
+    ).one()
+
+    health_now = (
+        round(((total_projects - delayed_projects) / total_projects) * 100)
+        if total_projects > 0
+        else None
+    )
+    health_prev = (
+        round(((prev_total - prev_delayed) / prev_total) * 100) if prev_total > 0 else None
+    )
+    health_change = (
+        round(float(health_now - health_prev), 1)
+        if health_now is not None and health_prev is not None
+        else None
+    )
+
     prev_customers = session.exec(
         select(func.count())
         .select_from(Customer)
@@ -295,6 +343,12 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
         KpiMetric(key="active_projects", label="Active Projects", value=active_projects),
         KpiMetric(key="completed_projects", label="Completed Projects", value=completed_projects),
         KpiMetric(key="delayed_projects", label="Delayed Projects", value=delayed_projects),
+        KpiMetric(
+            key="program_health",
+            label="Overall Program Health",
+            value=int(health_now) if health_now is not None else 0,
+            change_percent=health_change,
+        ),
         KpiMetric(key="open_maintenance_cases", label="Open Maintenance Cases", value=open_cases),
         KpiMetric(key="open_faulty_entities", label="Open Faulty Entities", value=open_faulty),
         KpiMetric(
@@ -317,14 +371,53 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
     if project_ids is not None:
         cond.append(Project.id.in_(project_ids) if project_ids else Project.id == -1)
 
-    status_rows = session.exec(
-        select(Status.status_name, func.count(Project.id))
-        .join(Project, Project.status_id == Status.id, isouter=True)
-        .where(*(cond or []))
-        .group_by(Status.status_name)
-    ).all()
+    now = _now()
+
+    # Executive buckets (not raw lifecycle names):
+    # Completed / On Hold from status; Delayed / On Track from end_date among lifecycle statuses.
+    completed_count = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(*(cond or []), Status.status_name == "Completed")
+    ).one()
+    on_hold_count = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(*(cond or []), Status.status_name == "On Hold")
+    ).one()
+    delayed_count = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *(cond or []),
+            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Project.end_date.isnot(None),
+            Project.end_date < now,
+        )
+    ).one()
+    on_track_count = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *(cond or []),
+            Status.status_name.in_(LIFECYCLE_STATUSES),
+            or_(Project.end_date.is_(None), Project.end_date >= now),
+        )
+    ).one()
+
     status_distribution = [
-        ChartDataPoint(name=row[0] or "Unknown", value=float(row[1])) for row in status_rows
+        ChartDataPoint(name=name, value=float(value))
+        for name, value in (
+            ("On Track", on_track_count),
+            ("Delayed", delayed_count),
+            ("On Hold", on_hold_count),
+            ("Completed", completed_count),
+        )
+        if value > 0
     ]
 
     timeline_rows = session.exec(
@@ -335,25 +428,59 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
     ).all()
     timeline = [ChartDataPoint(name=row[0], value=float(row[1])) for row in timeline_rows]
 
+    completed_cond = list(cond or [])
+    completed_timeline_rows = session.exec(
+        select(func.to_char(Project.end_date, "YYYY-MM"), func.count(Project.id))
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *completed_cond,
+            Status.status_name == "Completed",
+            Project.end_date.isnot(None),
+        )
+        .group_by(func.to_char(Project.end_date, "YYYY-MM"))
+        .order_by(func.to_char(Project.end_date, "YYYY-MM"))
+    ).all()
+    completed_timeline = [
+        ChartDataPoint(name=row[0], value=float(row[1])) for row in completed_timeline_rows
+    ]
+
     progress_rows = session.exec(
-        select(Project.id, Project.name, Status.status_name)
+        select(Project.id, Project.name, Status.status_name, Project.end_date)
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(*(cond or []))
-        .limit(20)
-    ).all()
-    progress = [
-        ProjectProgressItem(
-            id=row[0],
-            name=row[1],
-            status_name=row[2],
-            progress=float(STATUS_PROGRESS.get(row[2] or "", 0)),
+        .order_by(
+            Project.end_date.asc().nulls_last(),
+            Project.name.asc(),
         )
-        for row in progress_rows
-    ]
+        .limit(50)
+    ).all()
+    progress = []
+    for row in progress_rows:
+        end_date = row[3]
+        status_name = row[2]
+        days_overdue = None
+        if (
+            end_date is not None
+            and (status_name or "") in LIFECYCLE_STATUSES
+        ):
+            aware_end = _as_utc(end_date)
+            if aware_end < now:
+                days_overdue = max(0, int((now - aware_end).total_seconds() // 86400))
+        progress.append(
+            ProjectProgressItem(
+                id=row[0],
+                name=row[1],
+                status_name=status_name,
+                progress=float(STATUS_PROGRESS.get(status_name or "", 0)),
+                end_date=end_date,
+                days_overdue=days_overdue,
+            )
+        )
 
     return ProjectAnalyticsSection(
         status_distribution=status_distribution,
         timeline=timeline,
+        completed_timeline=completed_timeline,
         progress=progress,
     )
 
