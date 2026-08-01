@@ -37,6 +37,7 @@ class ProjectProgressItem(BaseModel):
     status_name: Optional[str] = None
     end_date: Optional[datetime] = None
     days_overdue: Optional[int] = None
+    days_until_due: Optional[int] = None
 
 
 class TreemapNode(BaseModel):

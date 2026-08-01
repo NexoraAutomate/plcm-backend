@@ -444,36 +444,63 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         ChartDataPoint(name=row[0], value=float(row[1])) for row in completed_timeline_rows
     ]
 
-    progress_rows = session.exec(
+    window_start = _month_start(now)
+    window_end = window_start + timedelta(days=186)
+
+    delayed_rows = session.exec(
         select(Project.id, Project.name, Status.status_name, Project.end_date)
         .join(Status, Project.status_id == Status.id, isouter=True)
-        .where(*(cond or []))
-        .order_by(
-            Project.end_date.asc().nulls_last(),
-            Project.name.asc(),
+        .where(
+            *(cond or []),
+            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Project.end_date.isnot(None),
+            Project.end_date < now,
         )
-        .limit(50)
+        .order_by(Project.end_date.asc())
+        .limit(25)
     ).all()
+
+    milestone_rows = session.exec(
+        select(Project.id, Project.name, Status.status_name, Project.end_date)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *(cond or []),
+            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Project.end_date.isnot(None),
+            Project.end_date >= window_start,
+            Project.end_date < window_end,
+        )
+        .order_by(Project.end_date.asc())
+        .limit(60)
+    ).all()
+
     progress = []
-    for row in progress_rows:
+    seen: set[int] = set()
+    for row in list(delayed_rows) + list(milestone_rows):
+        project_id = row[0]
+        if project_id in seen:
+            continue
+        seen.add(project_id)
         end_date = row[3]
         status_name = row[2]
         days_overdue = None
-        if (
-            end_date is not None
-            and (status_name or "") in LIFECYCLE_STATUSES
-        ):
+        days_until_due = None
+        if end_date is not None:
             aware_end = _as_utc(end_date)
-            if aware_end < now:
-                days_overdue = max(0, int((now - aware_end).total_seconds() // 86400))
+            delta_days = int((aware_end - now).total_seconds() // 86400)
+            if delta_days < 0:
+                days_overdue = abs(delta_days)
+            else:
+                days_until_due = delta_days
         progress.append(
             ProjectProgressItem(
-                id=row[0],
+                id=project_id,
                 name=row[1],
                 status_name=status_name,
                 progress=float(STATUS_PROGRESS.get(status_name or "", 0)),
                 end_date=end_date,
                 days_overdue=days_overdue,
+                days_until_due=days_until_due,
             )
         )
 
