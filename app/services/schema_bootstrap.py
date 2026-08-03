@@ -108,6 +108,30 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing('"user"', USER_COLUMN_DDL)
     _add_columns_if_missing("status", STATUS_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
+    _add_columns_if_missing(
+        "hierarchy",
+        [("abbreviation", "VARCHAR")],
+    )
+    _add_columns_if_missing(
+        "appdefinitions",
+        [
+            ("abbrev_system", "VARCHAR DEFAULT 'SYS'"),
+            ("abbrev_subsystem", "VARCHAR DEFAULT 'SUB'"),
+            ("abbrev_module", "VARCHAR DEFAULT 'MOD'"),
+            ("abbrev_unit", "VARCHAR DEFAULT 'UNIT'"),
+            ("abbrev_component", "VARCHAR DEFAULT 'COMP'"),
+            ("part_template_system", "VARCHAR"),
+            ("serial_template_system", "VARCHAR"),
+            ("part_template_subsystem", "VARCHAR"),
+            ("serial_template_subsystem", "VARCHAR"),
+            ("part_template_module", "VARCHAR"),
+            ("serial_template_module", "VARCHAR"),
+            ("part_template_unit", "VARCHAR"),
+            ("serial_template_unit", "VARCHAR"),
+            ("part_template_component", "VARCHAR"),
+            ("serial_template_component", "VARCHAR"),
+        ],
+    )
 
     with engine.begin() as conn:
         had_decision = _column_exists(conn, "inventoryreturnnotice", "decision")

@@ -11,6 +11,7 @@ class KpiMetric(BaseModel):
     label: str
     value: int
     change_percent: Optional[float] = None
+    change_value: Optional[float] = None
 
 
 class ChartDataPoint(BaseModel):
@@ -54,6 +55,7 @@ class GaugeMetric(BaseModel):
     value: float
     unit: str
     max_value: float = 100
+    change_value: Optional[float] = None
 
 
 class ActivityItem(BaseModel):
@@ -64,6 +66,7 @@ class ActivityItem(BaseModel):
     timestamp: datetime
     link_type: str
     link_id: int
+    entity_type: Optional[str] = None
 
 
 class ExecutiveKpisSection(BaseModel):

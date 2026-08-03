@@ -170,6 +170,75 @@ class SecuritySettingsUpdate(SQLModel):
     two_factor_require_admins_only: Optional[bool] = None
 
 
+class AppDefinitionsRead(SQLModel):
+    id: int
+    serial_number_template: str
+    part_number_template: str
+    configuration_item_template: str
+    sku_template: str
+    label_system: str
+    label_systems: str
+    label_subsystem: str
+    label_subsystems: str
+    label_module: str
+    label_modules: str
+    label_unit: str
+    label_units: str
+    label_component: str
+    label_components: str
+    abbrev_system: str = "SYS"
+    abbrev_subsystem: str = "SUB"
+    abbrev_module: str = "MOD"
+    abbrev_unit: str = "UNIT"
+    abbrev_component: str = "COMP"
+    part_template_system: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_system: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_subsystem: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_subsystem: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_module: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_module: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_unit: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_unit: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_component: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_component: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class AppDefinitionsUpdate(SQLModel):
+    serial_number_template: Optional[str] = None
+    part_number_template: Optional[str] = None
+    configuration_item_template: Optional[str] = None
+    sku_template: Optional[str] = None
+    label_system: Optional[str] = None
+    label_systems: Optional[str] = None
+    label_subsystem: Optional[str] = None
+    label_subsystems: Optional[str] = None
+    label_module: Optional[str] = None
+    label_modules: Optional[str] = None
+    label_unit: Optional[str] = None
+    label_units: Optional[str] = None
+    label_component: Optional[str] = None
+    label_components: Optional[str] = None
+    abbrev_system: Optional[str] = None
+    abbrev_subsystem: Optional[str] = None
+    abbrev_module: Optional[str] = None
+    abbrev_unit: Optional[str] = None
+    abbrev_component: Optional[str] = None
+    part_template_system: Optional[str] = None
+    serial_template_system: Optional[str] = None
+    part_template_subsystem: Optional[str] = None
+    serial_template_subsystem: Optional[str] = None
+    part_template_module: Optional[str] = None
+    serial_template_module: Optional[str] = None
+    part_template_unit: Optional[str] = None
+    serial_template_unit: Optional[str] = None
+    part_template_component: Optional[str] = None
+    serial_template_component: Optional[str] = None
+
+
 class AuditLogRead(SQLModel):
     id: int
     actor_user_id: Optional[int] = None
@@ -292,6 +361,7 @@ class HierarchyUpdate(SQLModel):
     description: Optional[str] = None
     hierarchy_type: Optional[str] = None
     parent_id: Optional[int] = None
+    abbreviation: Optional[str] = None
 
 # ---- Order ----
 class OrderCreate(OrderBase):

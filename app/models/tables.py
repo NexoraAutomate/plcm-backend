@@ -36,6 +36,10 @@ class SecuritySettings(SecuritySettingsBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
 
+class AppDefinitions(AppDefinitionsBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
 class RolePermission(SQLModel, table=True):
     role_id: Optional[int] = Field(default=None, foreign_key="role.id", primary_key=True)
     permission_id: Optional[int] = Field(default=None, foreign_key="permission.id", primary_key=True)

@@ -22,6 +22,7 @@ from app.services.inventory_service import backfill_legacy_inventory_instances
 from app.services.security_settings_service import get_or_create_security_settings
 from app.services.inactivity_service import deactivate_inactive_users
 from app.services.schema_bootstrap import ensure_user_management_schema
+from app.services.app_definitions_service import get_or_create_app_definitions
 
 # Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
 from datetime import datetime as _datetime
@@ -48,6 +49,7 @@ async def lifespan(app: FastAPI):
         get_or_create_security_settings(session)
         # Reusable inactivity job — also runnable via POST /api/auth/run-inactivity-check
         deactivate_inactive_users(session)
+        get_or_create_app_definitions(session)
     try:
         yield
     finally:

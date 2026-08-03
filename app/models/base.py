@@ -100,6 +100,46 @@ class SecuritySettingsBase(SecuritySettingsCommon):
     updated_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
 
+class AppDefinitionsCommon(SQLModel):
+    """Singleton row for admin naming templates and entity display labels."""
+    serial_number_template: str = "{project}-{name}{seq}"
+    part_number_template: str = "{project}-{name}{seq}-PN"
+    configuration_item_template: str = "{project}-{name}{seq}-CI"
+    sku_template: str = "{serial}-SKU"
+    label_system: str = "System"
+    label_systems: str = "Systems"
+    label_subsystem: str = "Subsystem"
+    label_subsystems: str = "Subsystems"
+    label_module: str = "Module"
+    label_modules: str = "Modules"
+    label_unit: str = "Unit"
+    label_units: str = "Units"
+    label_component: str = "Component"
+    label_components: str = "Components"
+    # Level short codes used in templates as {levelAbbr}
+    abbrev_system: str = "SYS"
+    abbrev_subsystem: str = "SUB"
+    abbrev_module: str = "MOD"
+    abbrev_unit: str = "UNIT"
+    abbrev_component: str = "COMP"
+    # Per-level PN/SN templates (admin selects what tokens to include)
+    part_template_system: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_system: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_subsystem: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_subsystem: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_module: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_module: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_unit: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_unit: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    part_template_component: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
+    serial_template_component: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+
+
+class AppDefinitionsBase(AppDefinitionsCommon):
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
 class ProjectCommon(SQLModel):
     name: str
     description: Optional[str] = None
@@ -154,6 +194,9 @@ class HierarchyCommon(SQLModel):
     description: Optional[str] = None
     hierarchy_type: str
     parent_id: Optional[int] = None
+    # Short code used in PN/SN templates (e.g. ACU -> SA, Harness Antenna -> HA)
+    abbreviation: Optional[str] = None
+
 
 class HierarchyBase(HierarchyCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
 from app.models.base import CaseStatus, EntityType, FaultyEntityStatus
@@ -12,14 +12,18 @@ from app.models.tables import (
     Component,
     ConfigurationHistory,
     Customer,
+    Entity,
     EntityStatusHistory,
     FaultyEntity,
     MaintenanceAction,
     MaintenanceCase,
+    Module,
     Order,
     Project,
     Status,
+    Subsystem,
     System,
+    Unit,
     User,
 )
 from app.schemas.dashboard import (
@@ -342,14 +346,41 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
         KpiMetric(key="total_projects", label="Total Projects", value=total_projects),
         KpiMetric(key="active_projects", label="Active Projects", value=active_projects),
         KpiMetric(key="completed_projects", label="Completed Projects", value=completed_projects),
-        KpiMetric(key="delayed_projects", label="Delayed Projects", value=delayed_projects),
+        KpiMetric(
+            key="delayed_projects",
+            label="Delayed Projects",
+            value=delayed_projects,
+            change_value=float(delayed_projects - prev_delayed) if prev_total > 0 else None,
+        ),
         KpiMetric(
             key="program_health",
             label="Overall Program Health",
             value=int(health_now) if health_now is not None else 0,
             change_percent=health_change,
         ),
-        KpiMetric(key="open_maintenance_cases", label="Open Maintenance Cases", value=open_cases),
+        KpiMetric(
+            key="open_maintenance_cases",
+            label="Open Maintenance Cases",
+            value=open_cases,
+            change_value=(
+                float(
+                    session.exec(
+                        select(func.count())
+                        .select_from(MaintenanceCase)
+                        .where(*(case_cond or []), MaintenanceCase.reported_at >= month_start)
+                    ).one()
+                    - session.exec(
+                        select(func.count())
+                        .select_from(MaintenanceCase)
+                        .where(
+                            *(case_cond or []),
+                            MaintenanceCase.reported_at >= prev_month_start,
+                            MaintenanceCase.reported_at < month_start,
+                        )
+                    ).one()
+                )
+            ),
+        ),
         KpiMetric(key="open_faulty_entities", label="Open Faulty Entities", value=open_faulty),
         KpiMetric(
             key="components_under_investigation",
@@ -457,7 +488,6 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
             Project.end_date < now,
         )
         .order_by(Project.end_date.asc())
-        .limit(25)
     ).all()
 
     milestone_rows = session.exec(
@@ -653,37 +683,93 @@ def _build_configuration(session: Session, filters: DashboardFilters) -> Configu
     ).all()
     changes_by_month = [ChartDataPoint(name=row[0], value=float(row[1])) for row in month_rows]
 
+    # Resolve real hierarchy names (System - ACU, Harness Antenna, …), not Entity placeholders.
+    entity_type_norm = func.lower(Entity.entity_type)
+    hierarchy_types = ("system", "subsystem", "module", "unit")
+    hierarchy_name = func.coalesce(
+        case(
+            (entity_type_norm == "system", System.name),
+            (entity_type_norm == "subsystem", Subsystem.name),
+            (entity_type_norm == "module", Module.name),
+            (entity_type_norm == "unit", Unit.name),
+        ),
+        Entity.display_name,
+        Entity.name,
+        "Unknown",
+    )
     top_rows = session.exec(
-        select(
-            func.coalesce(ConfigurationHistory.new_part_number, ConfigurationHistory.old_part_number, "Unknown"),
-            func.count(ConfigurationHistory.id),
+        select(hierarchy_name, entity_type_norm, func.count(ConfigurationHistory.id))
+        .select_from(ConfigurationHistory)
+        .join(Entity, ConfigurationHistory.entity_id == Entity.id)
+        .outerjoin(
+            System,
+            and_(entity_type_norm == "system", Entity.entity_pk == System.id),
         )
-        .where(*(cond or []))
-        .group_by(
-            func.coalesce(ConfigurationHistory.new_part_number, ConfigurationHistory.old_part_number, "Unknown")
+        .outerjoin(
+            Subsystem,
+            and_(entity_type_norm == "subsystem", Entity.entity_pk == Subsystem.id),
         )
+        .outerjoin(
+            Module,
+            and_(entity_type_norm == "module", Entity.entity_pk == Module.id),
+        )
+        .outerjoin(
+            Unit,
+            and_(entity_type_norm == "unit", Entity.entity_pk == Unit.id),
+        )
+        .where(*(cond or []), entity_type_norm.in_(hierarchy_types))
+        .group_by(hierarchy_name, entity_type_norm)
         .order_by(func.count(ConfigurationHistory.id).desc())
-        .limit(10)
+        .limit(120)
     ).all()
-    top_modified = [ChartDataPoint(name=row[0], value=float(row[1])) for row in top_rows]
+    top_modified = [
+        ChartDataPoint(name=row[0], value=float(row[2]), label=str(row[1]))
+        for row in top_rows
+        if row[0]
+    ]
 
     recent_rows = session.exec(
-        select(ConfigurationHistory)
-        .where(*(cond or []))
+        select(ConfigurationHistory, Entity, hierarchy_name)
+        .join(Entity, ConfigurationHistory.entity_id == Entity.id)
+        .outerjoin(
+            System,
+            and_(entity_type_norm == "system", Entity.entity_pk == System.id),
+        )
+        .outerjoin(
+            Subsystem,
+            and_(entity_type_norm == "subsystem", Entity.entity_pk == Subsystem.id),
+        )
+        .outerjoin(
+            Module,
+            and_(entity_type_norm == "module", Entity.entity_pk == Module.id),
+        )
+        .outerjoin(
+            Unit,
+            and_(entity_type_norm == "unit", Entity.entity_pk == Unit.id),
+        )
+        .where(*(cond or []), entity_type_norm.in_(hierarchy_types))
         .order_by(ConfigurationHistory.change_date.desc())
-        .limit(5)
+        .limit(40)
     ).all()
     recent_timeline = [
         ActivityItem(
-            id=row.id,
-            title=row.new_part_number or row.old_part_number or f"Config #{row.id}",
-            subtitle=row.reason,
-            status=_enum_str(row.resolution_type),
-            timestamp=row.change_date,
+            id=hist.id,
+            title=(
+                resolved_name
+                or ent.display_name
+                or ent.name
+                or hist.new_part_number
+                or hist.old_part_number
+                or f"Config #{hist.id}"
+            ),
+            subtitle=hist.reason,
+            status=_enum_str(hist.resolution_type),
+            timestamp=hist.change_date,
             link_type="maintenance_case",
-            link_id=row.maintenance_case_id or 0,
+            link_id=hist.maintenance_case_id or 0,
+            entity_type=str(ent.entity_type or "").lower() or None,
         )
-        for row in recent_rows
+        for hist, ent, resolved_name in recent_rows
     ]
 
     return ConfigurationSection(
@@ -732,18 +818,95 @@ def _build_reliability(session: Session, filters: DashboardFilters) -> Reliabili
     ).one()
     mttr_val = float(mttr_hours or 0)
 
-    mtbf_days = session.exec(
-        select(func.avg(func.extract("epoch", FaultyEntity.identified_at) / 86400.0))
+    now = _now()
+    month_start = _month_start(now)
+    prev_month_start = _month_start(month_start - timedelta(days=1))
+
+    mttr_curr = session.exec(
+        select(
+            func.avg(func.extract("epoch", FaultyEntity.resolved_at - FaultyEntity.identified_at) / 3600.0)
+        )
         .join(MaintenanceCase, FaultyEntity.case_id == MaintenanceCase.id)
-        .where(*(fe_cond or []))
+        .where(
+            *(fe_cond or []),
+            FaultyEntity.resolved_at.isnot(None),
+            FaultyEntity.resolved_at >= month_start,
+        )
     ).one()
-    mtbf_val = float(mtbf_days or 0)
+    mttr_prev = session.exec(
+        select(
+            func.avg(func.extract("epoch", FaultyEntity.resolved_at - FaultyEntity.identified_at) / 3600.0)
+        )
+        .join(MaintenanceCase, FaultyEntity.case_id == MaintenanceCase.id)
+        .where(
+            *(fe_cond or []),
+            FaultyEntity.resolved_at.isnot(None),
+            FaultyEntity.resolved_at >= prev_month_start,
+            FaultyEntity.resolved_at < month_start,
+        )
+    ).one()
+    mttr_curr_val = float(mttr_curr or 0)
+    mttr_prev_val = float(mttr_prev or 0)
+    mttr_change = (
+        round(mttr_curr_val - mttr_prev_val, 1)
+        if mttr_curr_val > 0 and mttr_prev_val > 0
+        else None
+    )
+
+    # MTBF: average gap (days) between successive *resolved* fault identifications.
+    fault_times = session.exec(
+        select(FaultyEntity.identified_at)
+        .join(MaintenanceCase, FaultyEntity.case_id == MaintenanceCase.id)
+        .where(
+            *(fe_cond or []),
+            FaultyEntity.resolved_at.isnot(None),
+            FaultyEntity.identified_at.isnot(None),
+        )
+        .order_by(FaultyEntity.identified_at.asc())
+    ).all()
+    gaps: list[float] = []
+    gap_ends: list[datetime] = []
+    prev_t = None
+    for t in fault_times:
+        if t is None:
+            continue
+        aware = _as_utc(t)
+        if prev_t is not None:
+            gap_days = (aware - prev_t).total_seconds() / 86400.0
+            # Ignore sub-day noise from bulk imports / same-session cascades
+            if gap_days >= 1.0:
+                gaps.append(gap_days)
+                gap_ends.append(aware)
+        prev_t = aware
+    mtbf_val = round(sum(gaps) / len(gaps), 1) if gaps else 0.0
+
+    gaps_curr = [g for g, end in zip(gaps, gap_ends) if end >= month_start]
+    gaps_prev = [
+        g for g, end in zip(gaps, gap_ends) if prev_month_start <= end < month_start
+    ]
+    mtbf_curr = sum(gaps_curr) / len(gaps_curr) if gaps_curr else 0.0
+    mtbf_prev = sum(gaps_prev) / len(gaps_prev) if gaps_prev else 0.0
+    mtbf_change = (
+        round(mtbf_curr - mtbf_prev, 1) if mtbf_curr > 0 and mtbf_prev > 0 else None
+    )
 
     return ReliabilitySection(
         top_faulty_components=top_faulty,
         fault_type_distribution=fault_types,
-        mttr=GaugeMetric(label="MTTR", value=round(mttr_val, 1), unit="hours", max_value=max(mttr_val, 24)),
-        mtbf=GaugeMetric(label="MTBF", value=round(mtbf_val, 1), unit="days", max_value=max(mtbf_val, 30)),
+        mttr=GaugeMetric(
+            label="MTTR",
+            value=round(mttr_val, 1),
+            unit="hours",
+            max_value=max(mttr_val * 1.25, 24),
+            change_value=mttr_change,
+        ),
+        mtbf=GaugeMetric(
+            label="MTBF",
+            value=round(mtbf_val, 1),
+            unit="days",
+            max_value=max(mtbf_val * 1.25, 30),
+            change_value=mtbf_change,
+        ),
     )
 
 
