@@ -623,3 +623,40 @@ class ReportHistory(SQLModel, table=True):
         sa_relationship_kwargs=dict(foreign_keys="[ReportHistory.generated_by]")
     )
 
+
+# ===== Spec 01 — Smart SDLS Hierarchy Configurations =====
+class HierarchyConfiguration(HierarchyConfigurationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_types: List["HierarchyConfigProductType"] = Relationship(
+        back_populates="configuration",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    nodes: List["HierarchyConfigNode"] = Relationship(
+        back_populates="configuration",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class HierarchyConfigProductType(HierarchyConfigProductTypeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    configuration: Optional[HierarchyConfiguration] = Relationship(
+        back_populates="product_types"
+    )
+
+
+class HierarchyConfigNode(HierarchyConfigNodeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    configuration: Optional[HierarchyConfiguration] = Relationship(back_populates="nodes")
+    parent: Optional["HierarchyConfigNode"] = Relationship(
+        back_populates="children",
+        sa_relationship_kwargs={
+            "remote_side": "[HierarchyConfigNode.id]",
+        },
+    )
+    children: List["HierarchyConfigNode"] = Relationship(
+        back_populates="parent",
+        sa_relationship_kwargs={
+            "foreign_keys": "[HierarchyConfigNode.parent_id]",
+        },
+    )
+

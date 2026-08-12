@@ -763,6 +763,50 @@ class RoleCommon(SQLModel):
 class RoleBase(RoleCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
+# ===== Spec 01 — Hierarchy Configuration =====
+class HierarchyConfigurationCommon(SQLModel):
+    code: str = Field(index=True, max_length=64)
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    is_available: bool = True
+    version: int = 1
+
+
+class HierarchyConfigurationBase(HierarchyConfigurationCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class HierarchyConfigProductTypeCommon(SQLModel):
+    code: str = Field(max_length=64)
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class HierarchyConfigProductTypeBase(HierarchyConfigProductTypeCommon):
+    configuration_id: int = Field(foreign_key="hierarchyconfiguration.id", index=True)
+
+
+class HierarchyConfigNodeCommon(SQLModel):
+    level: str = Field(max_length=32, index=True)  # system|subsystem|module|unit|component
+    name: str = Field(max_length=255)
+    description: Optional[str] = None
+    abbreviation: Optional[str] = Field(default=None, max_length=32)
+    sort_order: int = 0
+    client_key: Optional[str] = Field(default=None, max_length=64)
+
+
+class HierarchyConfigNodeBase(HierarchyConfigNodeCommon):
+    configuration_id: int = Field(foreign_key="hierarchyconfiguration.id", index=True)
+    parent_id: Optional[int] = Field(
+        default=None, foreign_key="hierarchyconfignode.id", index=True
+    )
+
+
 class Token(SQLModel):
     access_token: str
     token_type: str

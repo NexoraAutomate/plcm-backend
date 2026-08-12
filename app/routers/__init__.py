@@ -18,7 +18,7 @@ inventory = import_module('._10_inventory', package='app.routers')
 # maintenancelog = import_module('.maintenance_module', package='app.routers')
 
 # Import regular named modules using relative imports
-from . import entity, entitystatushistory, maintenanceLog, status, auth, maintenance_module, hierarchy, configuraitonHistory, dashboard, attachments, pictures, reports, backup, definitions
+from . import entity, entitystatushistory, maintenanceLog, status, auth, maintenance_module, hierarchy, configuraitonHistory, dashboard, attachments, pictures, reports, backup, definitions, hierarchy_config
 
 # Include all routers
 router.include_router(auth.router)
@@ -38,6 +38,7 @@ router.include_router(status.router)
 router.include_router(maintenanceLog.router)
 router.include_router(maintenance_module.router)
 router.include_router(hierarchy.router)
+router.include_router(hierarchy_config.router)
 router.include_router(configuraitonHistory.router)
 router.include_router(dashboard.router)
 router.include_router(attachments.router)

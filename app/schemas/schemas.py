@@ -943,3 +943,97 @@ class UserReadWithRoles(UserRead):
     
     class Config:
         orm_mode = True
+
+# ---- Spec 01 Hierarchy Configuration ----
+class HierarchyConfigProductTypeIn(SQLModel):
+    code: str
+    name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class HierarchyConfigNodeIn(SQLModel):
+    client_key: str
+    parent_client_key: Optional[str] = None
+    level: str
+    name: str
+    description: Optional[str] = None
+    abbreviation: Optional[str] = None
+    sort_order: int = 0
+
+
+class HierarchyConfigurationCreate(SQLModel):
+    code: str
+    name: str
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    is_available: bool = True
+    product_types: List[HierarchyConfigProductTypeIn]
+    nodes: List[HierarchyConfigNodeIn] = []
+
+
+class HierarchyConfigurationUpdate(SQLModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    is_available: Optional[bool] = None
+    product_types: Optional[List[HierarchyConfigProductTypeIn]] = None
+    nodes: Optional[List[HierarchyConfigNodeIn]] = None
+
+
+class HierarchyConfigProductTypeRead(SQLModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+
+    class Config:
+        orm_mode = True
+
+
+class HierarchyConfigNodeRead(SQLModel):
+    id: int
+    client_key: Optional[str] = None
+    parent_id: Optional[int] = None
+    parent_client_key: Optional[str] = None
+    level: str
+    name: str
+    description: Optional[str] = None
+    abbreviation: Optional[str] = None
+    sort_order: int = 0
+
+    class Config:
+        orm_mode = True
+
+
+class HierarchyConfigurationRead(SQLModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    is_available: bool
+    version: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    created_by_id: Optional[int] = None
+    product_types: List[HierarchyConfigProductTypeRead] = []
+    nodes: List[HierarchyConfigNodeRead] = []
+
+    class Config:
+        orm_mode = True
+
+
+class HierarchyConfigurationSummary(SQLModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str] = None
+    is_available: bool
+    version: int
+    product_type_codes: List[str] = []
+
+    class Config:
+        orm_mode = True

@@ -11,3 +11,4 @@ python-dotenv
 alembic
 pwdlib[argon2]
 tzdata
+pytest

@@ -123,8 +123,8 @@ def check_any_role(user: User, required_roles: List[str]) -> bool:
 
 
 def is_inventory_manager(user: User) -> bool:
-    """Admin or SubAdmin — full warehouse visibility and issue/return management."""
-    return check_any_role(user, ["Admin", "SubAdmin"])
+    """Admin, SubAdmin, or Spec 00 InventoryManager — warehouse / issue management."""
+    return check_any_role(user, ["Admin", "SubAdmin", "InventoryManager"])
 
 
 def require_install_owner_or_manager(user: User, entity: object) -> None:
@@ -323,6 +323,26 @@ DEFAULT_PERMISSIONS = [
     {"name": "create_configuration_history", "description": "Create_configuration history"},
     {"name": "edit_configuration_history", "description": "Edit configuration history"},
     {"name": "delete_configuration_history", "description": "Delete configuration history"},
+
+    # ==================== WORKFLOW (Spec 00 stubs — enforced in Spec 01+) ====================
+    {"name": "hierarchy_config.manage", "description": "Manage hierarchy configurations (Spec 01)"},
+    {"name": "project.assign_hm", "description": "Assign Hierarchy Manager to a project (Spec 02)"},
+    {"name": "project.create_draft", "description": "Create draft projects (Spec 02)"},
+    {"name": "project.approve", "description": "Approve draft projects (Spec 02)"},
+    {"name": "hierarchy.generate", "description": "Generate project hierarchy from config (Spec 03)"},
+    {"name": "inventory.reserve", "description": "Reserve inventory against hierarchy (Spec 04–05)"},
+    {"name": "inventory.release", "description": "Release unused reservations (Spec 04–06)"},
+    {"name": "inventory.receive", "description": "Receive stock / shortage fulfillment (Spec 05)"},
+    {"name": "inventory.issue", "description": "Issue inventory to developer with signature (Spec 07)"},
+    {"name": "hierarchy.assign_developer", "description": "Assign developer to hierarchy work (Spec 07)"},
+    {"name": "item.request", "description": "Developer requests reserved item (Spec 07)"},
+    {"name": "item.install_test", "description": "Install and test issued item (Spec 08)"},
+    {"name": "item.verify", "description": "HM verify installation (Spec 08–10)"},
+    {"name": "item.inspect", "description": "IM inspect returned items (Spec 10–12)"},
+    {"name": "project.cancel", "description": "Cancel project / trigger recall (Spec 11)"},
+    {"name": "config_change.request", "description": "Request configuration change (Spec 12)"},
+    {"name": "config_change.approve", "description": "Approve configuration change (Spec 12)"},
+    {"name": "audit.read", "description": "Read audit trail (Spec 13)"},
 ]
 
 DEFAULT_ROLES = [
@@ -636,7 +656,124 @@ DEFAULT_ROLES = [
             # Notifications
             "view_notifications",
         ]
-    }
+    },
+    # ==================== Spec 00 workflow roles (codes: PD / HM / IM / DEV) ====================
+    # Admin already maps to Spec code ADMIN. These four are additive first-class roles.
+    {
+        "name": "ProjectDirector",
+        "description": "Spec 00 PD — assign HM; cancel project / trigger recall",
+        "permissions": [
+            "view_users",
+            "view_projects",
+            "edit_projects",
+            "assign_project_manager",
+            "view_hierarchy",
+            "view_inventory",
+            "view_statuses",
+            "view_status_history",
+            "view_notifications",
+            "view_audit_logs",
+            "download_attachments",
+            "project.assign_hm",
+            "project.cancel",
+            "audit.read",
+        ],
+    },
+    {
+        "name": "HierarchyManager",
+        "description": "Spec 00 HM — draft project; hierarchy; reserve; assign Dev; verify",
+        "permissions": [
+            "view_users",
+            "view_projects",
+            "create_projects",
+            "edit_projects",
+            "view_systems",
+            "create_systems",
+            "edit_systems",
+            "view_subsystems",
+            "create_subsystems",
+            "edit_subsystems",
+            "view_modules",
+            "create_modules",
+            "edit_modules",
+            "view_units",
+            "create_units",
+            "edit_units",
+            "view_components",
+            "create_components",
+            "edit_components",
+            "view_inventory",
+            "view_inventory_issuances",
+            "view_entities",
+            "create_entities",
+            "edit_entities",
+            "view_statuses",
+            "view_status_history",
+            "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "view_reports",
+            "view_hierarchy_dashboard",
+            "view_notifications",
+            "upload_attachments",
+            "download_attachments",
+            "project.create_draft",
+            "hierarchy.generate",
+            "inventory.reserve",
+            "inventory.release",
+            "hierarchy.assign_developer",
+            "item.verify",
+            "project.cancel",
+            "config_change.request",
+            "audit.read",
+        ],
+    },
+    {
+        "name": "InventoryManager",
+        "description": "Spec 00 IM — stock receipt; issue + signature; inspection; shortage fulfill",
+        "permissions": [
+            "view_projects",
+            "view_hierarchy",
+            "view_inventory",
+            "create_inventory",
+            "edit_inventory",
+            "issue_inventory",
+            "view_inventory_issuances",
+            "view_statuses",
+            "view_status_history",
+            "view_notifications",
+            "upload_attachments",
+            "download_attachments",
+            "inventory.receive",
+            "inventory.issue",
+            "item.inspect",
+            "audit.read",
+        ],
+    },
+    {
+        "name": "Developer",
+        "description": "Spec 00 DEV — request item; install; test; report complete",
+        "permissions": [
+            "view_projects",
+            "view_systems",
+            "view_subsystems",
+            "view_modules",
+            "view_units",
+            "view_components",
+            "view_inventory",
+            "view_inventory_issuances",
+            "revert_inventory_install",
+            "view_entities",
+            "view_statuses",
+            "view_status_history",
+            "view_hierarchy",
+            "view_notifications",
+            "upload_attachments",
+            "download_attachments",
+            "item.request",
+            "item.install_test",
+        ],
+    },
 ]
 
 def initialize_roles_and_permissions(session: Session):
