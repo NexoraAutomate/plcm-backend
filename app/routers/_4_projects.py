@@ -1,16 +1,23 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, Response, status
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Project, User, Status)
 from app.schemas import schemas
 from app.services.create_entity import New_entity
-from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.services.entity_replacement_service import filter_current_installs
 from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
+from app.services.project_workflow_service import (
+    ProjectWorkflowError,
+    assert_can_generate_hierarchy,
+    assign_hm,
+    approve_project,
+    create_draft_project,
+    guard_structural_update,
+)
 
 entity_config = ENTITY_CONFIG.get("project")
 
@@ -47,6 +54,105 @@ def _apply_progress_status_rules(
             db_project.status_id = execution_id
 
 
+def _to_project_read(project: Project, *, include_systems: bool = True) -> schemas.ProjectRead:
+    status_name = project.status.status_name if project.status else None
+    return schemas.ProjectRead(
+        **project.model_dump(),
+        status_name=status_name,
+        systems=filter_current_installs(project.systems) if include_systems else None,
+    )
+
+
+def _workflow_http_error(exc: ProjectWorkflowError) -> HTTPException:
+    detail = str(exc)
+    lower = detail.lower()
+    if "not found" in lower:
+        code = status.HTTP_404_NOT_FOUND
+    elif "only admin" in lower or "requires project status" in lower:
+        code = status.HTTP_403_FORBIDDEN
+    else:
+        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    return HTTPException(status_code=code, detail=detail)
+
+
+# ===================== Spec 02 WORKFLOW ENDPOINTS =====================
+@router.post(
+    "/projects/draft/",
+    response_model=schemas.ProjectRead,
+    tags=["projects"],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_project_draft(
+    payload: schemas.ProjectDraftCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.create_draft")),
+):
+    try:
+        project = create_draft_project(
+            session, payload.model_dump(), actor=current_user
+        )
+        return _to_project_read(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/assign-hm/",
+    response_model=schemas.ProjectRead,
+    tags=["projects"],
+)
+def assign_project_hm(
+    project_id: int,
+    payload: schemas.ProjectAssignHmRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.assign_hm")),
+):
+    try:
+        project = assign_hm(
+            session, project_id, payload.hm_user_id, actor=current_user
+        )
+        return _to_project_read(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/approve/",
+    response_model=schemas.ProjectRead,
+    tags=["projects"],
+)
+def approve_project_endpoint(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.approve")),
+):
+    try:
+        project = approve_project(session, project_id, actor=current_user)
+        return _to_project_read(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/generate-hierarchy/",
+    tags=["projects"],
+)
+def generate_project_hierarchy(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("hierarchy.generate")),
+):
+    """Spec 02 guard — blocked until Spec 03; also rejects DRAFT projects."""
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        assert_can_generate_hierarchy(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+    return {"ok": True}
+
+
 # ===================== PROJECT ENDPOINTS =====================
 @router.post("/projects/", response_model=schemas.ProjectRead, tags=["projects"])
 def create_project(project: schemas.ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_projects"))):
@@ -63,12 +169,7 @@ def create_project(project: schemas.ProjectCreate, session: Session = Depends(ge
 
     session.commit()
     session.refresh(db_project)
-    status_name = db_project.status.status_name if db_project.status else None
-    return schemas.ProjectRead(
-        **db_project.model_dump(),
-        status_name=status_name,
-        systems=filter_current_installs(db_project.systems)
-    )
+    return _to_project_read(db_project)
 
 @router.get("/projects/", response_model=List[schemas.ProjectRead], tags=["projects"])
 def list_projects(
@@ -82,12 +183,7 @@ def list_projects(
     current_user: User = Depends(require_permission("view_projects")),
 ):
     def to_read(project: Project) -> schemas.ProjectRead:
-        status_name = project.status.status_name if project.status else None
-        return schemas.ProjectRead(
-            **project.model_dump(),
-            status_name=status_name,
-            systems=None,
-        )
+        return _to_project_read(project, include_systems=False)
 
     return paginated_query(
         session,
@@ -106,12 +202,7 @@ def get_project(project_id: int, session: Session = Depends(get_session), curren
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    status_name = project.status.status_name if project.status else None
-    return schemas.ProjectRead(
-        **project.model_dump(),
-        status_name=status_name,
-        systems=filter_current_installs(project.systems)
-    )
+    return _to_project_read(project)
 
 @router.put("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def update_project(project_id: int, project: schemas.ProjectUpdate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("edit_projects"))):
@@ -120,6 +211,10 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
         raise HTTPException(status_code=404, detail="Project not found")
     previous_progress = db_project.progress or 0
     update_data = project.model_dump(exclude_unset=True)
+    try:
+        guard_structural_update(db_project, update_data)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
     for k, v in update_data.items():
         setattr(db_project, k, v)
     _apply_progress_status_rules(session, db_project, previous_progress, update_data)
@@ -131,12 +226,7 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
     update_entity_status(session=session, entity= db_project, entity_name = entity_config["display_name"],changed_by_user= current_user.id)
     session.commit()
     session.refresh(db_project)
-    status_name = db_project.status.status_name if db_project.status else None
-    return schemas.ProjectRead(
-        **db_project.model_dump(),
-        status_name=status_name,
-        systems=filter_current_installs(db_project.systems)
-    )
+    return _to_project_read(db_project)
 
 @router.delete("/projects/{project_id}/", tags=["projects"])
 def delete_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("delete_projects"))):

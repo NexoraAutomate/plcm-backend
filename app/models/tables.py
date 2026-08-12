@@ -13,7 +13,10 @@ class UserRole(SQLModel, table=True):
 class User(UserBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     roles: List["Role"] = Relationship(back_populates="users", link_model=UserRole)
-    projects: List["Project"] = Relationship(back_populates="owner")
+    projects: List["Project"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"foreign_keys": "[Project.owner_id]"},
+    )
     status_changes: List["EntityStatusHistory"] = Relationship(back_populates="changed_by_user")
     maintenances: List["MaintenanceLog"] = Relationship(back_populates="performed_by_user")
     reported_cases: List["MaintenanceCase"] = Relationship(back_populates="reported_by_user")
@@ -103,7 +106,10 @@ class Project(ProjectBase, table=True):
     order_id: Optional[int] = Field(default=None, foreign_key="order.id", ondelete="CASCADE")
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
     owner_id: Optional[int] = Field(default=None, foreign_key="user.id")
-    owner: Optional["User"] = Relationship(back_populates="projects")
+    owner: Optional["User"] = Relationship(
+        back_populates="projects",
+        sa_relationship_kwargs={"foreign_keys": "[Project.owner_id]"},
+    )
     order: Optional["Order"] = Relationship(back_populates="projects")
     status: Optional[Status] = Relationship(back_populates="projects")
     systems: List["System"] = Relationship(back_populates="project",

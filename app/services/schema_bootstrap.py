@@ -24,6 +24,18 @@ STATUS_COLUMN_DDL = [
     ("color", "VARCHAR"),
 ]
 
+PROJECT_COLUMN_DDL = [
+    ("hierarchy_config_id", "INTEGER"),
+    ("hierarchy_config_version", "INTEGER"),
+    ("product_type", "VARCHAR(64)"),
+    ("flight_count", "INTEGER"),
+    ("sdls_per_flight", "INTEGER"),
+    ("assigned_hm_id", "INTEGER"),
+    ("created_by_id", "INTEGER"),
+    ("approved_by_id", "INTEGER"),
+    ("approved_at", "TIMESTAMP WITH TIME ZONE"),
+]
+
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
 ]
@@ -107,6 +119,7 @@ def ensure_user_management_schema() -> None:
     """Idempotent column bootstrap for environments that skip Alembic."""
     _add_columns_if_missing('"user"', USER_COLUMN_DDL)
     _add_columns_if_missing("status", STATUS_COLUMN_DDL)
+    _add_columns_if_missing("project", PROJECT_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
     _add_columns_if_missing(
         "hierarchy",

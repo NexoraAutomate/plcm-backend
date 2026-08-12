@@ -404,6 +404,15 @@ class ProjectRead(ProjectBase):
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     owner_id: Optional[int] = None
+    hierarchy_config_id: Optional[int] = None
+    hierarchy_config_version: Optional[int] = None
+    product_type: Optional[str] = None
+    flight_count: Optional[int] = None
+    sdls_per_flight: Optional[int] = None
+    assigned_hm_id: Optional[int] = None
+    created_by_id: Optional[int] = None
+    approved_by_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
     systems: Optional[List["SystemRead"]] = None
     class Config:
         orm_mode = True
@@ -417,6 +426,30 @@ class ProjectUpdate(SQLModel):
     order_id: Optional[int] = None
     status_id: Optional[int] = None
     progress: Optional[int] = Field(default=None, ge=0, le=100)
+    hierarchy_config_id: Optional[int] = None
+    hierarchy_config_version: Optional[int] = None
+    product_type: Optional[str] = None
+    flight_count: Optional[int] = None
+    sdls_per_flight: Optional[int] = None
+    assigned_hm_id: Optional[int] = None
+
+
+class ProjectDraftCreate(SQLModel):
+    name: str
+    description: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    owner_id: Optional[int] = None
+    order_id: Optional[int] = None
+    assigned_hm_id: Optional[int] = None
+    hierarchy_config_id: int
+    product_type: str
+    flight_count: int = Field(ge=1)
+    sdls_per_flight: int = Field(ge=1)
+
+
+class ProjectAssignHmRequest(SQLModel):
+    hm_user_id: int
 
 # ---- System / Subsystem / Module / Unit / Component ----
 class SystemCreate(SystemBase):

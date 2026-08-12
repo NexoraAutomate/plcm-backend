@@ -13,6 +13,11 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 from pwdlib import PasswordHash
 from app.models.tables import User
+from app.domain.workflow_permissions import (
+    WORKFLOW_PERMISSION_DEFS,
+    WORKFLOW_ROLE_PERMISSIONS,
+)
+from app.domain.workflow_roles import WORKFLOW_ROLE_DB_NAMES, WORKFLOW_ROLE_LABELS, WorkflowRole
 
 # Configuration (override via environment variables)
 SECRET_KEY = os.getenv(
@@ -323,6 +328,9 @@ DEFAULT_PERMISSIONS = [
     {"name": "create_configuration_history", "description": "Create_configuration history"},
     {"name": "edit_configuration_history", "description": "Edit configuration history"},
     {"name": "delete_configuration_history", "description": "Delete configuration history"},
+
+    # ==================== WORKFLOW (Spec 00 stubs) ====================
+    *WORKFLOW_PERMISSION_DEFS,
 ]
 
 DEFAULT_ROLES = [
@@ -636,7 +644,72 @@ DEFAULT_ROLES = [
             # Notifications
             "view_notifications",
         ]
-    }
+    },
+    # Spec 00 workflow roles (additive; legacy roles above stay unchanged)
+    {
+        "name": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD],
+        "description": WORKFLOW_ROLE_LABELS[WorkflowRole.PD],
+        "permissions": [
+            "view_projects",
+            "view_users",
+            "view_reports",
+            "view_executive_dashboard",
+            "view_hierarchy_dashboard",
+            "view_notifications",
+            *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.PD],
+        ],
+    },
+    {
+        "name": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM],
+        "description": WORKFLOW_ROLE_LABELS[WorkflowRole.HM],
+        "permissions": [
+            "view_projects",
+            "create_projects",
+            "edit_projects",
+            "view_users",
+            "view_hierarchy",
+            "view_entities",
+            "view_statuses",
+            "view_status_history",
+            "view_reports",
+            "view_hierarchy_dashboard",
+            "view_notifications",
+            *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.HM],
+        ],
+    },
+    {
+        "name": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM],
+        "description": WORKFLOW_ROLE_LABELS[WorkflowRole.IM],
+        "permissions": [
+            "view_projects",
+            "view_inventory",
+            "create_inventory",
+            "edit_inventory",
+            "issue_inventory",
+            "view_inventory_issuances",
+            "view_entities",
+            "view_statuses",
+            "view_status_history",
+            "view_notifications",
+            *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.IM],
+        ],
+    },
+    {
+        "name": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV],
+        "description": WORKFLOW_ROLE_LABELS[WorkflowRole.DEV],
+        "permissions": [
+            "view_projects",
+            "view_inventory",
+            "view_inventory_issuances",
+            "view_entities",
+            "edit_entities",
+            "view_statuses",
+            "view_status_history",
+            "view_hierarchy",
+            "view_notifications",
+            *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.DEV],
+        ],
+    },
 ]
 
 def initialize_roles_and_permissions(session: Session):

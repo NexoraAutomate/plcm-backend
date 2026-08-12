@@ -149,6 +149,18 @@ class ProjectCommon(SQLModel):
     order_id: int = None
     status_id: Optional[int] = None
     progress: int = Field(default=0, ge=0, le=100)
+    # Spec 02 — workflow fields
+    hierarchy_config_id: Optional[int] = Field(
+        default=None, foreign_key="hierarchyconfiguration.id", index=True
+    )
+    hierarchy_config_version: Optional[int] = None
+    product_type: Optional[str] = Field(default=None, max_length=64)
+    flight_count: Optional[int] = Field(default=None, ge=1)
+    sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+    assigned_hm_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    approved_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    approved_at: Optional[datetime] = None
 
 class ProjectBase(ProjectCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

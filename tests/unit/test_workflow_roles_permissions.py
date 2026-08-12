@@ -1,7 +1,7 @@
 """Unit tests: Spec 00 workflow roles + permission seed keys."""
 
 from app.auth import DEFAULT_PERMISSIONS, DEFAULT_ROLES
-from app.models.base import WorkflowRole
+from app.domain.workflow_roles import WORKFLOW_ROLE_DB_NAMES, WorkflowRole
 
 SPEC_00_PERMISSIONS = [
     "hierarchy_config.manage",
@@ -25,15 +25,19 @@ SPEC_00_PERMISSIONS = [
 ]
 
 ROLE_PRIMARY_PERMS = {
-    WorkflowRole.PD.value: ["project.assign_hm", "project.cancel"],
-    WorkflowRole.HM.value: [
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]: ["project.assign_hm", "project.cancel"],
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM]: [
         "project.create_draft",
         "hierarchy.generate",
         "inventory.reserve",
         "item.verify",
     ],
-    WorkflowRole.IM.value: ["inventory.receive", "inventory.issue", "item.inspect"],
-    WorkflowRole.DEV.value: ["item.request", "item.install_test"],
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM]: [
+        "inventory.receive",
+        "inventory.issue",
+        "item.inspect",
+    ],
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV]: ["item.request", "item.install_test"],
 }
 
 
@@ -53,10 +57,12 @@ class TestWorkflowPermissionSeed:
     def test_five_workflow_roles_present(self):
         role_names = {r["name"] for r in DEFAULT_ROLES}
         for role in WorkflowRole:
-            assert role.value in role_names, f"Missing role: {role.value}"
+            assert WORKFLOW_ROLE_DB_NAMES[role] in role_names, (
+                f"Missing role: {WORKFLOW_ROLE_DB_NAMES[role]}"
+            )
 
     def test_admin_has_all_workflow_permissions(self):
-        admin = _role_perms(WorkflowRole.ADMIN.value)
+        admin = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN])
         for key in SPEC_00_PERMISSIONS:
             assert key in admin
 
@@ -67,11 +73,21 @@ class TestWorkflowPermissionSeed:
                 assert key in perms, f"{role_name} missing {key}"
 
     def test_project_approve_is_admin_not_hm(self):
-        assert "project.approve" in _role_perms(WorkflowRole.ADMIN.value)
-        assert "project.approve" not in _role_perms(WorkflowRole.HM.value)
-        assert "project.approve" not in _role_perms(WorkflowRole.PD.value)
+        assert "project.approve" in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN]
+        )
+        assert "project.approve" not in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM]
+        )
+        assert "project.approve" not in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
+        )
 
     def test_hierarchy_config_manage_admin_only_among_workflow(self):
-        assert "hierarchy_config.manage" in _role_perms(WorkflowRole.ADMIN.value)
+        assert "hierarchy_config.manage" in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN]
+        )
         for role in (WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
-            assert "hierarchy_config.manage" not in _role_perms(role.value)
+            assert "hierarchy_config.manage" not in _role_perms(
+                WORKFLOW_ROLE_DB_NAMES[role]
+            )

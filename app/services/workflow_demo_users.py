@@ -13,33 +13,33 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from app.auth import hash_password
-from app.models.base import WorkflowRole
+from app.domain.workflow_roles import WORKFLOW_ROLE_DB_NAMES, WorkflowRole
 from app.models.tables import Role, User
 
-# username → role.name
+# username → role.name (DB display names)
 WORKFLOW_DEMO_USERS: list[dict[str, str]] = [
     {
         "username": "demo-pd",
         "full_name": "Demo Project Director",
-        "role": WorkflowRole.PD.value,
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD],
         "password": "Demo@pd123",
     },
     {
         "username": "demo-hm",
         "full_name": "Demo Hierarchy Manager",
-        "role": WorkflowRole.HM.value,
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM],
         "password": "Demo@hm123",
     },
     {
         "username": "demo-im",
         "full_name": "Demo Inventory Manager",
-        "role": WorkflowRole.IM.value,
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM],
         "password": "Demo@im123",
     },
     {
         "username": "demo-dev",
         "full_name": "Demo Developer",
-        "role": WorkflowRole.DEV.value,
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV],
         "password": "Demo@dev123",
     },
     # Admin already ensured via ensure_default_admin
