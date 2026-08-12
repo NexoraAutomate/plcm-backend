@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PLCM: Start All",
+      "dependsOn": [
+        "PLCM: Backend",
+        "PLCM: Frontend"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "PLCM: PostgreSQL",
+      "type": "shell",
+      "command": "C:\\Postgresql\\pgsql\\bin\\pg_ctl.exe -D C:\\Postgresql\\pgsql\\data -l C:\\Postgresql\\pgsql\\logfile start; if ($LASTEXITCODE -ne 0) { Write-Host 'PostgreSQL may already be running - continuing...' }",
+      "options": {
+        "cwd": "C:\\Postgresql\\pgsql",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-NoProfile", "-Command"]
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false,
+        "close": true
+      }
+    },
+    {
+      "label": "PLCM: Backend",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python.exe -m uvicorn app.main:app --reload",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": ["PLCM: PostgreSQL"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "plcm"
+      }
+    },
+    {
+      "label": "PLCM: Frontend",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "C:\\VSCode\\plcm\\frontend\\plcm-frontend"
+      },
+      "dependsOn": ["PLCM: PostgreSQL"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "plcm"
+      }
+    }
+  ]
+}

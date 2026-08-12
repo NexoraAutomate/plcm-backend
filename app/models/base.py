@@ -380,6 +380,53 @@ class IssuanceStatus(str, Enum):
     REVERTED = "reverted"
 
 
+# ==================== WORKFLOW FOUNDATIONS (Spec 00) ====================
+# Stable API / seed codes — used by status_transitions and Status table seeds.
+
+
+class WorkflowRole(str, Enum):
+    """Five first-class workflow roles. DB Role.name matches these values except Admin."""
+
+    ADMIN = "Admin"  # existing privileged name
+    PD = "PD"
+    HM = "HM"
+    IM = "IM"
+    DEV = "DEV"
+
+
+class ItemStatus(str, Enum):
+    """Canonical inventory / item lifecycle statuses."""
+
+    AVAILABLE = "AVAILABLE"
+    RESERVED = "RESERVED"
+    ISSUED = "ISSUED"
+    INSTALLATION_IN_PROGRESS = "INSTALLATION_IN_PROGRESS"
+    UNDER_TESTING_REVIEW = "UNDER_TESTING_REVIEW"
+    INSTALLED_VERIFIED = "INSTALLED_VERIFIED"
+    RETURNED = "RETURNED"
+    INSPECTION = "INSPECTION"
+    REUSABLE = "REUSABLE"
+    REPAIRABLE = "REPAIRABLE"
+    SCRAPPED = "SCRAPPED"
+
+
+class ProjectWorkflowStatus(str, Enum):
+    """Project workflow statuses (Spec 02–03 + reserved later codes)."""
+
+    DRAFT = "DRAFT"
+    APPROVED = "APPROVED"
+    HIERARCHY_GENERATED = "HIERARCHY_GENERATED"
+    READY_FOR_INVENTORY = "READY_FOR_INVENTORY"
+    CANCELLED = "CANCELLED"
+    COMPLETED = "COMPLETED"
+    READY_TO_DELIVER = "READY_TO_DELIVER"
+
+
+# Status.status_type values for workflow seed rows
+STATUS_TYPE_INVENTORY_ITEM = "inventory"
+STATUS_TYPE_PROJECT_WORKFLOW = "projects"
+
+
 class InventoryIssuanceBase(SQLModel):
     """Ledger row for issue → reserve → install / return / revert."""
     inventory_id: int

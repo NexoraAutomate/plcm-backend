@@ -24,6 +24,7 @@ from app.services.inactivity_service import deactivate_inactive_users
 from app.services.schema_bootstrap import ensure_user_management_schema
 from app.services.app_definitions_service import get_or_create_app_definitions
 from app.services.workflow_foundation_seed import ensure_workflow_statuses
+from app.services.workflow_demo_users import ensure_workflow_demo_users
 
 # Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
 from datetime import datetime as _datetime
@@ -47,6 +48,8 @@ async def lifespan(app: FastAPI):
         ensure_default_admin(session)
         # Spec 00 — canonical item + project workflow status vocabulary
         ensure_workflow_statuses(session)
+        # Optional demo matrix users (CREATE_WORKFLOW_DEMO_USERS=true)
+        ensure_workflow_demo_users(session)
         # Legacy seed/import data stored qty on the parent row; project install needs instances.
         backfill_legacy_inventory_instances(session)
         get_or_create_security_settings(session)
