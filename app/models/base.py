@@ -404,6 +404,42 @@ class InventoryInstanceBase(InventoryInstanceCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InventoryReservationStatus(str, Enum):
+    ACTIVE = "active"
+    RELEASED = "released"
+
+
+class InventoryReservationCommon(SQLModel):
+    """Spec 04 — HM project hierarchy reservation ledger (Flight → SDLS → item)."""
+    project_id: int = Field(foreign_key="project.id", index=True)
+    flight_id: int = Field(foreign_key="flight.id", index=True)
+    sdls_id: int = Field(foreign_key="sdls.id", index=True)
+    target_entity_type: str = Field(max_length=32, index=True)
+    target_entity_id: int = Field(index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    reserved_by_user_id: int = Field(foreign_key="user.id", index=True)
+    reserved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime
+    last_reminder_at: Optional[datetime] = None
+    extension_count: int = Field(default=0, ge=0)
+    part_number: Optional[str] = Field(default=None, max_length=128)
+    serial_number: Optional[str] = Field(default=None, max_length=128)
+    status: str = Field(
+        default=InventoryReservationStatus.ACTIVE.value, index=True, max_length=32
+    )
+    released_at: Optional[datetime] = None
+    released_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    notes: Optional[str] = None
+
+
+class InventoryReservationBase(InventoryReservationCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class InventoryChildLinkBase(SQLModel):
     """Child inventory stock assigned to a parent inventory item (optionally per serial)."""
     child_category_name: str

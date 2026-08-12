@@ -67,6 +67,32 @@ CREATE TABLE IF NOT EXISTS sdls (
 )
 """
 
+INVENTORY_RESERVATION_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryreservation (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    flight_id INTEGER NOT NULL REFERENCES flight(id),
+    sdls_id INTEGER NOT NULL REFERENCES sdls(id),
+    target_entity_type VARCHAR(32) NOT NULL,
+    target_entity_id INTEGER NOT NULL,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    inventory_instance_id INTEGER REFERENCES inventoryinstance(id),
+    reserved_by_user_id INTEGER NOT NULL REFERENCES "user"(id),
+    reserved_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_reminder_at TIMESTAMP WITH TIME ZONE,
+    extension_count INTEGER NOT NULL DEFAULT 0,
+    part_number VARCHAR(128),
+    serial_number VARCHAR(128),
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    released_at TIMESTAMP WITH TIME ZONE,
+    released_by_user_id INTEGER REFERENCES "user"(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
 ]
@@ -226,6 +252,31 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_sdls_flight_id
                 ON sdls (flight_id)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_RESERVATION_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreservation_project_id
+                ON inventoryreservation (project_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreservation_status
+                ON inventoryreservation (status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreservation_instance_id
+                ON inventoryreservation (inventory_instance_id)
                 """
             )
         )

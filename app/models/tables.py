@@ -267,6 +267,25 @@ class InventoryInstance(InventoryInstanceBase, table=True):
     inventory: Optional[Inventory] = Relationship(back_populates="instances")
     status: Optional[Status] = Relationship()
     issuances: List["InventoryIssuance"] = Relationship(back_populates="inventory_instance")
+    project_reservations: List["InventoryReservation"] = Relationship(
+        back_populates="inventory_instance",
+        sa_relationship_kwargs={"foreign_keys": "[InventoryReservation.inventory_instance_id]"},
+    )
+
+
+class InventoryReservation(InventoryReservationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project: Optional["Project"] = Relationship()
+    flight: Optional["Flight"] = Relationship()
+    sdls: Optional["Sdls"] = Relationship()
+    inventory: Optional[Inventory] = Relationship()
+    inventory_instance: Optional[InventoryInstance] = Relationship(
+        back_populates="project_reservations",
+        sa_relationship_kwargs={"foreign_keys": "[InventoryReservation.inventory_instance_id]"},
+    )
+    reserved_by: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryReservation.reserved_by_user_id]"},
+    )
 
 
 class InventoryChildLink(InventoryChildLinkBase, table=True):

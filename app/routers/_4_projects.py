@@ -226,6 +226,126 @@ def get_project_hierarchy_tree(
     )
 
 
+def _reservation_http_error(exc: Exception) -> HTTPException:
+    detail = str(exc)
+    lower = detail.lower()
+    if "not found" in lower:
+        code = status.HTTP_404_NOT_FOUND
+    elif "must be ready" in lower or "permission" in lower:
+        code = status.HTTP_403_FORBIDDEN
+    else:
+        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    return HTTPException(status_code=code, detail=detail)
+
+
+# ===================== Spec 04 RESERVATIONS =====================
+@router.get(
+    "/projects/{project_id}/reservations/availability",
+    response_model=schemas.InventoryAvailabilityCheck,
+    tags=["projects"],
+)
+def check_reservation_availability(
+    project_id: int,
+    target_entity_type: str,
+    target_entity_id: int,
+    part_number: str | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.reserve")),
+):
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        check_availability,
+    )
+
+    try:
+        result = check_availability(
+            session,
+            project_id=project_id,
+            target_entity_type=target_entity_type,
+            target_entity_id=target_entity_id,
+            part_number=part_number,
+        )
+        return schemas.InventoryAvailabilityCheck(**result)
+    except InventoryReservationError as exc:
+        raise _reservation_http_error(exc) from exc
+
+
+@router.get(
+    "/projects/{project_id}/reservations/",
+    response_model=List[schemas.InventoryReservationRead],
+    tags=["projects"],
+)
+def list_reservations(
+    project_id: int,
+    active_only: bool = False,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_projects")),
+):
+    from app.services.inventory_reservation_service import (
+        list_project_reservations,
+        reservation_to_dict,
+    )
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    rows = list_project_reservations(session, project_id, active_only=active_only)
+    return [schemas.InventoryReservationRead(**reservation_to_dict(r)) for r in rows]
+
+
+@router.post(
+    "/projects/{project_id}/reservations/",
+    response_model=schemas.InventoryReservationRead,
+    tags=["projects"],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_reservation(
+    project_id: int,
+    payload: schemas.InventoryReservationCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.reserve")),
+):
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        reservation_to_dict,
+        reserve_inventory,
+    )
+
+    try:
+        row = reserve_inventory(
+            session, project_id, payload.model_dump(), actor=current_user
+        )
+        return schemas.InventoryReservationRead(**reservation_to_dict(row))
+    except InventoryReservationError as exc:
+        raise _reservation_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/reservations/{reservation_id}/release/",
+    response_model=schemas.InventoryReservationRead,
+    tags=["projects"],
+)
+def release_project_reservation(
+    project_id: int,
+    reservation_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.release")),
+):
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        release_reservation,
+        reservation_to_dict,
+    )
+
+    try:
+        row = release_reservation(
+            session, project_id, reservation_id, actor=current_user
+        )
+        return schemas.InventoryReservationRead(**reservation_to_dict(row))
+    except InventoryReservationError as exc:
+        raise _reservation_http_error(exc) from exc
+
+
 # ===================== PROJECT ENDPOINTS =====================
 @router.post("/projects/", response_model=schemas.ProjectRead, tags=["projects"])
 def create_project(project: schemas.ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_projects"))):

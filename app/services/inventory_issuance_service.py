@@ -438,9 +438,12 @@ def installable_issuance_for_instance(
 
 
 def available_quantity(session: Session, inventory: Inventory) -> int:
+    from app.services.inventory_reservation_service import project_reserved_quantity
+
     reserved = reserved_quantity(session, inventory.id)
+    project_reserved = project_reserved_quantity(session, int(inventory.id))
     total = inventory.quantity or 0
-    return max(0, total - reserved)
+    return max(0, total - reserved - project_reserved)
 
 
 def instance_reservation_map(
@@ -512,6 +515,19 @@ def issue_inventory_unit(
             raise HTTPException(
                 status_code=400,
                 detail="This serial is already issued/reserved",
+            )
+        from app.services.inventory_reservation_service import (
+            active_reservation_for_instance,
+        )
+
+        project_hold = active_reservation_for_instance(session, int(instance.id))
+        if project_hold:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This serial is reserved for a project hierarchy "
+                    f"(reservation #{project_hold.id})"
+                ),
             )
         resolved_instance_id = instance.id
         serial_number = instance.serial_number

@@ -1123,3 +1123,62 @@ class HierarchyConfigurationSummary(SQLModel):
 
     class Config:
         orm_mode = True
+
+
+# ---- Spec 04 — Inventory reservations ----
+class InventoryReservationCreate(SQLModel):
+    target_entity_type: str
+    target_entity_id: int
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    inventory_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class InventoryReservationRead(SQLModel):
+    id: int
+    project_id: int
+    flight_id: int
+    sdls_id: int
+    target_entity_type: str
+    target_entity_id: int
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    reserved_by_user_id: int
+    reserved_at: datetime
+    expires_at: datetime
+    last_reminder_at: Optional[datetime] = None
+    extension_count: int = 0
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    status: str
+    released_at: Optional[datetime] = None
+    released_by_user_id: Optional[int] = None
+    notes: Optional[str] = None
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    inventory_name: Optional[str] = None
+    reserved_by_name: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class InventoryAvailabilityCheck(SQLModel):
+    available: bool
+    free_quantity: Optional[int] = None
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_numbers: Optional[List[str]] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    system_id: Optional[int] = None
+    reservation_id: Optional[int] = None
+    reason: Optional[str] = None
