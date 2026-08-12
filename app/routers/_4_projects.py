@@ -12,12 +12,12 @@ from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
 from app.services.project_workflow_service import (
     ProjectWorkflowError,
-    assert_can_generate_hierarchy,
     assign_hm,
     approve_project,
     create_draft_project,
     guard_structural_update,
 )
+from app.services.hierarchy_generation_service import generate_project_hierarchy as do_generate_hierarchy
 
 entity_config = ENTITY_CONFIG.get("project")
 
@@ -135,6 +135,7 @@ def approve_project_endpoint(
 
 @router.post(
     "/projects/{project_id}/generate-hierarchy/",
+    response_model=schemas.HierarchyGenerationResult,
     tags=["projects"],
 )
 def generate_project_hierarchy(
@@ -142,15 +143,87 @@ def generate_project_hierarchy(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("hierarchy.generate")),
 ):
-    """Spec 02 guard — blocked until Spec 03; also rejects DRAFT projects."""
+    """Spec 03 — materialize Flight→SDLS→System… from config + project scope."""
+    try:
+        result = do_generate_hierarchy(session, project_id, actor=current_user)
+        project = session.get(Project, project_id)
+        return schemas.HierarchyGenerationResult(
+            **result,
+            project=_to_project_read(project) if project else None,
+        )
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.get(
+    "/projects/{project_id}/hierarchy-tree/",
+    response_model=schemas.ProjectHierarchyTree,
+    tags=["projects"],
+)
+def get_project_hierarchy_tree(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_projects")),
+):
+    """Spec 03 — nested Flight → SDLS → System tree for project navigation."""
+    from app.models.tables import Flight, Sdls
+
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    try:
-        assert_can_generate_hierarchy(project)
-    except ProjectWorkflowError as exc:
-        raise _workflow_http_error(exc) from exc
-    return {"ok": True}
+
+    flights = session.exec(
+        select(Flight)
+        .where(Flight.project_id == project_id)
+        .order_by(Flight.sequence, Flight.id)
+    ).all()
+
+    flight_nodes: list[schemas.FlightTreeNode] = []
+    for flight in flights:
+        sdls_rows = session.exec(
+            select(Sdls)
+            .where(Sdls.flight_id == flight.id)
+            .order_by(Sdls.sequence, Sdls.id)
+        ).all()
+        sdls_nodes: list[schemas.SdlsTreeNode] = []
+        for sdls in sdls_rows:
+            systems = [
+                s
+                for s in (project.systems or [])
+                if s.sdls_id == sdls.id
+            ]
+            sdls_nodes.append(
+                schemas.SdlsTreeNode(
+                    id=int(sdls.id),
+                    name=sdls.name,
+                    code=sdls.code,
+                    sequence=sdls.sequence,
+                    product_type=sdls.product_type,
+                    systems=[
+                        schemas.HierarchyTreeSystemNode(
+                            id=int(s.id),
+                            name=s.name,
+                            subsystem_count=len(s.subsystems or []),
+                        )
+                        for s in systems
+                    ],
+                )
+            )
+        flight_nodes.append(
+            schemas.FlightTreeNode(
+                id=int(flight.id),
+                name=flight.name,
+                code=flight.code,
+                sequence=flight.sequence,
+                sdls=sdls_nodes,
+            )
+        )
+
+    return schemas.ProjectHierarchyTree(
+        project_id=project_id,
+        status=project.status.status_name if project.status else None,
+        flights=flight_nodes,
+    )
 
 
 # ===================== PROJECT ENDPOINTS =====================

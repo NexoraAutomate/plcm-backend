@@ -254,21 +254,13 @@ def approve_project(
     return project
 
 
-def assert_can_generate_hierarchy(project: Project) -> None:
-    """
-    Spec 02 guard: generation blocked for DRAFT.
-    Spec 03 will implement generation for APPROVED projects.
-    """
-    status = project_status_name(project)
-    if status != ProjectWorkflowStatus.APPROVED.value:
-        raise ProjectWorkflowError(
-            "Generate Hierarchy requires project status APPROVED "
-            f"(current: {status or 'unknown'})"
-        )
-    # Spec 03 not implemented yet
-    raise ProjectWorkflowError(
-        "Generate Hierarchy is not available until Spec 03 is implemented"
+def assert_can_generate_hierarchy(project: Project, session=None) -> None:
+    """Spec 02/03 gate — delegated to hierarchy generation service."""
+    from app.services.hierarchy_generation_service import (
+        assert_can_generate_hierarchy as _assert,
     )
+
+    _assert(project, session)
 
 
 def is_structural_frozen(project: Project) -> bool:

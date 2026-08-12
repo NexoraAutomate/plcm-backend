@@ -166,6 +166,35 @@ class ProjectBase(ProjectCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+
+# Spec 03 — project-scoped Flight / SDLS containers
+class FlightCommon(SQLModel):
+    name: str = Field(max_length=255)
+    code: Optional[str] = Field(default=None, max_length=64)
+    sequence: int = Field(default=1, ge=1)
+    description: Optional[str] = None
+    project_id: int = Field(foreign_key="project.id", index=True)
+    status_id: Optional[int] = Field(default=None, foreign_key="status.id")
+
+
+class FlightBase(FlightCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SdlsCommon(SQLModel):
+    name: str = Field(max_length=255)
+    code: Optional[str] = Field(default=None, max_length=64)
+    sequence: int = Field(default=1, ge=1)
+    description: Optional[str] = None
+    product_type: Optional[str] = Field(default=None, max_length=64)
+    flight_id: int = Field(foreign_key="flight.id", index=True)
+    status_id: Optional[int] = Field(default=None, foreign_key="status.id")
+
+
+class SdlsBase(SdlsCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class CustomerCommon(SQLModel):
     name: str
 
@@ -261,6 +290,8 @@ class SystemCommon(HardwareEntityFields):
     name: str
     description: Optional[str] = None
     project_id: int
+    # Spec 03 — optional link when generated under an SDLS
+    sdls_id: Optional[int] = Field(default=None, foreign_key="sdls.id", index=True)
     status_id: Optional[int] = None
     part_number: Optional[str] = None
     serial_number: Optional[str] = None

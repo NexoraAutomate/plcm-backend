@@ -143,7 +143,7 @@ def test_generate_blocked_for_draft(
     session.commit()
 
 
-def test_admin_approve_then_generate_still_deferred(
+def test_admin_approve_enables_generate_gate(
     session: Session, admin_user: User, config: HierarchyConfiguration
 ):
     project = create_draft_project(
@@ -161,8 +161,8 @@ def test_admin_approve_then_generate_still_deferred(
     assert approved.status.status_name == ProjectWorkflowStatus.APPROVED.value
     assert approved.approved_by_id == admin_user.id
     assert approved.approved_at is not None
-    with pytest.raises(ProjectWorkflowError, match="Spec 03"):
-        assert_can_generate_hierarchy(approved)
+    # Spec 03 gate: APPROVED is allowed (no error until generation runs)
+    assert_can_generate_hierarchy(approved, session)
     session.delete(approved)
     session.commit()
 

@@ -8,6 +8,12 @@ ENTITY_CONFIG = {
     "project": {
         "display_name": "Project"
     },
+    "flight": {
+        "display_name": "Flight"
+    },
+    "sdls": {
+        "display_name": "SDLS"
+    },
     "system": {
         "display_name": "System"
     },

@@ -36,6 +36,37 @@ PROJECT_COLUMN_DDL = [
     ("approved_at", "TIMESTAMP WITH TIME ZONE"),
 ]
 
+SYSTEM_COLUMN_DDL = [
+    ("sdls_id", "INTEGER"),
+]
+
+FLIGHT_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS flight (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(64),
+    sequence INTEGER NOT NULL DEFAULT 1,
+    description VARCHAR,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    status_id INTEGER REFERENCES status(id),
+    created_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
+SDLS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS sdls (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(64),
+    sequence INTEGER NOT NULL DEFAULT 1,
+    description VARCHAR,
+    product_type VARCHAR(64),
+    flight_id INTEGER NOT NULL REFERENCES flight(id) ON DELETE CASCADE,
+    status_id INTEGER REFERENCES status(id),
+    created_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
 ]
@@ -145,6 +176,94 @@ def ensure_user_management_schema() -> None:
             ("serial_template_component", "VARCHAR"),
         ],
     )
+
+    with engine.begin() as conn:
+        conn.execute(text(FLIGHT_TABLE_DDL))
+        conn.execute(text(SDLS_TABLE_DDL))
+        # Ensure ON DELETE CASCADE even if tables were first created by create_all
+        conn.execute(
+            text(
+                """
+                ALTER TABLE flight DROP CONSTRAINT IF EXISTS flight_project_id_fkey
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE flight
+                ADD CONSTRAINT flight_project_id_fkey
+                FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE sdls DROP CONSTRAINT IF EXISTS sdls_flight_id_fkey
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE sdls
+                ADD CONSTRAINT sdls_flight_id_fkey
+                FOREIGN KEY (flight_id) REFERENCES flight(id) ON DELETE CASCADE
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_flight_project_id
+                ON flight (project_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_sdls_flight_id
+                ON sdls (flight_id)
+                """
+            )
+        )
+
+    _add_columns_if_missing("system", SYSTEM_COLUMN_DDL)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_system_sdls_id
+                ON system (sdls_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE system DROP CONSTRAINT IF EXISTS system_sdls_id_fkey
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'system_sdls_id_fkey'
+                    ) THEN
+                        ALTER TABLE system
+                        ADD CONSTRAINT system_sdls_id_fkey
+                        FOREIGN KEY (sdls_id) REFERENCES sdls(id) ON DELETE SET NULL;
+                    END IF;
+                END $$;
+                """
+            )
+        )
 
     with engine.begin() as conn:
         had_decision = _column_exists(conn, "inventoryreturnnotice", "decision")

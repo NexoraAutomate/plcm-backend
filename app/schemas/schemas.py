@@ -451,6 +451,57 @@ class ProjectDraftCreate(SQLModel):
 class ProjectAssignHmRequest(SQLModel):
     hm_user_id: int
 
+
+class HierarchyGenerationCounts(SQLModel):
+    flights: int = 0
+    sdls: int = 0
+    systems: int = 0
+    subsystems: int = 0
+    modules: int = 0
+    units: int = 0
+    components: int = 0
+
+
+class HierarchyGenerationResult(SQLModel):
+    ok: bool = True
+    project_id: int
+    status: str
+    config_code: Optional[str] = None
+    config_name: Optional[str] = None
+    product_type: Optional[str] = None
+    counts: HierarchyGenerationCounts
+    project: Optional["ProjectRead"] = None
+
+
+class HierarchyTreeSystemNode(SQLModel):
+    id: int
+    name: str
+    subsystem_count: int = 0
+
+
+class SdlsTreeNode(SQLModel):
+    id: int
+    name: str
+    code: Optional[str] = None
+    sequence: int = 1
+    product_type: Optional[str] = None
+    systems: List[HierarchyTreeSystemNode] = []
+
+
+class FlightTreeNode(SQLModel):
+    id: int
+    name: str
+    code: Optional[str] = None
+    sequence: int = 1
+    sdls: List[SdlsTreeNode] = []
+
+
+class ProjectHierarchyTree(SQLModel):
+    project_id: int
+    status: Optional[str] = None
+    flights: List[FlightTreeNode] = []
+
+
 # ---- System / Subsystem / Module / Unit / Component ----
 class SystemCreate(SystemBase):
     status_id: Optional[int] = None
@@ -459,6 +510,7 @@ class SystemCreate(SystemBase):
 class SystemRead(SystemBase):
     id: int
     project_id: int
+    sdls_id: Optional[int] = None
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     subsystems: Optional[List["SubsystemRead"]] = None
@@ -468,6 +520,7 @@ class SystemRead(SystemBase):
 
 class SystemUpdate(SQLModel):
     project_id: Optional[int] = None
+    sdls_id: Optional[int] = None
     name: Optional[str] = None
     description: Optional[str] = None
     status_id: Optional[int] = None

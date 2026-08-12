@@ -112,6 +112,13 @@ class Project(ProjectBase, table=True):
     )
     order: Optional["Order"] = Relationship(back_populates="projects")
     status: Optional[Status] = Relationship(back_populates="projects")
+    flights: List["Flight"] = Relationship(
+        back_populates="project",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
     systems: List["System"] = Relationship(back_populates="project",
                                          sa_relationship_kwargs={
                                             "cascade": "all, delete-orphan",
@@ -123,11 +130,41 @@ class Project(ProjectBase, table=True):
                                             "passive_deletes": True,
                                             },)
 
+
+class Flight(FlightBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key="project.id", ondelete="CASCADE", index=True)
+    project: Optional[Project] = Relationship(back_populates="flights")
+    status: Optional[Status] = Relationship()
+    sdls_units: List["Sdls"] = Relationship(
+        back_populates="flight",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
+
+
+class Sdls(SdlsBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    flight_id: int = Field(foreign_key="flight.id", ondelete="CASCADE", index=True)
+    flight: Optional[Flight] = Relationship(back_populates="sdls_units")
+    status: Optional[Status] = Relationship()
+    systems: List["System"] = Relationship(
+        back_populates="sdls",
+        sa_relationship_kwargs={"foreign_keys": "[System.sdls_id]"},
+    )
+
+
 class System(SystemBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: int = Field(foreign_key="project.id", ondelete="CASCADE")
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
     project: Optional[Project] = Relationship(back_populates="systems")
+    sdls: Optional[Sdls] = Relationship(
+        back_populates="systems",
+        sa_relationship_kwargs={"foreign_keys": "[System.sdls_id]"},
+    )
     
     status: Optional[Status] = Relationship(back_populates="systems")
     subsystems: List["Subsystem"] = Relationship(back_populates="system", 
