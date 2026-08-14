@@ -348,3 +348,38 @@ def test_reserve_three_units_across_sdls(session: Session, admin_user: User):
     assert project.status.status_name == ProjectWorkflowStatus.READY_FOR_INVENTORY.value
 
     _cleanup(session, project, cfg, inv)
+
+
+def test_reserved_serial_exposes_project_hold(session: Session, admin_user: User):
+    sys_name = f"Hold-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(
+        session, admin_user, flights=1, sdls=1, system_name=sys_name
+    )
+    inv = _stock_for_system(session, name=sys_name, serials=["SN-HOLD"])
+    target = session.exec(select(System).where(System.project_id == project.id)).first()
+    row = reserve_inventory(
+        session,
+        project.id,
+        {
+            "target_entity_type": "system",
+            "target_entity_id": int(target.id),
+            "serial_number": "SN-HOLD",
+        },
+        actor=admin_user,
+    )
+    from app.services.inventory_reservation_service import (
+        item_status_name,
+        project_holds_by_instance_id,
+    )
+
+    inst = session.get(InventoryInstance, row.inventory_instance_id)
+    assert item_status_name(session, inst.status_id) == ItemStatus.RESERVED.value
+    holds = project_holds_by_instance_id(session, int(inv.id))
+    hold = holds[int(row.inventory_instance_id)]
+    assert hold["flight_id"] == row.flight_id
+    assert hold["sdls_id"] == row.sdls_id
+    assert hold["target_entity_id"] == int(target.id)
+    assert hold["target_entity_type"] == "system"
+    assert hold["serial_number"] == "SN-HOLD"
+
+    _cleanup(session, project, cfg, inv)

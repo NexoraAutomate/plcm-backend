@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import (
     Inventory,
@@ -16,6 +16,7 @@ from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.auth import is_inventory_manager
 from app.services.pagination import paginated_query
+from app.services.list_query import inventory_list_where
 from app.services.inventory_service import (
     is_component_inventory,
     find_inventory_group,
@@ -112,6 +113,8 @@ def _instance_to_read(
     instance: InventoryInstance,
     *,
     reserved_map: dict[int, tuple[int, str]] | None = None,
+    project_hold_map: dict[int, dict] | None = None,
+    status_name: str | None = None,
 ) -> schemas.InventoryInstanceRead:
     data = instance.model_dump()
     open_id = None
@@ -120,10 +123,48 @@ def _instance_to_read(
         entry = reserved_map.get(instance.id)
         if entry is not None:
             open_id, open_status = entry
+    hold = None
+    if project_hold_map and instance.id is not None:
+        hold = project_hold_map.get(instance.id)
     data["is_reserved"] = open_id is not None
+    data["is_project_reserved"] = hold is not None
+    data["status_name"] = status_name
+    data["project_reservation"] = hold
     data["open_issuance_id"] = open_id
     data["open_issuance_status"] = open_status
     return schemas.InventoryInstanceRead.model_validate(data)
+
+
+def _enrich_instance_read(
+    session: Session, instance: InventoryInstance
+) -> schemas.InventoryInstanceRead:
+    reserved_map: dict[int, tuple[int, str]] = {}
+    hold_map: dict[int, dict] = {}
+    if instance.inventory_id:
+        reserved_map = instance_reservation_map(session, instance.inventory_id)
+        from app.services.inventory_reservation_service import project_holds_by_instance_id
+
+        hold_map = project_holds_by_instance_id(session, instance.inventory_id)
+    names = _instance_status_names(session, [instance])
+    status_name = names.get(int(instance.status_id)) if instance.status_id else None
+    return _instance_to_read(
+        instance,
+        reserved_map=reserved_map,
+        project_hold_map=hold_map,
+        status_name=status_name,
+    )
+
+
+def _instance_status_names(
+    session: Session, instances: list[InventoryInstance]
+) -> dict[int, str]:
+    ids = {int(i.status_id) for i in instances if i.status_id is not None}
+    if not ids:
+        return {}
+    from app.models.tables import Status
+
+    rows = session.exec(select(Status).where(col(Status.id).in_(list(ids)))).all()
+    return {int(s.id): s.status_name for s in rows if s.id is not None}
 
 
 def _inventory_to_read(
@@ -168,6 +209,10 @@ def _inventory_to_read(
             .order_by(InventoryInstance.id)
         ).all()
         reserved_map = instance_reservation_map(session, inventory.id)
+        from app.services.inventory_reservation_service import project_holds_by_instance_id
+
+        hold_map = project_holds_by_instance_id(session, inventory.id)
+        status_names = _instance_status_names(session, list(instances))
         if issued_to_user_id is not None:
             # Installer: only serials open-issued / return-pending to them
             open_rows = list(
@@ -197,7 +242,15 @@ def _inventory_to_read(
             data["reserved_quantity"] = pending_qty
             data["available_quantity"] = installable_qty
         data["instances"] = [
-            _instance_to_read(inst, reserved_map=reserved_map) for inst in instances
+            _instance_to_read(
+                inst,
+                reserved_map=reserved_map,
+                project_hold_map=hold_map,
+                status_name=(
+                    status_names.get(int(inst.status_id)) if inst.status_id else None
+                ),
+            )
+            for inst in instances
         ]
     else:
         data["instances"] = None
@@ -390,19 +443,19 @@ def list_inventory(
     skip: int = 0,
     limit: int = 100,
     inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
+    search: Optional[str] = Query(None),
+    stock: Optional[str] = Query(None, description="available | reserved | out_of_stock"),
     sort_by: str | None = None,
     sort_order: str | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
-    scope = _scoped_inventory_filter(session, current_user)
-    type_filter = Inventory.inventory_type == inventory_type if inventory_type else None
-    if scope is not None and type_filter is not None:
-        where = (scope) & (type_filter)
-    elif scope is not None:
-        where = scope
-    else:
-        where = type_filter
+    where = inventory_list_where(
+        scope=_scoped_inventory_filter(session, current_user),
+        inventory_type=inventory_type,
+        search=search,
+        stock=stock,
+    )
     items = paginated_query(
         session,
         Inventory,
@@ -844,6 +897,73 @@ def read_all_inventory_shortage_notices(
     return {"ok": True, "marked": count}
 
 
+@router.get(
+    "/inventory/reservation-expiry-notices/",
+    response_model=List[schemas.InventoryReservationExpiryNoticeRead],
+    tags=["inventory"],
+)
+def get_reservation_expiry_notices(
+    unread_only: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.services.inventory_reservation_expiry_service import (
+        list_expiry_notices,
+        notice_to_dict,
+    )
+
+    rows = list_expiry_notices(
+        session,
+        user_id=int(current_user.id),
+        unread_only=unread_only,
+    )
+    return [
+        schemas.InventoryReservationExpiryNoticeRead(**notice_to_dict(r)) for r in rows
+    ]
+
+
+@router.post(
+    "/inventory/reservation-expiry-notices/{notice_id}/read/",
+    response_model=schemas.InventoryReservationExpiryNoticeRead,
+    tags=["inventory"],
+)
+def read_reservation_expiry_notice(
+    notice_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.models.tables import InventoryReservationExpiryNotice
+    from app.services.inventory_reservation_expiry_service import (
+        mark_expiry_notice_read,
+        notice_to_dict,
+    )
+
+    row = session.get(InventoryReservationExpiryNotice, notice_id)
+    if not row or row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Expiry notice not found")
+    updated = mark_expiry_notice_read(session, row)
+    session.commit()
+    session.refresh(updated)
+    return schemas.InventoryReservationExpiryNoticeRead(**notice_to_dict(updated))
+
+
+@router.post(
+    "/inventory/reservation-expiry-notices/read-all/",
+    tags=["inventory"],
+)
+def read_all_reservation_expiry_notices(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.services.inventory_reservation_expiry_service import (
+        mark_all_expiry_notices_read,
+    )
+
+    count = mark_all_expiry_notices_read(session, int(current_user.id))
+    session.commit()
+    return {"ok": True, "marked": count}
+
+
 @router.post(
     "/inventory/issuances/{issuance_id}/link-install/",
     response_model=schemas.InventoryIssuanceRead,
@@ -898,8 +1018,7 @@ def revert_install_to_inventory(
     )
     restored_read = None
     if restored is not None:
-        reserved_map = instance_reservation_map(session, inventory.id)
-        restored_read = _instance_to_read(restored, reserved_map=reserved_map)
+        restored_read = _enrich_instance_read(session, restored)
     issuance_read = _issuance_to_read(session, issuance) if issuance else None
     session.commit()
     session.refresh(inventory)
@@ -1195,6 +1314,9 @@ def list_inventory_instances(
         raise HTTPException(status_code=403, detail="Not allowed to view this inventory")
 
     reserved_map = instance_reservation_map(session, inventory_id)
+    from app.services.inventory_reservation_service import project_holds_by_instance_id
+
+    hold_map = project_holds_by_instance_id(session, inventory_id)
     instances = session.exec(
         select(InventoryInstance)
         .where(InventoryInstance.inventory_id == inventory_id)
@@ -1217,7 +1339,18 @@ def list_inventory_instances(
         instances = [i for i in instances if i.id in allowed_instance_ids]
         reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
 
-    return [_instance_to_read(inst, reserved_map=reserved_map) for inst in instances]
+    status_names = _instance_status_names(session, list(instances))
+    return [
+        _instance_to_read(
+            inst,
+            reserved_map=reserved_map,
+            project_hold_map=hold_map,
+            status_name=(
+                status_names.get(int(inst.status_id)) if inst.status_id else None
+            ),
+        )
+        for inst in instances
+    ]
 
 
 @router.post(
@@ -1252,7 +1385,7 @@ def create_inventory_instance_endpoint(
         actor=current_user,
         instance=db_instance,
     )
-    read = _instance_to_read(db_instance)
+    read = _enrich_instance_read(session, db_instance)
     payload = read.model_dump()
     payload["fcfs_fulfillments"] = fulfillments
     return schemas.InventoryInstanceRead.model_validate(payload)
@@ -1278,7 +1411,7 @@ def update_inventory_instance(
     session.add(db_instance)
     session.commit()
     session.refresh(db_instance)
-    return db_instance
+    return _enrich_instance_read(session, db_instance)
 
 
 @router.delete("/inventory/instances/{instance_id}/", tags=["inventory"])

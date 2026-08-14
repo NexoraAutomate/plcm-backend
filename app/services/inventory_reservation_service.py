@@ -4,6 +4,7 @@ Spec 04 — reserve AVAILABLE inventory against Flight → SDLS → hierarchy no
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, NoReturn, Optional
 
@@ -37,6 +38,31 @@ from app.services.inventory_service import (
 from app.services.project_workflow_service import project_status_name
 
 DEFAULT_RESERVATION_DAYS = 30
+DEFAULT_RESERVATION_GRACE_DAYS = 7
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default))
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def reservation_idle_days() -> int:
+    """Days of idle RESERVED stock before the Spec 06 reminder (env: RESERVATION_IDLE_DAYS)."""
+    return max(1, _env_int("RESERVATION_IDLE_DAYS", DEFAULT_RESERVATION_DAYS))
+
+
+def reservation_grace_days() -> int:
+    """Days after idle reminder before auto-release (env: RESERVATION_GRACE_DAYS)."""
+    return max(0, _env_int("RESERVATION_GRACE_DAYS", DEFAULT_RESERVATION_GRACE_DAYS))
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 RESERVABLE_ENTITY_TYPES = frozenset(
     {"system", "subsystem", "module", "unit", "component"}
@@ -103,6 +129,59 @@ def active_reservations_for_inventory(
             )
         ).all()
     )
+
+
+def project_hold_to_dict(
+    session: Session, reservation: InventoryReservation
+) -> dict[str, Any]:
+    """Compact HM reservation payload for inventory serial status / dialog."""
+    project = reservation.project or session.get(Project, reservation.project_id)
+    target_name = None
+    try:
+        entity = _load_hierarchy_entity(
+            session, reservation.target_entity_type, reservation.target_entity_id
+        )
+        target_name = getattr(entity, "name", None)
+    except InventoryReservationError:
+        target_name = None
+    return {
+        "id": reservation.id,
+        "project_id": reservation.project_id,
+        "project_name": project.name if project else None,
+        "flight_id": reservation.flight_id,
+        "flight_code": reservation.flight.code if reservation.flight else None,
+        "flight_name": reservation.flight.name if reservation.flight else None,
+        "sdls_id": reservation.sdls_id,
+        "sdls_code": reservation.sdls.code if reservation.sdls else None,
+        "sdls_name": reservation.sdls.name if reservation.sdls else None,
+        "target_entity_type": reservation.target_entity_type,
+        "target_entity_id": reservation.target_entity_id,
+        "target_entity_name": target_name,
+        "reserved_by_user_id": reservation.reserved_by_user_id,
+        "reserved_by_name": (
+            (reservation.reserved_by.full_name or reservation.reserved_by.username)
+            if reservation.reserved_by
+            else None
+        ),
+        "reserved_at": reservation.reserved_at,
+        "expires_at": reservation.expires_at,
+        "last_reminder_at": reservation.last_reminder_at,
+        "serial_number": reservation.serial_number,
+        "part_number": reservation.part_number,
+        "inventory_name": reservation.inventory.name if reservation.inventory else None,
+    }
+
+
+def project_holds_by_instance_id(
+    session: Session, inventory_id: int
+) -> dict[int, dict[str, Any]]:
+    rows = active_reservations_for_inventory(session, inventory_id)
+    out: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if row.inventory_instance_id is None:
+            continue
+        out[int(row.inventory_instance_id)] = project_hold_to_dict(session, row)
+    return out
 
 
 def project_reserved_quantity(session: Session, inventory_id: int) -> int:
@@ -569,7 +648,7 @@ def reserve_inventory(
 
     expires_at = payload.get("expires_at")
     if expires_at is None:
-        expires_at = _now() + timedelta(days=DEFAULT_RESERVATION_DAYS)
+        expires_at = _now() + timedelta(days=reservation_idle_days())
     elif isinstance(expires_at, str):
         expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
 
@@ -604,7 +683,8 @@ def release_reservation(
     project_id: int,
     reservation_id: int,
     *,
-    actor: User,
+    actor: Optional[User] = None,
+    reason: Optional[str] = None,
 ) -> InventoryReservation:
     reservation = session.get(InventoryReservation, reservation_id)
     if not reservation or reservation.project_id != project_id:
@@ -657,7 +737,39 @@ def release_reservation(
 
     reservation.status = InventoryReservationStatus.RELEASED.value
     reservation.released_at = _now()
-    reservation.released_by_user_id = int(actor.id)
+    reservation.released_by_user_id = int(actor.id) if actor and actor.id else None
+    if reason:
+        tag = str(reason).strip()
+        if tag:
+            existing = (reservation.notes or "").strip()
+            reservation.notes = f"{existing}\n{tag}".strip() if existing else tag
+    reservation.updated_at = _now()
+    session.add(reservation)
+    session.commit()
+    session.refresh(reservation)
+    return reservation
+
+
+def extend_reservation(
+    session: Session,
+    project_id: int,
+    reservation_id: int,
+    *,
+    actor: User,
+) -> InventoryReservation:
+    """Spec 06 optional: increment Extension Count and delay the idle/expiry clock."""
+    reservation = session.get(InventoryReservation, reservation_id)
+    if not reservation or reservation.project_id != project_id:
+        raise InventoryReservationError("Reservation not found")
+    if reservation.status != InventoryReservationStatus.ACTIVE.value:
+        raise InventoryReservationError("Reservation is not active")
+    reservation.extension_count = int(reservation.extension_count or 0) + 1
+    reservation.last_reminder_at = None
+    reserved_at = _aware(reservation.reserved_at)
+    idle = reservation_idle_days()
+    reservation.expires_at = reserved_at + timedelta(
+        days=idle * (1 + reservation.extension_count)
+    )
     reservation.updated_at = _now()
     session.add(reservation)
     session.commit()
@@ -685,6 +797,10 @@ def list_project_reservations(
 
 
 def reservation_to_dict(reservation: InventoryReservation) -> dict[str, Any]:
+    expires_at = reservation.expires_at
+    auto_release_at = None
+    if expires_at is not None:
+        auto_release_at = _aware(expires_at) + timedelta(days=reservation_grace_days())
     return {
         "id": reservation.id,
         "project_id": reservation.project_id,
@@ -697,6 +813,7 @@ def reservation_to_dict(reservation: InventoryReservation) -> dict[str, Any]:
         "reserved_by_user_id": reservation.reserved_by_user_id,
         "reserved_at": reservation.reserved_at,
         "expires_at": reservation.expires_at,
+        "auto_release_at": auto_release_at,
         "last_reminder_at": reservation.last_reminder_at,
         "extension_count": reservation.extension_count,
         "part_number": reservation.part_number,

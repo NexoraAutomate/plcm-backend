@@ -1,4 +1,5 @@
 import os
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -25,6 +26,9 @@ from app.services.schema_bootstrap import ensure_user_management_schema
 from app.services.app_definitions_service import get_or_create_app_definitions
 from app.services.workflow_foundation_seed import ensure_workflow_statuses
 from app.services.workflow_demo_users import ensure_workflow_demo_users
+from app.services.inventory_reservation_expiry_service import (
+    evaluate_reservation_expiry,
+)
 
 # Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
 from datetime import datetime as _datetime
@@ -34,6 +38,35 @@ from app.utils.datetimes import to_api_utc_iso
 ENCODERS_BY_TYPE[_datetime] = to_api_utc_iso
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+def _expiry_job_enabled() -> bool:
+    return os.getenv("RESERVATION_EXPIRY_JOB_ENABLED", "true").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _expiry_job_interval_seconds() -> int:
+    try:
+        return max(60, int(os.getenv("RESERVATION_EXPIRY_JOB_INTERVAL_SECONDS", "3600")))
+    except (TypeError, ValueError):
+        return 3600
+
+
+async def _reservation_expiry_loop() -> None:
+    if not _expiry_job_enabled():
+        return
+    interval = _expiry_job_interval_seconds()
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            with Session(engine) as session:
+                evaluate_reservation_expiry(session)
+        except Exception:
+            continue
 
 
 @asynccontextmanager
@@ -56,9 +89,13 @@ async def lifespan(app: FastAPI):
         # Reusable inactivity job — also runnable via POST /api/auth/run-inactivity-check
         deactivate_inactive_users(session)
         get_or_create_app_definitions(session)
+        if _expiry_job_enabled():
+            evaluate_reservation_expiry(session)
+    expiry_task = asyncio.create_task(_reservation_expiry_loop())
     try:
         yield
     finally:
+        expiry_task.cancel()
         # shutdown
         close_db()
 

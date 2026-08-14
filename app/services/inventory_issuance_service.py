@@ -520,15 +520,11 @@ def issue_inventory_unit(
             active_reservation_for_instance,
         )
 
+        # Spec 06/07: IM may issue HM-reserved stock (physical handover to a developer).
         project_hold = active_reservation_for_instance(session, int(instance.id))
-        if project_hold:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "This serial is reserved for a project hierarchy "
-                    f"(reservation #{project_hold.id})"
-                ),
-            )
+        if project_hold and not (target_entity_type and target_entity_id):
+            target_entity_type = project_hold.target_entity_type
+            target_entity_id = project_hold.target_entity_id
         resolved_instance_id = instance.id
         serial_number = instance.serial_number
 

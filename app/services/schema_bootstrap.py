@@ -140,6 +140,27 @@ CREATE TABLE IF NOT EXISTS inventoryshortagenotice (
 )
 """
 
+INVENTORY_RESERVATION_EXPIRY_NOTICE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryreservationexpirynotice (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES "user"(id),
+    reservation_id INTEGER NOT NULL REFERENCES inventoryreservation(id) ON DELETE CASCADE,
+    notice_type VARCHAR(32) NOT NULL,
+    part_number VARCHAR(128),
+    serial_number VARCHAR(128),
+    flight_code VARCHAR(64),
+    flight_name VARCHAR(255),
+    sdls_code VARCHAR(64),
+    sdls_name VARCHAR(255),
+    inventory_name VARCHAR(255),
+    project_id INTEGER,
+    project_name VARCHAR(255),
+    message VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    read_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
 ]
@@ -350,6 +371,15 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryshortagenotice_user_id
                 ON inventoryshortagenotice (user_id)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_RESERVATION_EXPIRY_NOTICE_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreservationexpirynotice_user_id
+                ON inventoryreservationexpirynotice (user_id)
                 """
             )
         )

@@ -440,6 +440,33 @@ class InventoryReservationBase(InventoryReservationCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ReservationExpiryNoticeType(str, Enum):
+    REMINDER = "reservation_idle_reminder"
+    AUTO_RELEASED = "reservation_auto_released"
+
+
+AUTO_RELEASE_EXPIRY_REASON = "AUTO_RELEASE_EXPIRY"
+
+
+class InventoryReservationExpiryNoticeBase(SQLModel):
+    """In-app idle-reservation reminder / auto-release notice for the reserving HM."""
+    user_id: int = Field(foreign_key="user.id", index=True)
+    reservation_id: int = Field(index=True)
+    notice_type: str = Field(index=True, max_length=32)
+    part_number: Optional[str] = Field(default=None, max_length=128)
+    serial_number: Optional[str] = Field(default=None, max_length=128)
+    flight_code: Optional[str] = Field(default=None, max_length=64)
+    flight_name: Optional[str] = Field(default=None, max_length=255)
+    sdls_code: Optional[str] = Field(default=None, max_length=64)
+    sdls_name: Optional[str] = Field(default=None, max_length=255)
+    inventory_name: Optional[str] = Field(default=None, max_length=255)
+    project_id: Optional[int] = Field(default=None, index=True)
+    project_name: Optional[str] = Field(default=None, max_length=255)
+    message: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read_at: Optional[datetime] = None
+
+
 class ShortageStatus(str, Enum):
     OPEN = "OPEN"
     PARTIAL = "PARTIAL"

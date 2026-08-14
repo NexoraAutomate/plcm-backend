@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
@@ -10,6 +10,7 @@ from app.services.create_entity import New_entity
 from app.config.entities import ENTITY_CONFIG
 from app.services.update_entity import update_entity_status
 from app.services.pagination import paginated_query
+from app.services.list_query import combine_where, eq_if_set, text_search
 entity_config = ENTITY_CONFIG.get("customer")
 
 
@@ -45,6 +46,8 @@ def list_customers(
     limit: int = 100,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    search: Optional[str] = None,
+    status_id: Optional[int] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_customers")),
 ):
@@ -55,12 +58,26 @@ def list_customers(
             status_name=status_name,
         )
 
+    where = combine_where(
+        text_search(
+            Customer,
+            search,
+            "name",
+            "email",
+            "phone",
+            "primary_contact_name",
+            "customer_code",
+        ),
+        eq_if_set(Customer, "status_id", status_id),
+    )
+
     return paginated_query(
         session,
         Customer,
         skip,
         limit,
         response,
+        where=where,
         transform=to_read,
         sort_by=sort_by,
         sort_order=sort_order,

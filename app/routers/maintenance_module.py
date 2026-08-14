@@ -30,6 +30,7 @@ from app.schemas.Maintennance import *
 from app.models.helpers import _generate_case_number, _cascade_fault_up,_SR_SEARCH_MODELS, _collect_descendants,_create_suspect_fes, _clear_healthy_fes, _resolve_ancestors
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
+from app.services.list_query import text_search
 from app.models.tables import MaintenanceCase, FaultyEntity, MaintenanceAction, MaintenanceDelivery, Project
 from app.services.configuration_history import (
     create_configuration_history_for_resolve,
@@ -113,6 +114,7 @@ def list_maintenance_cases(
     response: Response,
     project_id:   Optional[int] = None,
     status:       Optional[CaseStatus] = None,
+    search:       Optional[str] = None,
     skip:         int = 0,
     limit:        int = 100,
     sort_by:      Optional[str] = None,
@@ -125,11 +127,16 @@ def list_maintenance_cases(
 
     RESPONSE 200: [ { case 1 }, { case 2 }, ... ]
     """
+    search_clause = text_search(
+        MaintenanceCase, search, "case_number", "description", "project_name", "part_number"
+    )
     count_stmt = select(func.count()).select_from(MaintenanceCase)
     if project_id:
         count_stmt = count_stmt.where(MaintenanceCase.project_id == project_id)
     if status:
         count_stmt = count_stmt.where(MaintenanceCase.status == status)
+    if search_clause is not None:
+        count_stmt = count_stmt.where(search_clause)
     set_list_total_header(response, session.exec(count_stmt).one())
 
     query = select(MaintenanceCase).options(
@@ -140,6 +147,8 @@ def list_maintenance_cases(
         query = query.where(MaintenanceCase.project_id == project_id)
     if status:
         query = query.where(MaintenanceCase.status == status)
+    if search_clause is not None:
+        query = query.where(search_clause)
     query = apply_sort(
         query,
         MaintenanceCase,

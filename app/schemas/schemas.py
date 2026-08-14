@@ -666,10 +666,40 @@ class FCFSFulfillmentRead(SQLModel):
     lru_name: Optional[str] = None
 
 
+class InventoryProjectHoldRead(SQLModel):
+    """Active Spec 04/06 HM reservation attached to a serialized inventory unit."""
+    id: int
+    project_id: int
+    project_name: Optional[str] = None
+    flight_id: int
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_id: int
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    target_entity_type: str
+    target_entity_id: int
+    target_entity_name: Optional[str] = None
+    reserved_by_user_id: int
+    reserved_by_name: Optional[str] = None
+    reserved_at: datetime
+    expires_at: datetime
+    last_reminder_at: Optional[datetime] = None
+    serial_number: Optional[str] = None
+    part_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
 class InventoryInstanceRead(InventoryInstanceBase):
     id: int
     inventory_id: int
     is_reserved: bool = False
+    is_project_reserved: bool = False
+    status_name: Optional[str] = None
+    project_reservation: Optional[InventoryProjectHoldRead] = None
     open_issuance_id: Optional[int] = None
     open_issuance_status: Optional[str] = None
     fcfs_fulfillments: Optional[List[FCFSFulfillmentRead]] = None
@@ -1169,6 +1199,7 @@ class InventoryReservationRead(SQLModel):
     expires_at: datetime
     last_reminder_at: Optional[datetime] = None
     extension_count: int = 0
+    auto_release_at: Optional[datetime] = None
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     status: str
@@ -1237,6 +1268,35 @@ class InventoryShortageNoticeRead(SQLModel):
 
     class Config:
         orm_mode = True
+
+
+class InventoryReservationExpiryNoticeRead(SQLModel):
+    id: int
+    user_id: int
+    reservation_id: int
+    notice_type: str
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    inventory_name: Optional[str] = None
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    message: Optional[str] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ReservationExpiryJobResult(SQLModel):
+    examined: int = 0
+    reminded: int = 0
+    released: int = 0
+    skipped_progressed: int = 0
 
 
 class ReserveOutcome(SQLModel):

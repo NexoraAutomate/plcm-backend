@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Response, status
 from sqlmodel import Session, select
 from app.database import get_session
@@ -10,6 +10,7 @@ from app.config.entities import ENTITY_CONFIG
 from app.services.entity_replacement_service import filter_current_installs
 from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
+from app.services.list_query import combine_where, eq_if_set, text_search
 from app.services.project_workflow_service import (
     ProjectWorkflowError,
     assign_hm,
@@ -416,6 +417,49 @@ def release_project_reservation(
         raise _reservation_http_error(exc) from exc
 
 
+@router.post(
+    "/projects/{project_id}/reservations/{reservation_id}/extend/",
+    response_model=schemas.InventoryReservationRead,
+    tags=["projects"],
+)
+def extend_project_reservation(
+    project_id: int,
+    reservation_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.reserve")),
+):
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        extend_reservation,
+        reservation_to_dict,
+    )
+
+    try:
+        row = extend_reservation(
+            session, project_id, reservation_id, actor=current_user
+        )
+        return schemas.InventoryReservationRead(**reservation_to_dict(row))
+    except InventoryReservationError as exc:
+        raise _reservation_http_error(exc) from exc
+
+
+@router.post(
+    "/inventory/reservations/expiry/run/",
+    response_model=schemas.ReservationExpiryJobResult,
+    tags=["inventory"],
+)
+def run_reservation_expiry_job(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.release")),
+):
+    from app.services.inventory_reservation_expiry_service import (
+        evaluate_reservation_expiry,
+    )
+
+    result = evaluate_reservation_expiry(session)
+    return schemas.ReservationExpiryJobResult(**result)
+
+
 # ===================== PROJECT ENDPOINTS =====================
 @router.post("/projects/", response_model=schemas.ProjectRead, tags=["projects"])
 def create_project(project: schemas.ProjectCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_projects"))):
@@ -442,11 +486,20 @@ def list_projects(
     include_total: bool = True,
     sort_by: str | None = None,
     sort_order: str | None = None,
+    search: Optional[str] = None,
+    status_id: Optional[int] = None,
+    order_id: Optional[int] = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_projects")),
 ):
     def to_read(project: Project) -> schemas.ProjectRead:
         return _to_project_read(project, include_systems=False)
+
+    where = combine_where(
+        text_search(Project, search, "name", "description", "product_type"),
+        eq_if_set(Project, "status_id", status_id),
+        eq_if_set(Project, "order_id", order_id),
+    )
 
     return paginated_query(
         session,
@@ -454,6 +507,7 @@ def list_projects(
         skip,
         limit,
         response,
+        where=where,
         transform=to_read,
         include_total=include_total,
         sort_by=sort_by,

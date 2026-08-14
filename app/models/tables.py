@@ -288,6 +288,14 @@ class InventoryReservation(InventoryReservationBase, table=True):
     )
 
 
+class InventoryReservationExpiryNotice(InventoryReservationExpiryNoticeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    reservation_id: int = Field(foreign_key="inventoryreservation.id", index=True)
+    user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryReservationExpiryNotice.user_id]"},
+    )
+
+
 class InventoryShortage(InventoryShortageBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project: Optional["Project"] = Relationship()
