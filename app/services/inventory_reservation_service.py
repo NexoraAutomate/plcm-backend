@@ -5,7 +5,7 @@ Spec 04 — reserve AVAILABLE inventory against Flight → SDLS → hierarchy no
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 from sqlmodel import Session, col, select
 
@@ -378,12 +378,48 @@ def check_availability(
     }
 
 
+def _raise_or_record_shortage(
+    session: Session,
+    *,
+    create_shortage: bool,
+    project: Project,
+    flight: Flight,
+    sdls: Sdls,
+    entity: Any,
+    entity_type: str,
+    entity_id: int,
+    actor: User,
+    inventory: Optional[Inventory],
+    message: str,
+) -> NoReturn:
+    if not create_shortage:
+        raise InventoryReservationError(message)
+    from app.services.inventory_shortage_service import (
+        InventoryShortageCreated,
+        record_shortage_for_reserve,
+    )
+
+    shortage = record_shortage_for_reserve(
+        session,
+        project=project,
+        flight=flight,
+        sdls=sdls,
+        entity=entity,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor=actor,
+        inventory=inventory,
+    )
+    raise InventoryShortageCreated(shortage, message)
+
+
 def reserve_inventory(
     session: Session,
     project_id: int,
     payload: dict[str, Any],
     *,
     actor: User,
+    create_shortage_if_unavailable: bool = True,
 ) -> InventoryReservation:
     project = session.get(Project, project_id)
     if not project:
@@ -425,14 +461,32 @@ def reserve_inventory(
         )
 
     part_number = payload.get("part_number")
+    inventory: Optional[Inventory] = None
     if payload.get("inventory_id"):
         inventory = session.get(Inventory, int(payload["inventory_id"]))
         if not inventory:
             raise InventoryReservationError("Inventory not found")
     else:
-        inventory = resolve_inventory_for_entity(
-            session, entity_type=et, entity=entity, part_number=part_number
-        )
+        try:
+            inventory = resolve_inventory_for_entity(
+                session, entity_type=et, entity=entity, part_number=part_number
+            )
+        except InventoryReservationError as exc:
+            if "No inventory stock found" in str(exc):
+                _raise_or_record_shortage(
+                    session,
+                    create_shortage=create_shortage_if_unavailable,
+                    project=project,
+                    flight=flight,
+                    sdls=sdls,
+                    entity=entity,
+                    entity_type=et,
+                    entity_id=eid,
+                    actor=actor,
+                    inventory=None,
+                    message=str(exc),
+                )
+            raise
 
     serial_number = payload.get("serial_number")
     instance_id = payload.get("inventory_instance_id")
@@ -447,8 +501,18 @@ def reserve_inventory(
             part_number=inventory.part_number,
         )
         if not avail["available"]:
-            raise InventoryReservationError(
-                avail.get("reason") or "Stock not available"
+            _raise_or_record_shortage(
+                session,
+                create_shortage=create_shortage_if_unavailable,
+                project=project,
+                flight=flight,
+                sdls=sdls,
+                entity=entity,
+                entity_type=et,
+                entity_id=eid,
+                actor=actor,
+                inventory=inventory,
+                message=avail.get("reason") or "Stock not available",
             )
     else:
         instance = pick_free_instance(
@@ -458,8 +522,18 @@ def reserve_inventory(
             instance_id=int(instance_id) if instance_id is not None else None,
         )
         if instance is None:
-            raise InventoryReservationError(
-                "No available inventory unit to reserve"
+            _raise_or_record_shortage(
+                session,
+                create_shortage=create_shortage_if_unavailable,
+                project=project,
+                flight=flight,
+                sdls=sdls,
+                entity=entity,
+                entity_type=et,
+                entity_id=eid,
+                actor=actor,
+                inventory=inventory,
+                message="No available inventory unit to reserve",
             )
         # Double-check no other project holds this instance
         if active_reservation_for_instance(session, int(instance.id)):

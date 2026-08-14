@@ -652,12 +652,27 @@ class InventoryInstanceCreate(InventoryInstanceCommon):
     pass
 
 
+class FCFSFulfillmentRead(SQLModel):
+    shortage_id: int
+    reservation_id: Optional[int] = None
+    project_id: int
+    project_name: Optional[str] = None
+    part_number: Optional[str] = None
+    qty_applied: int = 1
+    shortage_status: str
+    serial_number: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_name: Optional[str] = None
+    lru_name: Optional[str] = None
+
+
 class InventoryInstanceRead(InventoryInstanceBase):
     id: int
     inventory_id: int
     is_reserved: bool = False
     open_issuance_id: Optional[int] = None
     open_issuance_status: Optional[str] = None
+    fcfs_fulfillments: Optional[List[FCFSFulfillmentRead]] = None
 
     class Config:
         orm_mode = True
@@ -686,6 +701,7 @@ class InventoryRead(InventoryBase):
     instances: Optional[List[InventoryInstanceRead]] = None
     reserved_quantity: int = 0
     available_quantity: Optional[int] = None
+    fcfs_fulfillments: Optional[List[FCFSFulfillmentRead]] = None
 
     class Config:
         orm_mode = True
@@ -1168,6 +1184,65 @@ class InventoryReservationRead(SQLModel):
 
     class Config:
         orm_mode = True
+
+
+class InventoryShortageRead(SQLModel):
+    id: int
+    project_id: int
+    flight_id: int
+    sdls_id: int
+    target_entity_type: str
+    target_entity_id: int
+    inventory_id: Optional[int] = None
+    part_number: Optional[str] = None
+    qty_short: int
+    qty_original: int
+    lru_name: Optional[str] = None
+    requested_by_user_id: int
+    requested_at: datetime
+    status: str
+    last_notified_at: Optional[datetime] = None
+    fulfilled_reservation_id: Optional[int] = None
+    cancelled_at: Optional[datetime] = None
+    cancelled_by_user_id: Optional[int] = None
+    notes: Optional[str] = None
+    project_name: Optional[str] = None
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    requested_by_name: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class InventoryShortageNoticeRead(SQLModel):
+    id: int
+    user_id: int
+    shortage_id: int
+    notice_type: str
+    part_number: Optional[str] = None
+    qty: int = 1
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    lru_name: Optional[str] = None
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    message: Optional[str] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ReserveOutcome(SQLModel):
+    outcome: str
+    reservation: Optional[InventoryReservationRead] = None
+    shortage: Optional[InventoryShortageRead] = None
 
 
 class InventoryAvailabilityCheck(SQLModel):

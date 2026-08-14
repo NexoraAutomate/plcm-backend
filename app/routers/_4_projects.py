@@ -295,7 +295,7 @@ def list_reservations(
 
 @router.post(
     "/projects/{project_id}/reservations/",
-    response_model=schemas.InventoryReservationRead,
+    response_model=schemas.ReserveOutcome,
     tags=["projects"],
     status_code=status.HTTP_201_CREATED,
 )
@@ -310,14 +310,84 @@ def create_reservation(
         reservation_to_dict,
         reserve_inventory,
     )
+    from app.services.inventory_shortage_service import (
+        InventoryShortageCreated,
+        shortage_to_dict,
+    )
 
     try:
         row = reserve_inventory(
             session, project_id, payload.model_dump(), actor=current_user
         )
-        return schemas.InventoryReservationRead(**reservation_to_dict(row))
+        return schemas.ReserveOutcome(
+            outcome="reserved",
+            reservation=schemas.InventoryReservationRead(**reservation_to_dict(row)),
+        )
+    except InventoryShortageCreated as exc:
+        return schemas.ReserveOutcome(
+            outcome="shortage",
+            shortage=schemas.InventoryShortageRead(**shortage_to_dict(exc.shortage)),
+        )
     except InventoryReservationError as exc:
         raise _reservation_http_error(exc) from exc
+
+
+@router.get(
+    "/projects/{project_id}/shortages/",
+    response_model=List[schemas.InventoryShortageRead],
+    tags=["projects"],
+)
+def list_project_shortages(
+    project_id: int,
+    active_only: bool = True,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_projects")),
+):
+    from app.models.base import ShortageStatus
+    from app.services.inventory_shortage_service import list_shortages, shortage_to_dict
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    statuses = (
+        [ShortageStatus.OPEN.value, ShortageStatus.PARTIAL.value]
+        if active_only
+        else None
+    )
+    rows = list_shortages(session, project_id=project_id, statuses=statuses)
+    return [schemas.InventoryShortageRead(**shortage_to_dict(r)) for r in rows]
+
+
+@router.post(
+    "/projects/{project_id}/shortages/{shortage_id}/cancel/",
+    response_model=schemas.InventoryShortageRead,
+    tags=["projects"],
+)
+def cancel_project_shortage(
+    project_id: int,
+    shortage_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.reserve")),
+):
+    from app.services.inventory_shortage_service import (
+        InventoryShortageError,
+        cancel_shortage,
+        shortage_to_dict,
+    )
+
+    try:
+        row = cancel_shortage(
+            session, shortage_id, actor=current_user, project_id=project_id
+        )
+        return schemas.InventoryShortageRead(**shortage_to_dict(row))
+    except InventoryShortageError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in detail.lower()
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=code, detail=detail) from exc
 
 
 @router.post(

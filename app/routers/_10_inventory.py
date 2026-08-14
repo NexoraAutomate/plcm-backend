@@ -65,6 +65,21 @@ def _require_inventory_manager(user: User) -> None:
         )
 
 
+def _require_can_receive_stock(user: User) -> None:
+    """Admin/SubAdmin or workflow Inventory Manager may receive stock (Spec 05)."""
+    if is_inventory_manager(user):
+        return
+    from app.domain.workflow_roles import WorkflowRole, has_workflow_role
+
+    names = [r.name for r in (user.roles or []) if r.name]
+    if has_workflow_role(names, WorkflowRole.IM):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Only inventory managers can receive stock",
+    )
+
+
 def _require_installer_not_manager(user: User) -> None:
     if is_inventory_manager(user):
         raise HTTPException(
@@ -209,6 +224,34 @@ def _inventory_to_read(
     return schemas.InventoryRead.model_validate(data)
 
 
+def _with_fcfs(
+    read: schemas.InventoryRead,
+    fulfillments: list[dict],
+) -> schemas.InventoryRead:
+    data = read.model_dump()
+    data["fcfs_fulfillments"] = fulfillments
+    return schemas.InventoryRead.model_validate(data)
+
+
+def _run_receipt_fcfs(
+    session: Session,
+    inventory: Inventory,
+    *,
+    actor: User,
+    instance: InventoryInstance | None = None,
+    qty: int = 1,
+) -> list[dict]:
+    from app.services.inventory_shortage_service import match_and_auto_reserve_on_receipt
+
+    return match_and_auto_reserve_on_receipt(
+        session,
+        inventory,
+        actor=actor,
+        instance=instance,
+        qty=qty,
+    )
+
+
 def _read_for_user(
     session: Session,
     inventory: Inventory,
@@ -257,7 +300,7 @@ def create_inventory(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("create_inventory")),
 ):
-    _require_inventory_manager(current_user)
+    _require_can_receive_stock(current_user)
     data = inventory.model_dump()
     inventory_type = data["inventory_type"]
 
@@ -272,7 +315,13 @@ def create_inventory(
         session.add(db_inventory)
         session.commit()
         session.refresh(db_inventory)
-        return _inventory_to_read(session, db_inventory)
+        fulfillments = _run_receipt_fcfs(
+            session,
+            db_inventory,
+            actor=current_user,
+            qty=int(db_inventory.quantity or 0),
+        )
+        return _with_fcfs(_inventory_to_read(session, db_inventory), fulfillments)
 
     part_number = _resolve_part_number(data)
     if not normalize_part_number(part_number):
@@ -319,10 +368,20 @@ def create_inventory(
         session.add(db_inventory)
         session.flush()
 
-    create_inventory_instance(session, db_inventory, **instance_fields)
+    db_instance = create_inventory_instance(session, db_inventory, **instance_fields)
     session.commit()
     session.refresh(db_inventory)
-    return _inventory_to_read(session, db_inventory, include_instances=True)
+    session.refresh(db_instance)
+    fulfillments = _run_receipt_fcfs(
+        session,
+        db_inventory,
+        actor=current_user,
+        instance=db_instance,
+    )
+    return _with_fcfs(
+        _inventory_to_read(session, db_inventory, include_instances=True),
+        fulfillments,
+    )
 
 
 @router.get("/inventory/", response_model=List[schemas.InventoryRead], tags=["inventory"])
@@ -695,6 +754,96 @@ def read_all_inventory_installer_notices(
     return {"ok": True, "marked": count}
 
 
+@router.get(
+    "/inventory/shortages/",
+    response_model=List[schemas.InventoryShortageRead],
+    tags=["inventory"],
+)
+def list_inventory_shortages(
+    active_only: bool = Query(True),
+    project_id: Optional[int] = Query(None),
+    mine: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    from app.models.base import ShortageStatus
+    from app.services.inventory_shortage_service import list_shortages, shortage_to_dict
+
+    statuses = (
+        [ShortageStatus.OPEN.value, ShortageStatus.PARTIAL.value]
+        if active_only
+        else None
+    )
+    hm_id = int(current_user.id) if mine else None
+    rows = list_shortages(
+        session,
+        project_id=project_id,
+        statuses=statuses,
+        assigned_hm_id=hm_id,
+    )
+    return [schemas.InventoryShortageRead(**shortage_to_dict(r)) for r in rows]
+
+
+@router.get(
+    "/inventory/shortage-notices/",
+    response_model=List[schemas.InventoryShortageNoticeRead],
+    tags=["inventory"],
+)
+def get_inventory_shortage_notices(
+    unread_only: bool = Query(False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.services.inventory_shortage_service import list_shortage_notices, notice_to_dict
+
+    rows = list_shortage_notices(
+        session,
+        user_id=int(current_user.id),
+        unread_only=unread_only,
+    )
+    return [schemas.InventoryShortageNoticeRead(**notice_to_dict(r)) for r in rows]
+
+
+@router.post(
+    "/inventory/shortage-notices/{notice_id}/read/",
+    response_model=schemas.InventoryShortageNoticeRead,
+    tags=["inventory"],
+)
+def read_inventory_shortage_notice(
+    notice_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.models.tables import InventoryShortageNotice
+    from app.services.inventory_shortage_service import (
+        mark_shortage_notice_read,
+        notice_to_dict,
+    )
+
+    row = session.get(InventoryShortageNotice, notice_id)
+    if not row or row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Shortage notice not found")
+    updated = mark_shortage_notice_read(session, row)
+    session.commit()
+    session.refresh(updated)
+    return schemas.InventoryShortageNoticeRead(**notice_to_dict(updated))
+
+
+@router.post(
+    "/inventory/shortage-notices/read-all/",
+    tags=["inventory"],
+)
+def read_all_inventory_shortage_notices(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_notifications")),
+):
+    from app.services.inventory_shortage_service import mark_all_shortage_notices_read
+
+    count = mark_all_shortage_notices_read(session, int(current_user.id))
+    session.commit()
+    return {"ok": True, "marked": count}
+
+
 @router.post(
     "/inventory/issuances/{issuance_id}/link-install/",
     response_model=schemas.InventoryIssuanceRead,
@@ -789,6 +938,7 @@ def update_inventory(
     if not db_inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
 
+    previous_qty = int(db_inventory.quantity or 0)
     update_data = inventory.model_dump(exclude_unset=True)
     inventory_type = update_data.get("inventory_type", db_inventory.inventory_type)
 
@@ -822,7 +972,20 @@ def update_inventory(
     session.add(db_inventory)
     session.commit()
     session.refresh(db_inventory)
-    return _inventory_to_read(session, db_inventory, include_instances=True)
+    fulfillments: list[dict] = []
+    if is_component_inventory(db_inventory.inventory_type):
+        delta = int(db_inventory.quantity or 0) - previous_qty
+        if delta > 0:
+            fulfillments = _run_receipt_fcfs(
+                session,
+                db_inventory,
+                actor=current_user,
+                qty=delta,
+            )
+    return _with_fcfs(
+        _inventory_to_read(session, db_inventory, include_instances=True),
+        fulfillments,
+    )
 
 
 @router.delete("/inventory/{inventory_id}/", tags=["inventory"])
@@ -1068,6 +1231,7 @@ def create_inventory_instance_endpoint(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("create_inventory")),
 ):
+    _require_can_receive_stock(current_user)
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -1081,7 +1245,17 @@ def create_inventory_instance_endpoint(
     db_instance = create_inventory_instance(session, inventory, **data)
     session.commit()
     session.refresh(db_instance)
-    return db_instance
+    session.refresh(inventory)
+    fulfillments = _run_receipt_fcfs(
+        session,
+        inventory,
+        actor=current_user,
+        instance=db_instance,
+    )
+    read = _instance_to_read(db_instance)
+    payload = read.model_dump()
+    payload["fcfs_fulfillments"] = fulfillments
+    return schemas.InventoryInstanceRead.model_validate(payload)
 
 
 @router.put(

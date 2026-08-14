@@ -93,6 +93,53 @@ CREATE TABLE IF NOT EXISTS inventoryreservation (
 )
 """
 
+INVENTORY_SHORTAGE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryshortage (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    flight_id INTEGER NOT NULL REFERENCES flight(id),
+    sdls_id INTEGER NOT NULL REFERENCES sdls(id),
+    target_entity_type VARCHAR(32) NOT NULL,
+    target_entity_id INTEGER NOT NULL,
+    inventory_id INTEGER REFERENCES inventory(id),
+    part_number VARCHAR(128),
+    qty_short INTEGER NOT NULL DEFAULT 1,
+    qty_original INTEGER NOT NULL DEFAULT 1,
+    lru_name VARCHAR(255),
+    requested_by_user_id INTEGER NOT NULL REFERENCES "user"(id),
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
+    last_notified_at TIMESTAMP WITH TIME ZONE,
+    fulfilled_reservation_id INTEGER REFERENCES inventoryreservation(id),
+    cancelled_at TIMESTAMP WITH TIME ZONE,
+    cancelled_by_user_id INTEGER REFERENCES "user"(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
+INVENTORY_SHORTAGE_NOTICE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryshortagenotice (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES "user"(id),
+    shortage_id INTEGER NOT NULL REFERENCES inventoryshortage(id) ON DELETE CASCADE,
+    notice_type VARCHAR(32) NOT NULL,
+    part_number VARCHAR(128),
+    qty INTEGER NOT NULL DEFAULT 1,
+    flight_code VARCHAR(64),
+    flight_name VARCHAR(255),
+    sdls_code VARCHAR(64),
+    sdls_name VARCHAR(255),
+    lru_name VARCHAR(255),
+    project_id INTEGER,
+    project_name VARCHAR(255),
+    message VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    read_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
 ]
@@ -277,6 +324,32 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryreservation_instance_id
                 ON inventoryreservation (inventory_instance_id)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_SHORTAGE_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryshortage_part_status
+                ON inventoryshortage (part_number, status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryshortage_requested_at
+                ON inventoryshortage (requested_at)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_SHORTAGE_NOTICE_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryshortagenotice_user_id
+                ON inventoryshortagenotice (user_id)
                 """
             )
         )

@@ -440,6 +440,67 @@ class InventoryReservationBase(InventoryReservationCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ShortageStatus(str, Enum):
+    OPEN = "OPEN"
+    PARTIAL = "PARTIAL"
+    FULFILLED = "FULFILLED"
+    CANCELLED = "CANCELLED"
+
+
+class ShortageNoticeType(str, Enum):
+    CREATED = "shortage_created"
+    PARTIAL = "shortage_partial"
+    FULFILLED = "shortage_fulfilled"
+
+
+class InventoryShortageCommon(SQLModel):
+    """Spec 05 — waiting demand while stock is short (FCFS key = requested_at)."""
+    project_id: int = Field(foreign_key="project.id", index=True)
+    flight_id: int = Field(foreign_key="flight.id", index=True)
+    sdls_id: int = Field(foreign_key="sdls.id", index=True)
+    target_entity_type: str = Field(max_length=32, index=True)
+    target_entity_id: int = Field(index=True)
+    inventory_id: Optional[int] = Field(default=None, foreign_key="inventory.id", index=True)
+    part_number: Optional[str] = Field(default=None, max_length=128, index=True)
+    qty_short: int = Field(default=1, ge=0)
+    qty_original: int = Field(default=1, ge=1)
+    lru_name: Optional[str] = Field(default=None, max_length=255)
+    requested_by_user_id: int = Field(foreign_key="user.id", index=True)
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    status: str = Field(default=ShortageStatus.OPEN.value, index=True, max_length=32)
+    last_notified_at: Optional[datetime] = None
+    fulfilled_reservation_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryreservation.id"
+    )
+    cancelled_at: Optional[datetime] = None
+    cancelled_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    notes: Optional[str] = None
+
+
+class InventoryShortageBase(InventoryShortageCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InventoryShortageNoticeBase(SQLModel):
+    """In-app shortage notice for HM and IM (PN, Qty, Flight, SDLS, LRU)."""
+    user_id: int = Field(foreign_key="user.id", index=True)
+    shortage_id: int = Field(index=True)
+    notice_type: str = Field(index=True, max_length=32)
+    part_number: Optional[str] = Field(default=None, max_length=128)
+    qty: int = 1
+    flight_code: Optional[str] = Field(default=None, max_length=64)
+    flight_name: Optional[str] = Field(default=None, max_length=255)
+    sdls_code: Optional[str] = Field(default=None, max_length=64)
+    sdls_name: Optional[str] = Field(default=None, max_length=255)
+    lru_name: Optional[str] = Field(default=None, max_length=255)
+    project_id: Optional[int] = Field(default=None, index=True)
+    project_name: Optional[str] = Field(default=None, max_length=255)
+    message: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read_at: Optional[datetime] = None
+
+
 class InventoryChildLinkBase(SQLModel):
     """Child inventory stock assigned to a parent inventory item (optionally per serial)."""
     child_category_name: str

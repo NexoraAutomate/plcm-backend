@@ -288,6 +288,25 @@ class InventoryReservation(InventoryReservationBase, table=True):
     )
 
 
+class InventoryShortage(InventoryShortageBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project: Optional["Project"] = Relationship()
+    flight: Optional["Flight"] = Relationship()
+    sdls: Optional["Sdls"] = Relationship()
+    inventory: Optional[Inventory] = Relationship()
+    requested_by: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryShortage.requested_by_user_id]"},
+    )
+
+
+class InventoryShortageNotice(InventoryShortageNoticeBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    shortage_id: int = Field(foreign_key="inventoryshortage.id", index=True)
+    user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryShortageNotice.user_id]"},
+    )
+
+
 class InventoryChildLink(InventoryChildLinkBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     parent_inventory_id: int = Field(foreign_key="inventory.id", index=True, ondelete="CASCADE")
