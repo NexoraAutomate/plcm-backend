@@ -369,6 +369,7 @@ def cancel_shortage(
     *,
     actor: User,
     project_id: Optional[int] = None,
+    commit: bool = True,
 ) -> InventoryShortage:
     shortage = session.get(InventoryShortage, shortage_id)
     if not shortage:
@@ -382,8 +383,11 @@ def cancel_shortage(
     shortage.cancelled_by_user_id = int(actor.id)
     shortage.updated_at = _now()
     session.add(shortage)
-    session.commit()
-    session.refresh(shortage)
+    if commit:
+        session.commit()
+        session.refresh(shortage)
+    else:
+        session.flush()
     return shortage
 
 

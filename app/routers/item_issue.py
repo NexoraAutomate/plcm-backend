@@ -61,6 +61,8 @@ def _http_error(exc: ValueError) -> HTTPException:
         or "assigned to you" in lower
         or "assigned developer" in lower
         or "cannot verify items" in lower
+        or "only admin" in lower
+        or "force-return" in lower
     ):
         code = status.HTTP_403_FORBIDDEN
     else:
@@ -612,4 +614,178 @@ def reissue_rework_item(
         )
         return _rework_read(session, case)
     except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+def _recall_read(session: Session, task):
+    from app.services.inventory_recall_service import recall_task_to_dict
+
+    return schemas.InventoryRecallTaskRead.model_validate(
+        recall_task_to_dict(session, task)
+    )
+
+
+@router.get(
+    "/inventory-recall/",
+    response_model=List[schemas.InventoryRecallTaskRead],
+    tags=["inventory-recall"],
+)
+def list_inventory_recall(
+    stage: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    project_id: Optional[int] = Query(default=None),
+    mine: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.inventory_recall_service import list_recall_tasks
+
+    assigned_id = None
+    can_see_all = (
+        check_permission(current_user, "item.inspect")
+        or check_permission(current_user, "project.cancel")
+    )
+    if mine or not can_see_all:
+        assigned_id = int(current_user.id)
+    return [
+        _recall_read(session, row)
+        for row in list_recall_tasks(
+            session,
+            project_id=project_id,
+            stage=stage,
+            status_filter=status_filter,
+            assigned_developer_id=assigned_id,
+        )
+    ]
+
+
+@router.get(
+    "/inventory-recall/{recall_id}/",
+    response_model=schemas.InventoryRecallTaskRead,
+    tags=["inventory-recall"],
+)
+def get_inventory_recall(
+    recall_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.tables import InventoryRecallTask
+
+    del current_user
+    task = session.get(InventoryRecallTask, recall_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Recall task not found")
+    return _recall_read(session, task)
+
+
+@router.post(
+    "/inventory-recall/{recall_id}/return/",
+    response_model=schemas.InventoryRecallTaskRead,
+    tags=["inventory-recall"],
+)
+def return_inventory_recall(
+    recall_id: int,
+    payload: Optional[schemas.InventoryRecallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        confirm_developer_return,
+    )
+
+    try:
+        task = confirm_developer_return(
+            session,
+            recall_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _recall_read(session, task)
+    except InventoryRecallError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/inventory-recall/{recall_id}/force-return/",
+    response_model=schemas.InventoryRecallTaskRead,
+    tags=["inventory-recall"],
+)
+def force_return_inventory_recall(
+    recall_id: int,
+    payload: Optional[schemas.InventoryRecallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.cancel")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        force_admin_return,
+    )
+
+    try:
+        task = force_admin_return(
+            session,
+            recall_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _recall_read(session, task)
+    except InventoryRecallError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/inventory-recall/{recall_id}/inspect/",
+    response_model=schemas.InventoryRecallTaskRead,
+    tags=["inventory-recall"],
+)
+def inspect_inventory_recall(
+    recall_id: int,
+    payload: Optional[schemas.InventoryRecallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        start_recall_inspection,
+    )
+
+    try:
+        task = start_recall_inspection(
+            session,
+            recall_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _recall_read(session, task)
+    except InventoryRecallError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/inventory-recall/{recall_id}/disposition/",
+    response_model=schemas.InventoryRecallTaskRead,
+    tags=["inventory-recall"],
+)
+def disposition_inventory_recall(
+    recall_id: int,
+    payload: schemas.InventoryRecallDispositionBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        disposition_recall,
+    )
+
+    try:
+        task = disposition_recall(
+            session,
+            recall_id,
+            actor=current_user,
+            outcome=payload.outcome,
+            notes=payload.notes,
+        )
+        return _recall_read(session, task)
+    except InventoryRecallError as exc:
         raise _http_error(exc) from exc

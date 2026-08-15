@@ -35,6 +35,73 @@ def _is_admin(user: User) -> bool:
     return has_workflow_role(_role_names(user), WorkflowRole.ADMIN)
 
 
+def _actor_workflow_role(user: User) -> Optional[WorkflowRole]:
+    names = _role_names(user)
+    for role in (
+        WorkflowRole.ADMIN,
+        WorkflowRole.PD,
+        WorkflowRole.HM,
+        WorkflowRole.IM,
+        WorkflowRole.DEV,
+    ):
+        if has_workflow_role(names, role):
+            return role
+    if names:
+        return normalize_workflow_role(names[0])
+    return None
+
+
+def project_is_cancelled(project: Optional[Project]) -> bool:
+    if project is None:
+        return False
+    return project_status_name(project) == ProjectWorkflowStatus.CANCELLED.value
+
+
+def assert_project_not_cancelled(
+    project: Optional[Project], *, action: str = "inventory operations"
+) -> None:
+    if project_is_cancelled(project):
+        raise ProjectWorkflowError(f"Cancelled projects block {action}")
+
+
+def project_for_hierarchy_entity(session: Session, entity: Any) -> Optional[Project]:
+    """Walk a hierarchy row up to its project (system.project_id or ancestors)."""
+    if entity is None:
+        return None
+    project_id = getattr(entity, "project_id", None)
+    if project_id is not None:
+        return session.get(Project, int(project_id))
+
+    from app.models.tables import Module, Subsystem, System, Unit
+
+    system_id = getattr(entity, "system_id", None)
+    if system_id is not None:
+        return project_for_hierarchy_entity(session, session.get(System, int(system_id)))
+
+    subsystem_id = getattr(entity, "subsystem_id", None)
+    if subsystem_id is not None:
+        return project_for_hierarchy_entity(
+            session, session.get(Subsystem, int(subsystem_id))
+        )
+
+    module_id = getattr(entity, "module_id", None)
+    if module_id is not None:
+        return project_for_hierarchy_entity(session, session.get(Module, int(module_id)))
+
+    unit_id = getattr(entity, "unit_id", None)
+    if unit_id is not None:
+        return project_for_hierarchy_entity(session, session.get(Unit, int(unit_id)))
+
+    return None
+
+
+def assert_hierarchy_mutable(session: Session, entity: Any) -> None:
+    assert_project_not_cancelled(
+        project_for_hierarchy_entity(session, entity),
+        action="hierarchy changes",
+    )
+
+
 def _unrestricted_project_viewer(user: User) -> bool:
     names = _role_names(user)
     return (
@@ -210,6 +277,8 @@ def assign_hm(
     if not hm_user:
         raise ProjectWorkflowError("HM user not found")
 
+    assert_project_not_cancelled(project, action="hierarchy changes")
+
     # Prefer HM role when present; still allow assignment for Spec 02 flexibility
     role_names = _role_names(hm_user)
     if role_names and not (
@@ -308,6 +377,7 @@ def is_structural_frozen(project: Project) -> bool:
         ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
         ProjectWorkflowStatus.COMPLETED.value,
         ProjectWorkflowStatus.READY_TO_DELIVER.value,
+        ProjectWorkflowStatus.CANCELLED.value,
     }
 
 

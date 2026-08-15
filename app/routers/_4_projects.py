@@ -119,6 +119,79 @@ def approve_project_endpoint(
         raise _workflow_http_error(exc) from exc
 
 
+@router.get(
+    "/projects/{project_id}/cancel-preview/",
+    response_model=schemas.ProjectCancelPreview,
+    tags=["projects"],
+)
+def project_cancel_preview_endpoint(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.cancel")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        project_cancel_preview,
+    )
+
+    _require_visible_project(session, project_id, current_user)
+    try:
+        return schemas.ProjectCancelPreview(**project_cancel_preview(session, project_id))
+    except InventoryRecallError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/projects/{project_id}/cancel/",
+    response_model=schemas.ProjectCancelResult,
+    tags=["projects"],
+)
+def cancel_project_endpoint(
+    project_id: int,
+    payload: schemas.ProjectCancelRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.cancel")),
+):
+    from app.services.inventory_recall_service import (
+        InventoryRecallError,
+        cancel_project,
+    )
+
+    _require_visible_project(session, project_id, current_user)
+    try:
+        result = cancel_project(
+            session,
+            project_id,
+            actor=current_user,
+            confirm=bool(payload.confirm),
+            notes=payload.notes,
+        )
+        project = session.get(Project, project_id)
+        preview = result.get("preview") or {}
+        return schemas.ProjectCancelResult(
+            project_id=result["project_id"],
+            project_status=result["project_status"],
+            critical_path_unfinished=result["critical_path_unfinished"],
+            reserved_released=result["reserved_released"],
+            shortages_cancelled=result["shortages_cancelled"],
+            pending_requests_cancelled=result["pending_requests_cancelled"],
+            rework_closed=result["rework_closed"],
+            recall_tasks_created=result["recall_tasks_created"],
+            preview=schemas.ProjectCancelPreview(**preview) if preview else None,
+            project=_to_project_read(project) if project else None,
+        )
+    except InventoryRecallError as exc:
+        detail = str(exc)
+        lower = detail.lower()
+        if "not found" in lower:
+            code = status.HTTP_404_NOT_FOUND
+        elif "illegal" in lower or "for role" in lower:
+            code = status.HTTP_403_FORBIDDEN
+        else:
+            code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
 @router.post(
     "/projects/{project_id}/generate-hierarchy/",
     response_model=schemas.HierarchyGenerationResult,

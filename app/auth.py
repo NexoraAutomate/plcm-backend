@@ -151,6 +151,19 @@ def require_install_owner_or_manager(user: User, entity: object) -> None:
             detail="You can only edit, revert, or delete inventory installs you performed",
         )
 
+
+def require_hierarchy_mutable(session: Session, entity: object) -> None:
+    """Block add/edit/delete of hierarchy rows on cancelled projects."""
+    from app.services.project_workflow_service import (
+        ProjectWorkflowError,
+        assert_hierarchy_mutable,
+    )
+
+    try:
+        assert_hierarchy_mutable(session, entity)
+    except ProjectWorkflowError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 # Permissions withheld from SubAdmin (Admin-only capabilities).
 SUBADMIN_EXCLUDED_PERMISSIONS = frozenset({
     "view_roles",

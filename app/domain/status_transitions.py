@@ -39,6 +39,8 @@ ITEM_TRANSITIONS: dict[str, frozenset[str]] = {
             ItemStatus.RETURNED.value,
         }
     ),
+    # Spec 11 — cancelled-project recall of verified hardware
+    ItemStatus.INSTALLED_VERIFIED.value: frozenset({ItemStatus.RETURNED.value}),
     # Return / inspection branch
     ItemStatus.RETURNED.value: frozenset({ItemStatus.INSPECTION.value}),
     ItemStatus.INSPECTION.value: frozenset(
@@ -52,16 +54,26 @@ ITEM_TRANSITIONS: dict[str, frozenset[str]] = {
     # Spec 10 — repaired serial re-enters issue without going through AVAILABLE
     ItemStatus.REPAIRABLE.value: frozenset({ItemStatus.ISSUED.value}),
     ItemStatus.SCRAPPED.value: frozenset(),
-    ItemStatus.INSTALLED_VERIFIED.value: frozenset(),
 }
 
 PROJECT_TRANSITIONS: dict[str, frozenset[str]] = {
-    ProjectWorkflowStatus.DRAFT.value: frozenset({ProjectWorkflowStatus.APPROVED.value}),
+    ProjectWorkflowStatus.DRAFT.value: frozenset(
+        {
+            ProjectWorkflowStatus.APPROVED.value,
+            ProjectWorkflowStatus.CANCELLED.value,
+        }
+    ),
     ProjectWorkflowStatus.APPROVED.value: frozenset(
-        {ProjectWorkflowStatus.HIERARCHY_GENERATED.value}
+        {
+            ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
+            ProjectWorkflowStatus.CANCELLED.value,
+        }
     ),
     ProjectWorkflowStatus.HIERARCHY_GENERATED.value: frozenset(
-        {ProjectWorkflowStatus.READY_FOR_INVENTORY.value}
+        {
+            ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+            ProjectWorkflowStatus.CANCELLED.value,
+        }
     ),
     ProjectWorkflowStatus.READY_FOR_INVENTORY.value: frozenset(
         {
@@ -94,9 +106,21 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
         ItemStatus.INSTALLED_VERIFIED.value,
     ): frozenset({WorkflowRole.HM}),
     (
+        ItemStatus.ISSUED.value,
+        ItemStatus.RETURNED.value,
+    ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
+    (
+        ItemStatus.INSTALLATION_IN_PROGRESS.value,
+        ItemStatus.RETURNED.value,
+    ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
+    (
         ItemStatus.UNDER_TESTING_REVIEW.value,
         ItemStatus.RETURNED.value,
-    ): frozenset({WorkflowRole.DEV}),
+    ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
+    (
+        ItemStatus.INSTALLED_VERIFIED.value,
+        ItemStatus.RETURNED.value,
+    ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
     (
         ItemStatus.RETURNED.value,
         ItemStatus.INSPECTION.value,
@@ -123,11 +147,25 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
     ): frozenset({WorkflowRole.IM}),
 }
 
+_CANCEL_ROLES = frozenset({WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.ADMIN})
+
 PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
     (
         ProjectWorkflowStatus.DRAFT.value,
         ProjectWorkflowStatus.APPROVED.value,
     ): frozenset({WorkflowRole.ADMIN}),
+    (
+        ProjectWorkflowStatus.DRAFT.value,
+        ProjectWorkflowStatus.CANCELLED.value,
+    ): _CANCEL_ROLES,
+    (
+        ProjectWorkflowStatus.APPROVED.value,
+        ProjectWorkflowStatus.CANCELLED.value,
+    ): _CANCEL_ROLES,
+    (
+        ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
+        ProjectWorkflowStatus.CANCELLED.value,
+    ): _CANCEL_ROLES,
     (
         ProjectWorkflowStatus.APPROVED.value,
         ProjectWorkflowStatus.HIERARCHY_GENERATED.value,

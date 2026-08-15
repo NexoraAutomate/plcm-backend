@@ -692,6 +692,7 @@ def release_reservation(
     *,
     actor: Optional[User] = None,
     reason: Optional[str] = None,
+    commit: bool = True,
 ) -> InventoryReservation:
     reservation = session.get(InventoryReservation, reservation_id)
     if not reservation or reservation.project_id != project_id:
@@ -766,8 +767,11 @@ def release_reservation(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, reservation.project_id)
-    session.commit()
-    session.refresh(reservation)
+    if commit:
+        session.commit()
+        session.refresh(reservation)
+    else:
+        session.flush()
     return reservation
 
 

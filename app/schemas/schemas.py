@@ -452,6 +452,42 @@ class ProjectAssignHmRequest(SQLModel):
     hm_user_id: int
 
 
+class ProjectCancelRequest(SQLModel):
+    confirm: bool = False
+    notes: Optional[str] = None
+
+
+class ProjectCancelPreview(SQLModel):
+    project_id: int
+    project_name: Optional[str] = None
+    project_status: Optional[str] = None
+    progress_pct: int = 0
+    critical_path_unfinished: bool = False
+    reserved_count: int = 0
+    issued_count: int = 0
+    in_progress_count: int = 0
+    testing_count: int = 0
+    verified_count: int = 0
+    returned_pending_count: int = 0
+    shortage_count: int = 0
+    pending_request_count: int = 0
+    open_rework_count: int = 0
+    recall_units_total: int = 0
+
+
+class ProjectCancelResult(SQLModel):
+    project_id: int
+    project_status: str
+    critical_path_unfinished: bool = False
+    reserved_released: int = 0
+    shortages_cancelled: int = 0
+    pending_requests_cancelled: int = 0
+    rework_closed: int = 0
+    recall_tasks_created: int = 0
+    preview: Optional[ProjectCancelPreview] = None
+    project: Optional["ProjectRead"] = None
+
+
 class HierarchyGenerationCounts(SQLModel):
     flights: int = 0
     sdls: int = 0
@@ -1558,6 +1594,48 @@ class ItemReworkCaseRead(SQLModel):
     notes: Optional[str] = None
     updated_at: Optional[datetime] = None
     events: Optional[List[ItemReworkEventRead]] = None
+
+
+class InventoryRecallNotesBody(SQLModel):
+    notes: Optional[str] = None
+
+
+class InventoryRecallDispositionBody(SQLModel):
+    outcome: str
+    notes: Optional[str] = None
+
+
+class InventoryRecallTaskRead(SQLModel):
+    id: int
+    project_id: int
+    project_name: Optional[str] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    target_entity_name: Optional[str] = None
+    inventory_id: int
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    inventory_instance_id: Optional[int] = None
+    issuance_id: Optional[int] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    status: str
+    stage: str
+    disposition: Optional[str] = None
+    forced_return: bool = False
+    item_status: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
+    inspected_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    can_return: bool = False
+    can_inspect: bool = False
+    can_disposition: bool = False
 
 
 class ItemIssueRequestTarget(SQLModel):

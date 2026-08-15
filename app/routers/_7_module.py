@@ -9,7 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
-from app.auth import require_install_owner_or_manager
+from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
@@ -24,6 +24,7 @@ def create_module(module: schemas.ModuleCreate, session: Session = Depends(get_s
     db_module = Module(**module.model_dump())
     if not db_module.original_serial_number and db_module.serial_number:
         db_module.original_serial_number = db_module.serial_number
+    require_hierarchy_mutable(session, db_module)
     session.add(db_module)
     session.flush()
 
@@ -102,6 +103,7 @@ def update_module(module_id: int, module: schemas.ModuleUpdate, session: Session
     db_module = session.get(Module, module_id)
     if not db_module:
         raise HTTPException(status_code=404, detail="Module not found")
+    require_hierarchy_mutable(session, db_module)
     require_install_owner_or_manager(current_user, db_module)
     for k, v in module.model_dump(exclude_unset=True).items():
         setattr(db_module, k, v)
@@ -126,6 +128,7 @@ def delete_module(module_id: int, session: Session = Depends(get_session), curre
     module = session.get(Module, module_id)
     if not module:
         raise HTTPException(status_code=404, detail="Module not found")
+    require_hierarchy_mutable(session, module)
     require_install_owner_or_manager(current_user, module)
     session.delete(module)
     session.commit()

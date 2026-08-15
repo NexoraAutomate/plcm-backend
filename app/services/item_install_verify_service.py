@@ -27,7 +27,11 @@ from app.services.inventory_reservation_service import (
     get_item_status_id,
     item_status_name,
 )
-from app.services.project_workflow_service import user_can_view_project
+from app.services.project_workflow_service import (
+    ProjectWorkflowError,
+    assert_project_not_cancelled,
+    user_can_view_project,
+)
 
 INSTALLABLE_STATUSES = frozenset(
     {
@@ -141,6 +145,16 @@ def _require_assigned_developer(entity: Any, actor: User) -> None:
         raise ItemInstallVerifyError(
             "Only the assigned developer can mark install/test for this item"
         )
+
+
+def _require_active_project(session: Session, issuance: InventoryIssuance) -> None:
+    if not issuance.project_id:
+        return
+    project = session.get(Project, int(issuance.project_id))
+    try:
+        assert_project_not_cancelled(project, action="install / test")
+    except ProjectWorkflowError as exc:
+        raise ItemInstallVerifyError(str(exc)) from exc
 
 
 def _require_open_issuance(
@@ -269,6 +283,7 @@ def start_install(
 ) -> InventoryIssuance:
     entity, issuance = _require_open_issuance(session, entity_type, entity_id)
     _require_assigned_developer(entity, actor)
+    _require_active_project(session, issuance)
     status = current_item_status(session, issuance)
     if issuance.verified_at is not None:
         raise ItemInstallVerifyError("Item is already verified")
@@ -318,6 +333,7 @@ def submit_test(
 ) -> InventoryIssuance:
     entity, issuance = _require_open_issuance(session, entity_type, entity_id)
     _require_assigned_developer(entity, actor)
+    _require_active_project(session, issuance)
     if issuance.installed_at is None:
         raise ItemInstallVerifyError("Start install before recording a test result")
     if issuance.verified_at is not None:
@@ -380,6 +396,7 @@ def report_complete(
 ) -> InventoryIssuance:
     entity, issuance = _require_open_issuance(session, entity_type, entity_id)
     _require_assigned_developer(entity, actor)
+    _require_active_project(session, issuance)
     if (issuance.test_result or "").strip().lower() != ItemTestResult.PASS.value:
         raise ItemInstallVerifyError(
             "Installation complete can be reported only after a Pass test result"
@@ -423,6 +440,10 @@ def verify_issuance(
     project = session.get(Project, issuance.project_id) if issuance.project_id else None
     if project is not None and not user_can_view_project(actor, project):
         raise ItemInstallVerifyError("You cannot verify items for this project")
+    try:
+        assert_project_not_cancelled(project, action="verification")
+    except ProjectWorkflowError as exc:
+        raise ItemInstallVerifyError(str(exc)) from exc
     if (issuance.test_result or "").strip().lower() != ItemTestResult.PASS.value:
         raise ItemInstallVerifyError("HM cannot verify without a Pass test result")
     if issuance.complete_reported_at is None:

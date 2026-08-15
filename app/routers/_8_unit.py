@@ -9,7 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
-from app.auth import require_install_owner_or_manager
+from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
@@ -24,6 +24,7 @@ def create_unit(unit: schemas.UnitCreate, session: Session = Depends(get_session
     db_unit = Unit(**unit.model_dump())
     if not db_unit.original_serial_number and db_unit.serial_number:
         db_unit.original_serial_number = db_unit.serial_number
+    require_hierarchy_mutable(session, db_unit)
     session.add(db_unit)
     session.flush()
 #    1.  Entity status
@@ -100,6 +101,7 @@ def update_unit(unit_id: int, unit: schemas.UnitUpdate, session: Session = Depen
     db_unit = session.get(Unit, unit_id)
     if not db_unit:
         raise HTTPException(status_code=404, detail="Unit not found")
+    require_hierarchy_mutable(session, db_unit)
     require_install_owner_or_manager(current_user, db_unit)
     for k, v in unit.model_dump(exclude_unset=True).items():
         setattr(db_unit, k, v)
@@ -124,6 +126,7 @@ def delete_unit(unit_id: int, session: Session = Depends(get_session), current_u
     unit = session.get(Unit, unit_id)
     if not unit:
         raise HTTPException(status_code=404, detail="Unit not found")
+    require_hierarchy_mutable(session, unit)
     require_install_owner_or_manager(current_user, unit)
     session.delete(unit)
     session.commit()

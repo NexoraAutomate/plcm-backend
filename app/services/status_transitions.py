@@ -31,7 +31,8 @@ ITEM_TRANSITIONS: dict[ItemStatus, Set[ItemStatus]] = {
         ItemStatus.INSTALLED_VERIFIED,
         ItemStatus.RETURNED,
     },
-    ItemStatus.INSTALLED_VERIFIED: set(),  # terminal happy path
+    # Spec 11 — cancelled-project recall of verified hardware
+    ItemStatus.INSTALLED_VERIFIED: {ItemStatus.RETURNED},
     ItemStatus.RETURNED: {ItemStatus.INSPECTION},
     ItemStatus.INSPECTION: {
         ItemStatus.REUSABLE,

@@ -9,7 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
-from app.auth import require_install_owner_or_manager
+from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
 
@@ -23,6 +23,7 @@ def create_component(component: schemas.ComponentCreate, session: Session = Depe
     db_component = Component(**component.model_dump())
     if not db_component.original_serial_number and db_component.serial_number:
         db_component.original_serial_number = db_component.serial_number
+    require_hierarchy_mutable(session, db_component)
     session.add(db_component)
     session.flush()
 
@@ -98,6 +99,7 @@ def update_component(component_id: int, component: schemas.ComponentUpdate, sess
     db_component = session.get(Component, component_id)
     if not db_component:
         raise HTTPException(status_code=404, detail="Component not found")
+    require_hierarchy_mutable(session, db_component)
     require_install_owner_or_manager(current_user, db_component)
     for k, v in component.model_dump(exclude_unset=True).items():
         setattr(db_component, k, v)
@@ -121,6 +123,7 @@ def delete_component(component_id: int, session: Session = Depends(get_session),
     component = session.get(Component, component_id)
     if not component:
         raise HTTPException(status_code=404, detail="Component not found")
+    require_hierarchy_mutable(session, component)
     require_install_owner_or_manager(current_user, component)
     session.delete(component)
     session.commit()

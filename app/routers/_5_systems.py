@@ -9,7 +9,7 @@ from app.services.create_entitystatusHistory import create_status_history
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
-from app.auth import require_install_owner_or_manager
+from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
@@ -25,6 +25,7 @@ def create_system(system: schemas.SystemCreate, session: Session = Depends(get_s
     # Preserve inventory/user-provided serial numbers — do not rewrite.
     if not db_system.original_serial_number and db_system.serial_number:
         db_system.original_serial_number = db_system.serial_number
+    require_hierarchy_mutable(session, db_system)
     session.add(db_system)
     session.flush()
 
@@ -103,6 +104,7 @@ def update_system(system_id: int, system: schemas.SystemUpdate, session: Session
     db_system = session.get(System, system_id)
     if not db_system:
         raise HTTPException(status_code=404, detail="System not found")
+    require_hierarchy_mutable(session, db_system)
     require_install_owner_or_manager(current_user, db_system)
     for k, v in system.model_dump(exclude_unset=True).items():
         setattr(db_system, k, v)
@@ -127,6 +129,7 @@ def delete_system(system_id: int, session: Session = Depends(get_session), curre
     system = session.get(System, system_id)
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
+    require_hierarchy_mutable(session, system)
     require_install_owner_or_manager(current_user, system)
     session.delete(system)
     session.commit()

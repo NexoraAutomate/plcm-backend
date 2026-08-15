@@ -1363,6 +1363,10 @@ def revert_entity_to_inventory(
     if not row:
         raise HTTPException(status_code=404, detail=f"{normalized} {entity_id} not found")
 
+    from app.auth import require_hierarchy_mutable
+
+    require_hierarchy_mutable(session, row)
+
     if getattr(row, "is_current_install", True) is False:
         raise HTTPException(status_code=400, detail="Entity is not a current install")
 

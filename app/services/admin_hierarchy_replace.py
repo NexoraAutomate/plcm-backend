@@ -196,6 +196,18 @@ def admin_hierarchy_replace(
             detail="Entity does not belong to the specified project.",
         )
 
+    from app.models.tables import Project
+    from app.services.project_workflow_service import (
+        ProjectWorkflowError,
+        assert_project_not_cancelled,
+    )
+
+    project = session.get(Project, project_id)
+    try:
+        assert_project_not_cancelled(project, action="hierarchy changes")
+    except ProjectWorkflowError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     from app.services.entity_replacement_service import resolve_current_install_row
 
     try:

@@ -260,6 +260,37 @@ CREATE TABLE IF NOT EXISTS inventoryreworkcase (
 )
 """
 
+INVENTORY_RECALL_TASK_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryrecalltask (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    flight_id INTEGER REFERENCES flight(id),
+    sdls_id INTEGER REFERENCES sdls(id),
+    target_entity_type VARCHAR(32),
+    target_entity_id INTEGER,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    inventory_instance_id INTEGER REFERENCES inventoryinstance(id),
+    issuance_id INTEGER REFERENCES inventoryissuance(id),
+    assigned_developer_id INTEGER REFERENCES "user"(id),
+    status VARCHAR(32) NOT NULL DEFAULT 'open',
+    stage VARCHAR(32) NOT NULL DEFAULT 'requested',
+    disposition VARCHAR(32),
+    forced_return BOOLEAN NOT NULL DEFAULT FALSE,
+    forced_by_id INTEGER REFERENCES "user"(id),
+    opened_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    opened_by_id INTEGER REFERENCES "user"(id),
+    returned_at TIMESTAMP WITH TIME ZONE,
+    returned_by_id INTEGER REFERENCES "user"(id),
+    inspected_at TIMESTAMP WITH TIME ZONE,
+    inspected_by_id INTEGER REFERENCES "user"(id),
+    closed_at TIMESTAMP WITH TIME ZONE,
+    closed_by_id INTEGER REFERENCES "user"(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 INVENTORY_ITEM_REQUEST_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS inventoryitemrequest (
     id SERIAL PRIMARY KEY,
@@ -593,6 +624,23 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryreworkcase_entity
                 ON inventoryreworkcase (target_entity_type, target_entity_id)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_RECALL_TASK_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryrecalltask_status
+                ON inventoryrecalltask (status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryrecalltask_project
+                ON inventoryrecalltask (project_id)
                 """
             )
         )

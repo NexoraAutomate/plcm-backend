@@ -733,6 +733,8 @@ class IssuanceEventType(str, Enum):
     DISPOSITIONED = "dispositioned"
     REISSUED = "reissued"
     REWORK_CLOSED = "rework_closed"
+    RECALL_OPENED = "recall_opened"
+    RECALL_FORCED_RETURN = "recall_forced_return"
 
 
 class ReworkCaseStatus(str, Enum):
@@ -793,6 +795,68 @@ class InventoryReworkCaseBase(SQLModel):
     repaired_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     opened_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    closed_at: Optional[datetime] = None
+    closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+PROJECT_CANCELLED_RELEASE_REASON = "PROJECT_CANCELLED"
+
+
+class RecallTaskStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class RecallStage(str, Enum):
+    REQUESTED = "requested"
+    RETURNED = "returned"
+    INSPECTION = "inspection"
+    REUSABLE = "reusable"
+    REPAIRABLE = "repairable"
+    SCRAPPED = "scrapped"
+
+
+class RecallDisposition(str, Enum):
+    REUSABLE = "reusable"
+    REPAIRABLE = "repairable"
+    SCRAPPED = "scrapped"
+
+
+class InventoryRecallTaskBase(SQLModel):
+    """Spec 11 — project-cancel recall of issued / in-progress inventory."""
+    project_id: int = Field(foreign_key="project.id", index=True)
+    flight_id: Optional[int] = Field(default=None, foreign_key="flight.id")
+    sdls_id: Optional[int] = Field(default=None, foreign_key="sdls.id")
+    target_entity_type: Optional[str] = Field(default=None, max_length=32, index=True)
+    target_entity_id: Optional[int] = Field(default=None, index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    issuance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryissuance.id", index=True
+    )
+    assigned_developer_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
+    status: str = Field(
+        default=RecallTaskStatus.OPEN.value, index=True, max_length=32
+    )
+    stage: str = Field(
+        default=RecallStage.REQUESTED.value, index=True, max_length=32
+    )
+    disposition: Optional[str] = Field(default=None, max_length=32)
+    forced_return: bool = Field(default=False)
+    forced_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    opened_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    returned_at: Optional[datetime] = None
+    returned_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    inspected_at: Optional[datetime] = None
+    inspected_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     closed_at: Optional[datetime] = None
     closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     notes: Optional[str] = None

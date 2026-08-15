@@ -182,6 +182,21 @@ def assign_developer(
     actor: User,
 ) -> Any:
     entity = _load_entity(session, entity_type, entity_id)
+    from app.services.project_workflow_service import (
+        assert_project_not_cancelled,
+        ProjectWorkflowError,
+    )
+    from app.models.tables import Project as ProjectModel
+
+    project_id = _project_id_for_entity(session, entity_type, entity)
+    if project_id is not None:
+        try:
+            assert_project_not_cancelled(
+                session.get(ProjectModel, int(project_id)),
+                action="developer assignment",
+            )
+        except ProjectWorkflowError as exc:
+            raise HierarchyDeveloperError(str(exc)) from exc
     if entity_is_physically_issued(session, entity_type, entity_id):
         raise HierarchyDeveloperError(
             "Assignment cannot be changed after the item has been issued to the developer"

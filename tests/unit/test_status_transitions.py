@@ -31,9 +31,12 @@ class TestItemHappyPath:
         assert not can_transition("item", "RESERVED", "INSTALLATION_IN_PROGRESS")
 
     def test_terminal_installed_verified(self):
-        assert get_allowed_item_transitions(ItemStatus.INSTALLED_VERIFIED) == set()
+        assert get_allowed_item_transitions(ItemStatus.INSTALLED_VERIFIED) == {
+            ItemStatus.RETURNED
+        }
         assert not can_transition("item", "INSTALLED_VERIFIED", "AVAILABLE")
         assert not can_transition("item", "INSTALLED_VERIFIED", "RESERVED")
+        assert can_transition("item", "INSTALLED_VERIFIED", "RETURNED")
 
     def test_release_reserved_to_available(self):
         assert can_transition("item", "RESERVED", "AVAILABLE")

@@ -39,6 +39,13 @@ class TestItemHappyPath:
             ItemStatus.AVAILABLE,
         )
 
+    def test_verified_recall_to_returned(self):
+        assert can_transition(
+            "item",
+            ItemStatus.INSTALLED_VERIFIED,
+            ItemStatus.RETURNED,
+        )
+
 
 class TestItemReturnPath:
     @pytest.mark.parametrize(
@@ -86,6 +93,20 @@ class TestProjectTransitions:
             ProjectWorkflowStatus.CANCELLED,
             actor_role=WorkflowRole.PD,
         )
+
+    def test_cancel_from_mid_life(self):
+        for status in (
+            ProjectWorkflowStatus.DRAFT,
+            ProjectWorkflowStatus.APPROVED,
+            ProjectWorkflowStatus.HIERARCHY_GENERATED,
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+        ):
+            assert can_transition(
+                "project",
+                status,
+                ProjectWorkflowStatus.CANCELLED,
+                actor_role=WorkflowRole.HM,
+            )
 
     def test_complete_from_ready_when_system_or_pd(self):
         assert can_transition(
@@ -204,7 +225,7 @@ class TestItemRoleGates:
             ItemStatus.RETURNED,
             actor_role=WorkflowRole.DEV,
         )
-        assert not can_transition(
+        assert can_transition(
             "item",
             ItemStatus.UNDER_TESTING_REVIEW,
             ItemStatus.RETURNED,

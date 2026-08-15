@@ -79,6 +79,20 @@ def create_item_request(
     if reservation is None:
         raise ItemRequestError("No reserved inventory for this hierarchy item")
 
+    from app.services.project_workflow_service import (
+        assert_project_not_cancelled,
+        ProjectWorkflowError,
+    )
+    from app.models.tables import Project as ProjectModel
+
+    try:
+        assert_project_not_cancelled(
+            session.get(ProjectModel, reservation.project_id),
+            action="item requests",
+        )
+    except ProjectWorkflowError as exc:
+        raise ItemRequestError(str(exc)) from exc
+
     existing = session.exec(
         select(InventoryItemRequest).where(
             InventoryItemRequest.reservation_id == reservation.id,
@@ -236,6 +250,20 @@ def issue_item_request(
         raise ItemRequestError("Issue request not found")
     if row.status != ItemRequestStatus.PENDING.value:
         raise ItemRequestError("Issue request is not pending")
+
+    from app.services.project_workflow_service import (
+        assert_project_not_cancelled,
+        ProjectWorkflowError,
+    )
+    from app.models.tables import Project as ProjectModel
+
+    try:
+        assert_project_not_cancelled(
+            session.get(ProjectModel, row.project_id),
+            action="issue",
+        )
+    except ProjectWorkflowError as exc:
+        raise ItemRequestError(str(exc)) from exc
 
     reservation = session.get(InventoryReservation, row.reservation_id)
     if not reservation:
