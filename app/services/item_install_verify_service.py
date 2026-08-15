@@ -291,6 +291,9 @@ def start_install(
             actor=actor,
             notes=notes,
         )
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, getattr(issuance, "project_id", None))
     session.commit()
     session.refresh(issuance)
     return issuance
@@ -348,6 +351,9 @@ def submit_test(
             actor=actor,
             notes=notes or "Fail path handoff for Spec 10",
         )
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, getattr(issuance, "project_id", None))
     session.commit()
     session.refresh(issuance)
     return issuance
@@ -427,6 +433,9 @@ def verify_issuance(
         actor=actor,
         notes=notes,
     )
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, issuance.project_id)
     session.commit()
     session.refresh(issuance)
     return issuance

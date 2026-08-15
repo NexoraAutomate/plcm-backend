@@ -673,6 +673,9 @@ def reserve_inventory(
         updated_at=_now(),
     )
     session.add(reservation)
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, project_id)
     session.commit()
     session.refresh(reservation)
     return reservation
@@ -756,6 +759,9 @@ def release_reservation(
         int(reservation.target_entity_id),
     )
 
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, reservation.project_id)
     session.commit()
     session.refresh(reservation)
     return reservation

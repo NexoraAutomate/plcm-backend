@@ -65,12 +65,15 @@ PROJECT_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     ProjectWorkflowStatus.READY_FOR_INVENTORY.value: frozenset(
         {
-            # Spec 11 cancel path reserved now
             ProjectWorkflowStatus.CANCELLED.value,
+            ProjectWorkflowStatus.COMPLETED.value,
+            ProjectWorkflowStatus.READY_TO_DELIVER.value,
         }
     ),
     ProjectWorkflowStatus.CANCELLED.value: frozenset(),
-    ProjectWorkflowStatus.COMPLETED.value: frozenset(),
+    ProjectWorkflowStatus.COMPLETED.value: frozenset(
+        {ProjectWorkflowStatus.READY_TO_DELIVER.value}
+    ),
     ProjectWorkflowStatus.READY_TO_DELIVER.value: frozenset(),
 }
 
@@ -109,6 +112,19 @@ PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
         ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
         ProjectWorkflowStatus.CANCELLED.value,
     ): frozenset({WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.ADMIN}),
+    # Spec 09 — completion is system-calculated; System actor skips this gate.
+    (
+        ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+        ProjectWorkflowStatus.COMPLETED.value,
+    ): frozenset({WorkflowRole.PD, WorkflowRole.ADMIN}),
+    (
+        ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+        ProjectWorkflowStatus.READY_TO_DELIVER.value,
+    ): frozenset({WorkflowRole.PD, WorkflowRole.ADMIN}),
+    (
+        ProjectWorkflowStatus.COMPLETED.value,
+        ProjectWorkflowStatus.READY_TO_DELIVER.value,
+    ): frozenset({WorkflowRole.PD, WorkflowRole.ADMIN}),
 }
 
 

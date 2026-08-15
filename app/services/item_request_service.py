@@ -268,6 +268,9 @@ def issue_item_request(
     row.issued_issuance_id = issuance.id
     row.updated_at = _now()
     session.add(row)
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, row.project_id)
     session.commit()
     session.refresh(row)
     return row

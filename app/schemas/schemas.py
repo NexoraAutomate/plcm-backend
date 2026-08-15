@@ -502,6 +502,62 @@ class ProjectHierarchyTree(SQLModel):
     flights: List[FlightTreeNode] = []
 
 
+class ProgressSystemNode(SQLModel):
+    entity_type: str = "system"
+    entity_id: int
+    name: str
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    status: Optional[str] = None
+
+
+class ProgressSdlsNode(SQLModel):
+    entity_type: str = "sdls"
+    entity_id: int
+    name: str
+    code: Optional[str] = None
+    product_type: Optional[str] = None
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    systems: List[ProgressSystemNode] = []
+
+
+class ProgressFlightNode(SQLModel):
+    entity_type: str = "flight"
+    entity_id: int
+    name: str
+    code: Optional[str] = None
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    sdls: List[ProgressSdlsNode] = []
+
+
+class ProgressBottleneck(SQLModel):
+    entity_type: str
+    entity_id: int
+    name: str
+    path: str
+    status: Optional[str] = None
+    defect_pending: bool = False
+    weight: int = 0
+    reason: str
+
+
+class ProjectProgressRead(SQLModel):
+    project_id: int
+    project_status: Optional[str] = None
+    progress_pct: int = 0
+    weight: int = 0
+    verified_leaves: int = 0
+    can_complete: bool = False
+    stage_policy: str = "lifecycle_fractions"
+    flights: List[ProgressFlightNode] = []
+    bottlenecks: List[ProgressBottleneck] = []
+
+
 # ---- System / Subsystem / Module / Unit / Component ----
 class SystemCreate(SystemBase):
     status_id: Optional[int] = None

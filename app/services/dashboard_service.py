@@ -8,6 +8,7 @@ from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
 from app.models.base import CaseStatus, EntityType, FaultyEntityStatus
+from app.domain.workflow_status import ProjectWorkflowStatus
 from app.models.tables import (
     Component,
     ConfigurationHistory,
@@ -465,7 +466,9 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *completed_cond,
-            Status.status_name == "Completed",
+            Status.status_name.in_(
+                ["Completed", ProjectWorkflowStatus.COMPLETED.value]
+            ),
             Project.end_date.isnot(None),
         )
         .group_by(func.to_char(Project.end_date, "YYYY-MM"))
@@ -479,7 +482,13 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
     window_end = window_start + timedelta(days=186)
 
     delayed_rows = session.exec(
-        select(Project.id, Project.name, Status.status_name, Project.end_date)
+        select(
+            Project.id,
+            Project.name,
+            Status.status_name,
+            Project.end_date,
+            Project.progress,
+        )
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
@@ -491,7 +500,13 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
     ).all()
 
     milestone_rows = session.exec(
-        select(Project.id, Project.name, Status.status_name, Project.end_date)
+        select(
+            Project.id,
+            Project.name,
+            Status.status_name,
+            Project.end_date,
+            Project.progress,
+        )
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
@@ -527,7 +542,11 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
                 id=project_id,
                 name=row[1],
                 status_name=status_name,
-                progress=float(STATUS_PROGRESS.get(status_name or "", 0)),
+                progress=float(
+                    row[4]
+                    if row[4] is not None
+                    else STATUS_PROGRESS.get(status_name or "", 0)
+                ),
                 end_date=end_date,
                 days_overdue=days_overdue,
                 days_until_due=days_until_due,

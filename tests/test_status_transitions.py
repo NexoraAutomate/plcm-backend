@@ -85,6 +85,41 @@ class TestProjectTransitions:
             actor_role=WorkflowRole.PD,
         )
 
+    def test_complete_from_ready_when_system_or_pd(self):
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.COMPLETED,
+            actor_role="System",
+        )
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.COMPLETED,
+            actor_role=WorkflowRole.PD,
+        )
+        assert not can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.COMPLETED,
+            actor_role=WorkflowRole.DEV,
+        )
+
+    def test_ready_to_deliver_from_completed(self):
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.COMPLETED,
+            ProjectWorkflowStatus.READY_TO_DELIVER,
+            actor_role=WorkflowRole.PD,
+        )
+
+    def test_complete_blocked_while_unverified_is_service_gate(self):
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.COMPLETED,
+        )
+
     def test_illegal_project_skip(self):
         assert not can_transition(
             "project",
