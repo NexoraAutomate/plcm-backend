@@ -17,6 +17,8 @@ from app.services.project_workflow_service import (
     approve_project,
     create_draft_project,
     guard_structural_update,
+    project_list_visibility_where,
+    user_can_view_project,
 )
 from app.services.hierarchy_generation_service import generate_project_hierarchy as do_generate_hierarchy
 
@@ -74,6 +76,13 @@ def _workflow_http_error(exc: ProjectWorkflowError) -> HTTPException:
     else:
         code = status.HTTP_422_UNPROCESSABLE_ENTITY
     return HTTPException(status_code=code, detail=detail)
+
+
+def _require_visible_project(session: Session, project_id: int, current_user: User) -> Project:
+    project = session.get(Project, project_id)
+    if not project or not user_can_view_project(current_user, project):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
 
 
 # ===================== Spec 02 WORKFLOW ENDPOINTS =====================
@@ -169,9 +178,7 @@ def get_project_hierarchy_tree(
     """Spec 03 — nested Flight → SDLS → System tree for project navigation."""
     from app.models.tables import Flight, Sdls
 
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _require_visible_project(session, project_id, current_user)
 
     flights = session.exec(
         select(Flight)
@@ -258,6 +265,7 @@ def check_reservation_availability(
         check_availability,
     )
 
+    _require_visible_project(session, project_id, current_user)
     try:
         result = check_availability(
             session,
@@ -287,9 +295,7 @@ def list_reservations(
         reservation_to_dict,
     )
 
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _require_visible_project(session, project_id, current_user)
     rows = list_project_reservations(session, project_id, active_only=active_only)
     return [schemas.InventoryReservationRead(**reservation_to_dict(r)) for r in rows]
 
@@ -347,9 +353,7 @@ def list_project_shortages(
     from app.models.base import ShortageStatus
     from app.services.inventory_shortage_service import list_shortages, shortage_to_dict
 
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _require_visible_project(session, project_id, current_user)
     statuses = (
         [ShortageStatus.OPEN.value, ShortageStatus.PARTIAL.value]
         if active_only
@@ -499,6 +503,7 @@ def list_projects(
         text_search(Project, search, "name", "description", "product_type"),
         eq_if_set(Project, "status_id", status_id),
         eq_if_set(Project, "order_id", order_id),
+        project_list_visibility_where(current_user),
     )
 
     return paginated_query(
@@ -516,9 +521,7 @@ def list_projects(
 
 @router.get("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def get_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _require_visible_project(session, project_id, current_user)
     return _to_project_read(project)
 
 @router.put("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
@@ -556,7 +559,5 @@ def delete_project(project_id: int, session: Session = Depends(get_session), cur
 
 @router.get("/projects/{project_id}/systems/", response_model=List[schemas.SystemRead], tags=["projects"])
 def list_project_systems(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = _require_visible_project(session, project_id, current_user)
     return filter_current_installs(project.systems)

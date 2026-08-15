@@ -8,7 +8,16 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException
 from sqlmodel import Session, select, func, col
 
-from app.models.base import EntityType, IssuanceStatus, IssuanceEventType, InstallerNoticeType
+from app.domain.status_transitions import assert_transition
+from app.domain.workflow_status import ItemStatus
+from app.models.base import (
+    EntityType,
+    HARD_COPY_ACKNOWLEDGMENT,
+    InstallerNoticeType,
+    IssuanceEventType,
+    IssuanceStatus,
+    SignatureType,
+)
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Inventory,
@@ -388,6 +397,7 @@ def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     data["issued_by_name"] = _user_display_name(issued_by)
     data["installed_by_name"] = _user_display_name(installed_by)
     data["closed_by_name"] = _user_display_name(closed_by)
+    data.pop("signature_payload", None)
     return data
 
 
@@ -465,6 +475,99 @@ def instance_reservation_map(
     }
 
 
+def require_issue_signature(
+    signature_type: Optional[str],
+    signature_payload: Optional[str],
+) -> tuple[str, str]:
+    """Spec 07 — issue is blocked without DIGITAL payload or HARD_COPY acknowledgment."""
+    kind = (signature_type or "").strip().upper()
+    if kind not in (SignatureType.DIGITAL.value, SignatureType.HARD_COPY.value):
+        raise HTTPException(
+            status_code=400,
+            detail="Signature is required to issue (DIGITAL or HARD_COPY)",
+        )
+    payload = (signature_payload or "").strip()
+    if kind == SignatureType.DIGITAL.value:
+        if not payload:
+            raise HTTPException(
+                status_code=400,
+                detail="Digital signature payload is required",
+            )
+        return kind, payload
+    ack = payload.upper().replace(" ", "_")
+    if ack in ("", "FALSE", "0", "NO"):
+        raise HTTPException(
+            status_code=400,
+            detail="Hard-copy acknowledgment is required",
+        )
+    return kind, HARD_COPY_ACKNOWLEDGMENT
+
+
+def _set_item_lifecycle_status(
+    session: Session,
+    *,
+    inventory: Inventory,
+    instance: Optional[InventoryInstance],
+    from_status: str,
+    to_status: str,
+) -> None:
+    from app.services.inventory_reservation_service import get_item_status_id
+
+    try:
+        assert_transition("item", from_status, to_status, actor_role=None)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    status_id = get_item_status_id(session, to_status)
+    now = datetime.now(timezone.utc)
+    if instance is not None:
+        instance.status_id = status_id
+        instance.updated_at = now
+        session.add(instance)
+    inventory.status_id = status_id
+    inventory.updated_at = now
+    session.add(inventory)
+
+
+def _advance_to_issued(
+    session: Session,
+    *,
+    inventory: Inventory,
+    instance: Optional[InventoryInstance],
+    current: str,
+) -> None:
+    if current == ItemStatus.ISSUED.value:
+        return
+    if current == ItemStatus.RESERVED.value:
+        _set_item_lifecycle_status(
+            session,
+            inventory=inventory,
+            instance=instance,
+            from_status=current,
+            to_status=ItemStatus.ISSUED.value,
+        )
+        return
+    if current == ItemStatus.AVAILABLE.value:
+        _set_item_lifecycle_status(
+            session,
+            inventory=inventory,
+            instance=instance,
+            from_status=ItemStatus.AVAILABLE.value,
+            to_status=ItemStatus.RESERVED.value,
+        )
+        _set_item_lifecycle_status(
+            session,
+            inventory=inventory,
+            instance=instance,
+            from_status=ItemStatus.RESERVED.value,
+            to_status=ItemStatus.ISSUED.value,
+        )
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=f"Item status {current} cannot be issued",
+    )
+
+
 def issue_inventory_unit(
     session: Session,
     inventory: Inventory,
@@ -476,9 +579,14 @@ def issue_inventory_unit(
     target_entity_type: Optional[str] = None,
     target_entity_id: Optional[int] = None,
     notes: Optional[str] = None,
+    signature_type: Optional[str] = None,
+    signature_payload: Optional[str] = None,
+    item_request_id: Optional[int] = None,
 ) -> InventoryIssuance:
     if quantity < 1:
         raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+
+    sig_type, sig_payload = require_issue_signature(signature_type, signature_payload)
 
     issued_to = session.get(User, issued_to_user_id)
     if not issued_to:
@@ -486,6 +594,13 @@ def issue_inventory_unit(
 
     serial_number: Optional[str] = None
     resolved_instance_id: Optional[int] = None
+    instance: Optional[InventoryInstance] = None
+    reservation_id: Optional[int] = None
+    project_id: Optional[int] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+
+    from app.services.inventory_reservation_service import item_status_name
 
     if is_component_inventory(inventory.inventory_type):
         if instance_id is not None:
@@ -499,6 +614,8 @@ def issue_inventory_unit(
                 status_code=400,
                 detail=f"Only {avail} unit(s) available to issue (reserved stock excluded)",
             )
+        current = item_status_name(session, inventory.status_id) or ItemStatus.AVAILABLE.value
+        _advance_to_issued(session, inventory=inventory, instance=None, current=current)
     else:
         if quantity != 1:
             raise HTTPException(
@@ -518,13 +635,46 @@ def issue_inventory_unit(
             )
         from app.services.inventory_reservation_service import (
             active_reservation_for_instance,
+            consume_reservation,
         )
 
-        # Spec 06/07: IM may issue HM-reserved stock (physical handover to a developer).
         project_hold = active_reservation_for_instance(session, int(instance.id))
-        if project_hold and not (target_entity_type and target_entity_id):
+        requested_type = (target_entity_type or "").strip().lower() or None
+        requested_id = target_entity_id
+        if project_hold:
+            if not item_request_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Developer must request this reserved item before it can be issued",
+                )
+            hold_type = (project_hold.target_entity_type or "").strip().lower()
+            hold_id = int(project_hold.target_entity_id)
+            if requested_type and requested_id is not None:
+                if hold_type != requested_type or hold_id != int(requested_id):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Item is reserved to a different project/hierarchy",
+                    )
             target_entity_type = project_hold.target_entity_type
             target_entity_id = project_hold.target_entity_id
+            reservation_id = int(project_hold.id) if project_hold.id else None
+            project_id = int(project_hold.project_id)
+            flight_id = int(project_hold.flight_id)
+            sdls_id = int(project_hold.sdls_id)
+        elif requested_type and requested_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Issue is only allowed for stock reserved to this hierarchy",
+            )
+        current = (
+            item_status_name(session, instance.status_id) or ItemStatus.AVAILABLE.value
+        )
+        _advance_to_issued(
+            session, inventory=inventory, instance=instance, current=current
+        )
+        if project_hold:
+            actor = session.get(User, issued_by_user_id)
+            consume_reservation(session, project_hold, actor=actor)
         resolved_instance_id = instance.id
         serial_number = instance.serial_number
 
@@ -543,6 +693,14 @@ def issue_inventory_unit(
         inventory_name=inventory.name,
         inventory_type=inventory.inventory_type,
         notes=notes,
+        signature_type=sig_type,
+        signature_payload=sig_payload,
+        item_request_id=item_request_id,
+        reservation_id=reservation_id,
+        project_id=project_id,
+        flight_id=flight_id,
+        sdls_id=sdls_id,
+        item_lifecycle_status=ItemStatus.ISSUED.value,
     )
     session.add(issuance)
     session.flush()

@@ -750,6 +750,9 @@ class InventoryIssueRequest(SQLModel):
     target_entity_type: Optional[str] = None
     target_entity_id: Optional[int] = None
     notes: Optional[str] = None
+    signature_type: str
+    signature_payload: Optional[str] = None
+    item_request_id: Optional[int] = None
 
 
 class InventoryIssuanceRead(SQLModel):
@@ -775,6 +778,13 @@ class InventoryIssuanceRead(SQLModel):
     closed_at: Optional[datetime] = None
     closed_by_id: Optional[int] = None
     return_requested_at: Optional[datetime] = None
+    signature_type: Optional[str] = None
+    item_request_id: Optional[int] = None
+    reservation_id: Optional[int] = None
+    project_id: Optional[int] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    item_lifecycle_status: Optional[str] = None
     issued_to_name: Optional[str] = None
     issued_by_name: Optional[str] = None
     installed_by_name: Optional[str] = None
@@ -1317,3 +1327,115 @@ class InventoryAvailabilityCheck(SQLModel):
     system_id: Optional[int] = None
     reservation_id: Optional[int] = None
     reason: Optional[str] = None
+
+
+class HierarchyAssignDeveloperRequest(SQLModel):
+    developer_user_id: Optional[int] = None
+
+
+class HierarchyAssignDeveloperRead(SQLModel):
+    entity_type: str
+    id: int
+    name: Optional[str] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    issued: Optional[bool] = None
+
+
+class HierarchyAssignmentStatusRead(SQLModel):
+    entity_type: str
+    id: int
+    name: Optional[str] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    issued: bool = False
+
+
+class DeveloperAssignedWorkRead(SQLModel):
+    entity_type: str
+    entity_id: int
+    name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    assigned_developer_id: int
+    reserved: bool = False
+    reservation_id: Optional[int] = None
+    request_status: str = "none"
+    issued: bool = False
+    can_request: bool = False
+    pending_request_id: Optional[int] = None
+
+
+class ItemIssueRequestTarget(SQLModel):
+    entity_type: str
+    entity_id: int
+
+
+class ItemIssueRequestBulkCreate(SQLModel):
+    mode: str
+    items: Optional[List[ItemIssueRequestTarget]] = None
+    notes: Optional[str] = None
+
+
+class ItemIssueRequestBulkSkipped(SQLModel):
+    entity_type: str
+    entity_id: int
+    reason: str
+
+
+class ItemIssueRequestCreate(SQLModel):
+    entity_type: str
+    entity_id: int
+    notes: Optional[str] = None
+
+
+class ItemIssueRequestIssueBody(SQLModel):
+    signature_type: str
+    signature_payload: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ItemIssueRequestRead(SQLModel):
+    id: int
+    project_id: int
+    project_name: Optional[str] = None
+    flight_id: int
+    flight_code: Optional[str] = None
+    flight_name: Optional[str] = None
+    sdls_id: int
+    sdls_code: Optional[str] = None
+    sdls_name: Optional[str] = None
+    target_entity_type: str
+    target_entity_id: int
+    target_entity_name: Optional[str] = None
+    assigned_developer_id: int
+    assigned_developer_name: Optional[str] = None
+    requested_by_user_id: int
+    requested_by_name: Optional[str] = None
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    reservation_id: int
+    status: str
+    requested_at: datetime
+    issued_at: Optional[datetime] = None
+    issued_issuance_id: Optional[int] = None
+    notes: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ItemIssueRequestBulkResult(SQLModel):
+    created: List[ItemIssueRequestRead] = []
+    skipped: List[ItemIssueRequestBulkSkipped] = []
+
+
+class IssueProgressJobResult(SQLModel):
+    examined: int = 0
+    flipped: int = 0
+    skipped: int = 0

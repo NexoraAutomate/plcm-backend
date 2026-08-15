@@ -284,6 +284,10 @@ class HardwareReplacementFields(SQLModel):
 
 class HardwareEntityFields(HierarchyInstallFields, HardwareReplacementFields):
     """Install metadata + replacement tracking for fielded hardware entities."""
+    # Spec 07 — HM assigns a Developer to this hierarchy node
+    assigned_developer_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
 
 
 class SystemCommon(HardwareEntityFields):
@@ -407,6 +411,7 @@ class InventoryInstanceBase(InventoryInstanceCommon):
 class InventoryReservationStatus(str, Enum):
     ACTIVE = "active"
     RELEASED = "released"
+    CONSUMED = "consumed"
 
 
 class InventoryReservationCommon(SQLModel):
@@ -622,6 +627,15 @@ class InventoryIssuanceBase(SQLModel):
     closed_by_id: Optional[int] = None
     # When installer requested return (pending admin accept/reject)
     return_requested_at: Optional[datetime] = None
+    # Spec 07 — signature + reservation context
+    signature_type: Optional[str] = Field(default=None, max_length=32)
+    signature_payload: Optional[str] = None
+    item_request_id: Optional[int] = Field(default=None, index=True)
+    reservation_id: Optional[int] = Field(default=None, index=True)
+    project_id: Optional[int] = Field(default=None, index=True)
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    item_lifecycle_status: Optional[str] = Field(default=None, max_length=64, index=True)
 
 
 class InventoryReturnNoticeBase(SQLModel):
@@ -642,6 +656,47 @@ class InventoryReturnNoticeBase(SQLModel):
     decision_notes: Optional[str] = None
     # Installer's reason when requesting return
     request_notes: Optional[str] = None
+
+
+class SignatureType(str, Enum):
+    DIGITAL = "DIGITAL"
+    HARD_COPY = "HARD_COPY"
+
+
+HARD_COPY_ACKNOWLEDGMENT = "HARD_COPY_CONFIRMED"
+
+
+class ItemRequestStatus(str, Enum):
+    PENDING = "pending"
+    ISSUED = "issued"
+    CANCELLED = "cancelled"
+
+
+class InventoryItemRequestBase(SQLModel):
+    """Spec 07 — Developer request-to-issue queue for IM."""
+    project_id: int = Field(foreign_key="project.id", index=True)
+    flight_id: int = Field(foreign_key="flight.id", index=True)
+    sdls_id: int = Field(foreign_key="sdls.id", index=True)
+    target_entity_type: str = Field(max_length=32, index=True)
+    target_entity_id: int = Field(index=True)
+    assigned_developer_id: int = Field(foreign_key="user.id", index=True)
+    requested_by_user_id: int = Field(foreign_key="user.id", index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    reservation_id: int = Field(foreign_key="inventoryreservation.id", index=True)
+    status: str = Field(
+        default=ItemRequestStatus.PENDING.value, index=True, max_length=32
+    )
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    issued_at: Optional[datetime] = None
+    issued_issuance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryissuance.id", index=True
+    )
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class IssuanceEventType(str, Enum):

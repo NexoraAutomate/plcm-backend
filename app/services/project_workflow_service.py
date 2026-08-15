@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.domain.status_transitions import assert_transition
@@ -32,6 +33,42 @@ def _role_names(user: User) -> list[str]:
 
 def _is_admin(user: User) -> bool:
     return has_workflow_role(_role_names(user), WorkflowRole.ADMIN)
+
+
+def _unrestricted_project_viewer(user: User) -> bool:
+    names = _role_names(user)
+    return (
+        has_workflow_role(names, WorkflowRole.ADMIN)
+        or has_workflow_role(names, WorkflowRole.PD)
+        or has_workflow_role(names, WorkflowRole.IM)
+    )
+
+
+def user_can_view_project(user: User, project: Project) -> bool:
+    """HM sees only projects they own, created, or are assigned to."""
+    if _unrestricted_project_viewer(user):
+        return True
+    if not has_workflow_role(_role_names(user), WorkflowRole.HM):
+        return True
+    uid = int(user.id)
+    return uid in {
+        project.owner_id,
+        project.created_by_id,
+        project.assigned_hm_id,
+    }
+
+
+def project_list_visibility_where(user: User) -> Any:
+    if _unrestricted_project_viewer(user):
+        return None
+    if not has_workflow_role(_role_names(user), WorkflowRole.HM):
+        return None
+    uid = int(user.id)
+    return or_(
+        Project.owner_id == uid,
+        Project.created_by_id == uid,
+        Project.assigned_hm_id == uid,
+    )
 
 
 def get_project_status_id(session: Session, status_name: str) -> int:

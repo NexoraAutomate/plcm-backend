@@ -13,8 +13,8 @@ from app.models.tables import (
     User,
 )
 from app.schemas import schemas
-from app.routers.auth import require_permission
-from app.auth import is_inventory_manager
+from app.routers.auth import get_current_user, require_permission
+from app.auth import check_permission, is_inventory_manager
 from app.services.pagination import paginated_query
 from app.services.list_query import inventory_list_where
 from app.services.inventory_service import (
@@ -64,6 +64,17 @@ def _require_inventory_manager(user: User) -> None:
             status_code=403,
             detail="Only Admin or SubAdmin can manage warehouse inventory issuance",
         )
+
+
+def _require_can_issue(user: User) -> None:
+    if check_permission(user, "inventory.issue") or check_permission(user, "issue_inventory"):
+        return
+    if is_inventory_manager(user):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Only inventory managers can issue inventory",
+    )
 
 
 def _require_can_receive_stock(user: User) -> None:
@@ -1187,9 +1198,9 @@ def issue_inventory(
     inventory_id: int,
     body: schemas.InventoryIssueRequest,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("issue_inventory")),
+    current_user: User = Depends(get_current_user),
 ):
-    _require_inventory_manager(current_user)
+    _require_can_issue(current_user)
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
@@ -1203,6 +1214,9 @@ def issue_inventory(
         target_entity_type=body.target_entity_type,
         target_entity_id=body.target_entity_id,
         notes=body.notes,
+        signature_type=body.signature_type,
+        signature_payload=body.signature_payload,
+        item_request_id=body.item_request_id,
     )
     session.commit()
     session.refresh(issuance)

@@ -357,6 +357,22 @@ class InventoryIssuance(InventoryIssuanceBase, table=True):
     )
 
 
+class InventoryItemRequest(InventoryItemRequestBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project: Optional["Project"] = Relationship()
+    flight: Optional["Flight"] = Relationship()
+    sdls: Optional["Sdls"] = Relationship()
+    inventory: Optional[Inventory] = Relationship()
+    inventory_instance: Optional[InventoryInstance] = Relationship()
+    reservation: Optional["InventoryReservation"] = Relationship()
+    assigned_developer: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryItemRequest.assigned_developer_id]"},
+    )
+    requested_by: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryItemRequest.requested_by_user_id]"},
+    )
+
+
 class InventoryReturnNotice(InventoryReturnNoticeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     issuance_id: int = Field(foreign_key="inventoryissuance.id", index=True)

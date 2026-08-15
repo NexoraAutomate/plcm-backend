@@ -745,9 +745,55 @@ def release_reservation(
             reservation.notes = f"{existing}\n{tag}".strip() if existing else tag
     reservation.updated_at = _now()
     session.add(reservation)
+
+    from app.services.hierarchy_developer_service import (
+        clear_developer_assignment_if_unissued,
+    )
+
+    clear_developer_assignment_if_unissued(
+        session,
+        reservation.target_entity_type,
+        int(reservation.target_entity_id),
+    )
+
     session.commit()
     session.refresh(reservation)
     return reservation
+
+
+def consume_reservation(
+    session: Session,
+    reservation: InventoryReservation,
+    *,
+    actor: Optional[User] = None,
+) -> InventoryReservation:
+    """Mark an active reservation consumed by issue. Does not flip item status or commit."""
+    if reservation.status != InventoryReservationStatus.ACTIVE.value:
+        raise InventoryReservationError("Reservation is not active")
+    reservation.status = InventoryReservationStatus.CONSUMED.value
+    reservation.released_at = _now()
+    reservation.released_by_user_id = int(actor.id) if actor and actor.id else None
+    existing = (reservation.notes or "").strip()
+    tag = "CONSUMED_ON_ISSUE"
+    reservation.notes = f"{existing}\n{tag}".strip() if existing else tag
+    reservation.updated_at = _now()
+    session.add(reservation)
+    return reservation
+
+
+def active_reservation_for_entity(
+    session: Session,
+    target_entity_type: str,
+    target_entity_id: int,
+) -> Optional[InventoryReservation]:
+    et = target_entity_type.strip().lower()
+    return session.exec(
+        select(InventoryReservation).where(
+            InventoryReservation.target_entity_type == et,
+            InventoryReservation.target_entity_id == int(target_entity_id),
+            InventoryReservation.status == InventoryReservationStatus.ACTIVE.value,
+        )
+    ).first()
 
 
 def extend_reservation(

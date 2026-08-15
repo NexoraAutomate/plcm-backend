@@ -163,6 +163,18 @@ CREATE TABLE IF NOT EXISTS inventoryreservationexpirynotice (
 
 ISSUANCE_COLUMN_DDL = [
     ("return_requested_at", "TIMESTAMP WITH TIME ZONE"),
+    ("signature_type", "VARCHAR(32)"),
+    ("signature_payload", "TEXT"),
+    ("item_request_id", "INTEGER"),
+    ("reservation_id", "INTEGER"),
+    ("project_id", "INTEGER"),
+    ("flight_id", "INTEGER"),
+    ("sdls_id", "INTEGER"),
+    ("item_lifecycle_status", "VARCHAR(64)"),
+]
+
+HIERARCHY_ASSIGN_DEVELOPER_DDL = [
+    ("assigned_developer_id", "INTEGER"),
 ]
 
 RETURN_NOTICE_COLUMN_DDL = [
@@ -208,6 +220,29 @@ CREATE TABLE IF NOT EXISTS inventoryinstallernotice (
     notes VARCHAR,
     created_at TIMESTAMP WITH TIME ZONE,
     read_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
+INVENTORY_ITEM_REQUEST_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryitemrequest (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    flight_id INTEGER NOT NULL REFERENCES flight(id),
+    sdls_id INTEGER NOT NULL REFERENCES sdls(id),
+    target_entity_type VARCHAR(32) NOT NULL,
+    target_entity_id INTEGER NOT NULL,
+    assigned_developer_id INTEGER NOT NULL REFERENCES "user"(id),
+    requested_by_user_id INTEGER NOT NULL REFERENCES "user"(id),
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    inventory_instance_id INTEGER REFERENCES inventoryinstance(id),
+    reservation_id INTEGER NOT NULL REFERENCES inventoryreservation(id),
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    issued_at TIMESTAMP WITH TIME ZONE,
+    issued_issuance_id INTEGER REFERENCES inventoryissuance(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
 )
 """
 
@@ -385,6 +420,11 @@ def ensure_user_management_schema() -> None:
         )
 
     _add_columns_if_missing("system", SYSTEM_COLUMN_DDL)
+    _add_columns_if_missing("system", HIERARCHY_ASSIGN_DEVELOPER_DDL)
+    _add_columns_if_missing("subsystem", HIERARCHY_ASSIGN_DEVELOPER_DDL)
+    _add_columns_if_missing("module", HIERARCHY_ASSIGN_DEVELOPER_DDL)
+    _add_columns_if_missing("unit", HIERARCHY_ASSIGN_DEVELOPER_DDL)
+    _add_columns_if_missing("component", HIERARCHY_ASSIGN_DEVELOPER_DDL)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -498,6 +538,23 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryinstallernotice_notice_type
                 ON inventoryinstallernotice (notice_type)
+                """
+            )
+        )
+        conn.execute(text(INVENTORY_ITEM_REQUEST_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryitemrequest_status
+                ON inventoryitemrequest (status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryitemrequest_developer
+                ON inventoryitemrequest (assigned_developer_id)
                 """
             )
         )

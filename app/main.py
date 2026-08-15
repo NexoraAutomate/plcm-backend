@@ -29,6 +29,9 @@ from app.services.workflow_demo_users import ensure_workflow_demo_users
 from app.services.inventory_reservation_expiry_service import (
     evaluate_reservation_expiry,
 )
+from app.services.inventory_issue_progress_service import (
+    evaluate_issue_progress,
+)
 
 # Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
 from datetime import datetime as _datetime
@@ -56,6 +59,22 @@ def _expiry_job_interval_seconds() -> int:
         return 3600
 
 
+def _issue_progress_job_enabled() -> bool:
+    return os.getenv("ISSUE_PROGRESS_JOB_ENABLED", "true").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _issue_progress_job_interval_seconds() -> int:
+    try:
+        return max(60, int(os.getenv("ISSUE_PROGRESS_JOB_INTERVAL_SECONDS", "3600")))
+    except (TypeError, ValueError):
+        return 3600
+
+
 async def _reservation_expiry_loop() -> None:
     if not _expiry_job_enabled():
         return
@@ -65,6 +84,19 @@ async def _reservation_expiry_loop() -> None:
         try:
             with Session(engine) as session:
                 evaluate_reservation_expiry(session)
+        except Exception:
+            continue
+
+
+async def _issue_progress_loop() -> None:
+    if not _issue_progress_job_enabled():
+        return
+    interval = _issue_progress_job_interval_seconds()
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            with Session(engine) as session:
+                evaluate_issue_progress(session)
         except Exception:
             continue
 
@@ -91,11 +123,15 @@ async def lifespan(app: FastAPI):
         get_or_create_app_definitions(session)
         if _expiry_job_enabled():
             evaluate_reservation_expiry(session)
+        if _issue_progress_job_enabled():
+            evaluate_issue_progress(session)
     expiry_task = asyncio.create_task(_reservation_expiry_loop())
+    progress_task = asyncio.create_task(_issue_progress_loop())
     try:
         yield
     finally:
         expiry_task.cancel()
+        progress_task.cancel()
         # shutdown
         close_db()
 
