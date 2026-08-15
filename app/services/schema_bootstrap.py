@@ -171,6 +171,14 @@ ISSUANCE_COLUMN_DDL = [
     ("flight_id", "INTEGER"),
     ("sdls_id", "INTEGER"),
     ("item_lifecycle_status", "VARCHAR(64)"),
+    ("test_result", "VARCHAR(16)"),
+    ("test_recorded_at", "TIMESTAMP WITH TIME ZONE"),
+    ("test_recorded_by_id", "INTEGER"),
+    ("complete_reported_at", "TIMESTAMP WITH TIME ZONE"),
+    ("complete_reported_by_id", "INTEGER"),
+    ("verified_at", "TIMESTAMP WITH TIME ZONE"),
+    ("verified_by_id", "INTEGER"),
+    ("defect_pending", "BOOLEAN DEFAULT FALSE"),
 ]
 
 HIERARCHY_ASSIGN_DEVELOPER_DDL = [

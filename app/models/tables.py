@@ -341,6 +341,9 @@ class InventoryIssuance(InventoryIssuanceBase, table=True):
     issued_by_user_id: int = Field(foreign_key="user.id", index=True)
     installed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    test_recorded_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    complete_reported_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    verified_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     inventory: Optional[Inventory] = Relationship(back_populates="issuances")
     inventory_instance: Optional[InventoryInstance] = Relationship(back_populates="issuances")
     issued_to_user: Optional[User] = Relationship(

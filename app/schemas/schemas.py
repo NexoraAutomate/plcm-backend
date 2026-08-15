@@ -1349,6 +1349,15 @@ class HierarchyAssignmentStatusRead(SQLModel):
     assigned_developer_id: Optional[int] = None
     assigned_developer_name: Optional[str] = None
     issued: bool = False
+    issuance_id: Optional[int] = None
+    item_status: Optional[str] = None
+    test_result: Optional[str] = None
+    complete_reported: bool = False
+    defect_pending: bool = False
+    verified: bool = False
+    can_install: bool = False
+    can_test: bool = False
+    can_report_complete: bool = False
 
 
 class DeveloperAssignedWorkRead(SQLModel):
@@ -1366,6 +1375,51 @@ class DeveloperAssignedWorkRead(SQLModel):
     issued: bool = False
     can_request: bool = False
     pending_request_id: Optional[int] = None
+    issuance_id: Optional[int] = None
+    item_status: Optional[str] = None
+    test_result: Optional[str] = None
+    complete_reported: bool = False
+    complete_reported_at: Optional[datetime] = None
+    defect_pending: bool = False
+    verified: bool = False
+    verified_at: Optional[datetime] = None
+    installed_at: Optional[datetime] = None
+    can_install: bool = False
+    can_test: bool = False
+    can_report_complete: bool = False
+
+
+class ItemInstallNotesBody(SQLModel):
+    notes: Optional[str] = None
+
+
+class ItemInstallTestBody(SQLModel):
+    result: str
+    notes: Optional[str] = None
+
+
+class ItemInstallStateRead(SQLModel):
+    issuance_id: int
+    entity_type: str
+    entity_id: int
+    entity_name: Optional[str] = None
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    serial_number: Optional[str] = None
+    part_number: Optional[str] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    item_status: Optional[str] = None
+    test_result: Optional[str] = None
+    complete_reported: bool = False
+    complete_reported_at: Optional[datetime] = None
+    defect_pending: bool = False
+    verified: bool = False
+    verified_at: Optional[datetime] = None
+    installed_at: Optional[datetime] = None
+    can_install: bool = False
+    can_test: bool = False
+    can_report_complete: bool = False
 
 
 class ItemIssueRequestTarget(SQLModel):

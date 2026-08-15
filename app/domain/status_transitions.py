@@ -78,7 +78,18 @@ PROJECT_TRANSITIONS: dict[str, frozenset[str]] = {
 RoleGate = Optional[frozenset[WorkflowRole]]
 
 ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
-    # Leave open for Spec 04+ services; System may act without a workflow role.
+    (
+        ItemStatus.ISSUED.value,
+        ItemStatus.INSTALLATION_IN_PROGRESS.value,
+    ): frozenset({WorkflowRole.DEV}),
+    (
+        ItemStatus.INSTALLATION_IN_PROGRESS.value,
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+    ): frozenset({WorkflowRole.DEV}),
+    (
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+        ItemStatus.INSTALLED_VERIFIED.value,
+    ): frozenset({WorkflowRole.HM}),
 }
 
 PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {

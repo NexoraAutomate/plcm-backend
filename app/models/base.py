@@ -636,6 +636,15 @@ class InventoryIssuanceBase(SQLModel):
     flight_id: Optional[int] = None
     sdls_id: Optional[int] = None
     item_lifecycle_status: Optional[str] = Field(default=None, max_length=64, index=True)
+    # Spec 08 — install / test / HM verify (item lifecycle, not consume-install)
+    test_result: Optional[str] = Field(default=None, max_length=16, index=True)
+    test_recorded_at: Optional[datetime] = None
+    test_recorded_by_id: Optional[int] = None
+    complete_reported_at: Optional[datetime] = None
+    complete_reported_by_id: Optional[int] = None
+    verified_at: Optional[datetime] = None
+    verified_by_id: Optional[int] = None
+    defect_pending: bool = Field(default=False, index=True)
 
 
 class InventoryReturnNoticeBase(SQLModel):
@@ -699,6 +708,11 @@ class InventoryItemRequestBase(SQLModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ItemTestResult(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
+
+
 class IssuanceEventType(str, Enum):
     ISSUED = "issued"
     RETURN_REQUESTED = "return_requested"
@@ -706,6 +720,12 @@ class IssuanceEventType(str, Enum):
     RETURN_REJECTED = "return_rejected"
     INSTALLED = "installed"
     REVERTED = "reverted"
+    INSTALL_STARTED = "install_started"
+    TEST_PASSED = "test_passed"
+    TEST_FAILED = "test_failed"
+    COMPLETE_REPORTED = "complete_reported"
+    VERIFIED = "verified"
+    DEFECT_PENDING = "defect_pending"
 
 
 class InventoryIssuanceEventBase(SQLModel):

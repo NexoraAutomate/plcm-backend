@@ -119,3 +119,43 @@ class TestAssertTransition:
     def test_string_codes_accepted(self):
         assert can_transition("item", "AVAILABLE", "RESERVED")
         assert can_transition("project", "DRAFT", "APPROVED")
+
+
+class TestItemRoleGates:
+    def test_system_skips_role_gate(self):
+        assert can_transition(
+            "item",
+            ItemStatus.ISSUED,
+            ItemStatus.INSTALLATION_IN_PROGRESS,
+            actor_role=None,
+        )
+
+    def test_dev_can_start_install_and_test(self):
+        assert can_transition(
+            "item",
+            ItemStatus.ISSUED,
+            ItemStatus.INSTALLATION_IN_PROGRESS,
+            actor_role=WorkflowRole.DEV,
+        )
+        assert can_transition(
+            "item",
+            ItemStatus.INSTALLATION_IN_PROGRESS,
+            ItemStatus.UNDER_TESTING_REVIEW,
+            actor_role=WorkflowRole.DEV,
+        )
+
+    def test_dev_cannot_verify(self):
+        assert not can_transition(
+            "item",
+            ItemStatus.UNDER_TESTING_REVIEW,
+            ItemStatus.INSTALLED_VERIFIED,
+            actor_role=WorkflowRole.DEV,
+        )
+
+    def test_hm_can_verify(self):
+        assert can_transition(
+            "item",
+            ItemStatus.UNDER_TESTING_REVIEW,
+            ItemStatus.INSTALLED_VERIFIED,
+            actor_role=WorkflowRole.HM,
+        )

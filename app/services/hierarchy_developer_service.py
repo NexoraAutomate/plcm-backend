@@ -149,6 +149,9 @@ def assignment_status_map(
             continue
         payload = assigned_developer_payload(session, entity, et)
         payload["issued"] = entity_is_physically_issued(session, et, int(eid))
+        from app.services.item_install_verify_service import install_progress_payload
+
+        payload.update(install_progress_payload(session, et, int(eid)))
         out[int(eid)] = payload
     return out
 
@@ -258,6 +261,7 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
     """Hierarchy nodes assigned to this developer (HM assignment, not IM issue)."""
     from app.models.tables import Project
     from app.services.inventory_reservation_service import active_reservation_for_entity
+    from app.services.item_install_verify_service import install_progress_payload
 
     rows: list[dict] = []
     for et, model in _ASSIGNMENT_MODELS:
@@ -281,6 +285,7 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                 project = session.get(Project, int(project_id))
                 project_name = project.name if project else None
             reserved = reservation is not None
+            progress = install_progress_payload(session, et, eid)
             rows.append(
                 {
                     "entity_type": et,
@@ -305,6 +310,7 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     "issued": issued,
                     "can_request": reserved and not issued and pending is None,
                     "pending_request_id": pending.id if pending else None,
+                    **progress,
                 }
             )
     rows.sort(key=lambda r: ((r.get("project_name") or ""), (r.get("name") or "")))

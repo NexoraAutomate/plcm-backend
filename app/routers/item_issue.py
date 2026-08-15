@@ -18,6 +18,15 @@ from app.services.hierarchy_developer_service import (
     entity_is_physically_issued,
     list_assigned_work,
 )
+from app.services.item_install_verify_service import (
+    ItemInstallVerifyError,
+    issuance_state_dict,
+    list_verification_queue,
+    report_complete,
+    start_install,
+    submit_test,
+    verify_issuance,
+)
 from app.services.item_request_service import (
     ItemRequestError,
     create_bulk_item_requests,
@@ -35,7 +44,12 @@ def _http_error(exc: ValueError) -> HTTPException:
     lower = detail.lower()
     if "not found" in lower:
         code = status.HTTP_404_NOT_FOUND
-    elif "only request" in lower or "assigned to you" in lower:
+    elif (
+        "only request" in lower
+        or "assigned to you" in lower
+        or "assigned developer" in lower
+        or "cannot verify items" in lower
+    ):
         code = status.HTTP_403_FORBIDDEN
     else:
         code = status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -60,6 +74,15 @@ def require_item_request_or_issue(user: User = Depends(get_current_user)) -> Use
         or check_permission(user, "inventory.issue")
         or check_permission(user, "issue_inventory")
     ):
+        return user
+    raise HTTPException(
+        status_code=403,
+        detail="User does not have permission: item.request",
+    )
+
+
+def require_mine_assignments(user: User = Depends(get_current_user)) -> User:
+    if check_permission(user, "item.request") or check_permission(user, "item.install_test"):
         return user
     raise HTTPException(
         status_code=403,
@@ -108,6 +131,8 @@ def get_hierarchy_assignment_status(
     if not (
         check_permission(current_user, "hierarchy.assign_developer")
         or check_permission(current_user, "item.request")
+        or check_permission(current_user, "item.install_test")
+        or check_permission(current_user, "item.verify")
         or check_permission(current_user, "view_projects")
         or check_permission(current_user, "view_systems")
     ):
@@ -138,7 +163,7 @@ def get_hierarchy_assignment_status(
 )
 def list_my_assigned_work(
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("item.request")),
+    current_user: User = Depends(require_mine_assignments),
 ):
     return [
         schemas.DeveloperAssignedWorkRead.model_validate(row)
@@ -258,4 +283,124 @@ def issue_pending_item_request(
             item_request_to_dict(session, row)
         )
     except ItemRequestError as exc:
+        raise _http_error(exc) from exc
+
+
+def _install_state(session: Session, issuance, entity=None):
+    return schemas.ItemInstallStateRead.model_validate(
+        issuance_state_dict(session, issuance, entity=entity)
+    )
+
+
+@router.post(
+    "/item-install/{entity_type}/{entity_id}/start/",
+    response_model=schemas.ItemInstallStateRead,
+    tags=["item-install"],
+)
+def start_item_install(
+    entity_type: str,
+    entity_id: int,
+    payload: Optional[schemas.ItemInstallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    try:
+        issuance = start_install(
+            session,
+            entity_type,
+            entity_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _install_state(session, issuance)
+    except (ItemInstallVerifyError, HierarchyDeveloperError) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-install/{entity_type}/{entity_id}/test/",
+    response_model=schemas.ItemInstallStateRead,
+    tags=["item-install"],
+)
+def submit_item_test(
+    entity_type: str,
+    entity_id: int,
+    payload: schemas.ItemInstallTestBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    try:
+        issuance = submit_test(
+            session,
+            entity_type,
+            entity_id,
+            result=payload.result,
+            actor=current_user,
+            notes=payload.notes,
+        )
+        return _install_state(session, issuance)
+    except (ItemInstallVerifyError, HierarchyDeveloperError) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-install/{entity_type}/{entity_id}/complete/",
+    response_model=schemas.ItemInstallStateRead,
+    tags=["item-install"],
+)
+def report_item_install_complete(
+    entity_type: str,
+    entity_id: int,
+    payload: Optional[schemas.ItemInstallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    try:
+        issuance = report_complete(
+            session,
+            entity_type,
+            entity_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _install_state(session, issuance)
+    except (ItemInstallVerifyError, HierarchyDeveloperError) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/item-verifications/",
+    response_model=List[schemas.ItemInstallStateRead],
+    tags=["item-verifications"],
+)
+def list_item_verifications(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.verify")),
+):
+    return [
+        schemas.ItemInstallStateRead.model_validate(row)
+        for row in list_verification_queue(session, current_user)
+    ]
+
+
+@router.post(
+    "/item-verifications/{issuance_id}/verify/",
+    response_model=schemas.ItemInstallStateRead,
+    tags=["item-verifications"],
+)
+def verify_item_installation(
+    issuance_id: int,
+    payload: Optional[schemas.ItemInstallNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.verify")),
+):
+    try:
+        issuance = verify_issuance(
+            session,
+            issuance_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _install_state(session, issuance)
+    except ItemInstallVerifyError as exc:
         raise _http_error(exc) from exc
