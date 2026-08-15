@@ -49,8 +49,8 @@ ITEM_TRANSITIONS: dict[str, frozenset[str]] = {
         }
     ),
     ItemStatus.REUSABLE.value: frozenset({ItemStatus.AVAILABLE.value}),
-    # Terminal / parked until later specs extend
-    ItemStatus.REPAIRABLE.value: frozenset(),
+    # Spec 10 — repaired serial re-enters issue without going through AVAILABLE
+    ItemStatus.REPAIRABLE.value: frozenset({ItemStatus.ISSUED.value}),
     ItemStatus.SCRAPPED.value: frozenset(),
     ItemStatus.INSTALLED_VERIFIED.value: frozenset(),
 }
@@ -93,6 +93,34 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
         ItemStatus.UNDER_TESTING_REVIEW.value,
         ItemStatus.INSTALLED_VERIFIED.value,
     ): frozenset({WorkflowRole.HM}),
+    (
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+        ItemStatus.RETURNED.value,
+    ): frozenset({WorkflowRole.DEV}),
+    (
+        ItemStatus.RETURNED.value,
+        ItemStatus.INSPECTION.value,
+    ): frozenset({WorkflowRole.IM}),
+    (
+        ItemStatus.INSPECTION.value,
+        ItemStatus.REUSABLE.value,
+    ): frozenset({WorkflowRole.IM}),
+    (
+        ItemStatus.INSPECTION.value,
+        ItemStatus.REPAIRABLE.value,
+    ): frozenset({WorkflowRole.IM}),
+    (
+        ItemStatus.INSPECTION.value,
+        ItemStatus.SCRAPPED.value,
+    ): frozenset({WorkflowRole.IM}),
+    (
+        ItemStatus.REPAIRABLE.value,
+        ItemStatus.ISSUED.value,
+    ): frozenset({WorkflowRole.IM}),
+    (
+        ItemStatus.REUSABLE.value,
+        ItemStatus.AVAILABLE.value,
+    ): frozenset({WorkflowRole.IM}),
 }
 
 PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {

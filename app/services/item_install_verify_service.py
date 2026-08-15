@@ -163,6 +163,9 @@ def install_progress_payload(
     issuance: Optional[InventoryIssuance] = None,
 ) -> dict[str, Any]:
     row = issuance or open_issuance_for_entity(session, entity_type, entity_id)
+    from app.services.item_rework_service import rework_progress_fields
+
+    rework = rework_progress_fields(session, entity_type, entity_id)
     if row is None:
         return {
             "issuance_id": None,
@@ -170,13 +173,14 @@ def install_progress_payload(
             "test_result": None,
             "complete_reported": False,
             "complete_reported_at": None,
-            "defect_pending": False,
+            "defect_pending": bool(rework.get("rework_id")),
             "verified": False,
             "verified_at": None,
             "installed_at": None,
             "can_install": False,
             "can_test": False,
             "can_report_complete": False,
+            **rework,
         }
     status = current_item_status(session, row)
     test_result = (row.test_result or "").strip().lower() or None
@@ -212,6 +216,7 @@ def install_progress_payload(
             and not defect_pending
             and not verified
         ),
+        **rework,
     }
 
 
@@ -291,6 +296,9 @@ def start_install(
             actor=actor,
             notes=notes,
         )
+    from app.services.item_rework_service import mark_rework_retesting
+
+    mark_rework_retesting(session, entity_type, entity_id)
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, getattr(issuance, "project_id", None))
@@ -351,6 +359,9 @@ def submit_test(
             actor=actor,
             notes=notes or "Fail path handoff for Spec 10",
         )
+        from app.services.item_rework_service import ensure_open_rework_case
+
+        ensure_open_rework_case(session, issuance, actor=actor, notes=notes)
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, getattr(issuance, "project_id", None))
@@ -433,6 +444,9 @@ def verify_issuance(
         actor=actor,
         notes=notes,
     )
+    from app.services.item_rework_service import close_rework_for_issuance
+
+    close_rework_for_issuance(session, issuance, actor=actor, notes=notes)
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, issuance.project_id)

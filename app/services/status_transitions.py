@@ -39,8 +39,8 @@ ITEM_TRANSITIONS: dict[ItemStatus, Set[ItemStatus]] = {
         ItemStatus.SCRAPPED,
     },
     ItemStatus.REUSABLE: {ItemStatus.AVAILABLE},
-    # Outbound edges for rework / re-issue land in later specs
-    ItemStatus.REPAIRABLE: set(),
+    # Spec 10 — repaired serial re-enters issue
+    ItemStatus.REPAIRABLE: {ItemStatus.ISSUED},
     ItemStatus.SCRAPPED: set(),  # terminal
 }
 

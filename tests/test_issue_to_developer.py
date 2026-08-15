@@ -21,6 +21,7 @@ from app.models.tables import (
     InventoryInstallerNotice,
     InventoryItemRequest,
     InventoryReservation,
+    InventoryReworkCase,
     Project,
     Role,
     Status,
@@ -197,6 +198,12 @@ def _cleanup(
         select(InventoryItemRequest).where(InventoryItemRequest.project_id == project.id)
     ).all()
     for row in reqs:
+        session.delete(row)
+    session.flush()
+    reworks = session.exec(
+        select(InventoryReworkCase).where(InventoryReworkCase.project_id == project.id)
+    ).all()
+    for row in reworks:
         session.delete(row)
     session.flush()
     if inventory:

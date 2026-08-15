@@ -562,6 +562,15 @@ def _advance_to_issued(
             to_status=ItemStatus.ISSUED.value,
         )
         return
+    if current == ItemStatus.REPAIRABLE.value:
+        _set_item_lifecycle_status(
+            session,
+            inventory=inventory,
+            instance=instance,
+            from_status=ItemStatus.REPAIRABLE.value,
+            to_status=ItemStatus.ISSUED.value,
+        )
+        return
     raise HTTPException(
         status_code=400,
         detail=f"Item status {current} cannot be issued",
@@ -582,6 +591,10 @@ def issue_inventory_unit(
     signature_type: Optional[str] = None,
     signature_payload: Optional[str] = None,
     item_request_id: Optional[int] = None,
+    rework: bool = False,
+    rework_project_id: Optional[int] = None,
+    rework_flight_id: Optional[int] = None,
+    rework_sdls_id: Optional[int] = None,
 ) -> InventoryIssuance:
     if quantity < 1:
         raise HTTPException(status_code=400, detail="Quantity must be at least 1")
@@ -641,7 +654,29 @@ def issue_inventory_unit(
         project_hold = active_reservation_for_instance(session, int(instance.id))
         requested_type = (target_entity_type or "").strip().lower() or None
         requested_id = target_entity_id
-        if project_hold:
+        if rework:
+            if item_status_name(session, instance.status_id) == ItemStatus.SCRAPPED.value:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Scrap disposition cannot re-issue that serial",
+                )
+            if project_hold:
+                reservation_id = int(project_hold.id) if project_hold.id else None
+                project_id = int(project_hold.project_id)
+                flight_id = int(project_hold.flight_id)
+                sdls_id = int(project_hold.sdls_id)
+                target_entity_type = project_hold.target_entity_type
+                target_entity_id = project_hold.target_entity_id
+            else:
+                project_id = rework_project_id
+                flight_id = rework_flight_id
+                sdls_id = rework_sdls_id
+                if not project_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Rework re-issue requires project allocation",
+                    )
+        elif project_hold:
             if not item_request_id:
                 raise HTTPException(
                     status_code=400,

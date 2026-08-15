@@ -231,6 +231,35 @@ CREATE TABLE IF NOT EXISTS inventoryinstallernotice (
 )
 """
 
+INVENTORY_REWORK_CASE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventoryreworkcase (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    flight_id INTEGER REFERENCES flight(id),
+    sdls_id INTEGER REFERENCES sdls(id),
+    target_entity_type VARCHAR(32) NOT NULL,
+    target_entity_id INTEGER NOT NULL,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    original_instance_id INTEGER REFERENCES inventoryinstance(id),
+    current_instance_id INTEGER REFERENCES inventoryinstance(id),
+    current_issuance_id INTEGER REFERENCES inventoryissuance(id),
+    assigned_developer_id INTEGER REFERENCES "user"(id),
+    status VARCHAR(32) NOT NULL DEFAULT 'open',
+    stage VARCHAR(32) NOT NULL DEFAULT 'failed',
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    disposition VARCHAR(32),
+    repaired_at TIMESTAMP WITH TIME ZONE,
+    repaired_by_id INTEGER REFERENCES "user"(id),
+    opened_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    opened_by_id INTEGER REFERENCES "user"(id),
+    closed_at TIMESTAMP WITH TIME ZONE,
+    closed_by_id INTEGER REFERENCES "user"(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 INVENTORY_ITEM_REQUEST_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS inventoryitemrequest (
     id SERIAL PRIMARY KEY,
@@ -550,6 +579,23 @@ def ensure_user_management_schema() -> None:
             )
         )
         conn.execute(text(INVENTORY_ITEM_REQUEST_TABLE_DDL))
+        conn.execute(text(INVENTORY_REWORK_CASE_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreworkcase_status
+                ON inventoryreworkcase (status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventoryreworkcase_entity
+                ON inventoryreworkcase (target_entity_type, target_entity_id)
+                """
+            )
+        )
         conn.execute(
             text(
                 """

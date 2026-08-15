@@ -57,6 +57,7 @@ class TestItemReturnPath:
         assert can_transition("item", "INSPECTION", "REPAIRABLE")
         assert can_transition("item", "INSPECTION", "SCRAPPED")
         assert can_transition("item", "REUSABLE", "AVAILABLE")
+        assert can_transition("item", "REPAIRABLE", "ISSUED")
 
     def test_scrapped_terminal(self):
         assert not can_transition("item", "SCRAPPED", "AVAILABLE")

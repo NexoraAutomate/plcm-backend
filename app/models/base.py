@@ -726,6 +726,78 @@ class IssuanceEventType(str, Enum):
     COMPLETE_REPORTED = "complete_reported"
     VERIFIED = "verified"
     DEFECT_PENDING = "defect_pending"
+    REWORK_OPENED = "rework_opened"
+    ITEM_REMOVED = "item_removed"
+    ITEM_RETURNED = "item_returned"
+    INSPECTION_STARTED = "inspection_started"
+    DISPOSITIONED = "dispositioned"
+    REISSUED = "reissued"
+    REWORK_CLOSED = "rework_closed"
+
+
+class ReworkCaseStatus(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
+
+class ReworkStage(str, Enum):
+    FAILED = "failed"
+    REMOVED = "removed"
+    RETURNED = "returned"
+    INSPECTION = "inspection"
+    REPAIRABLE = "repairable"
+    REUSABLE = "reusable"
+    SCRAPPED = "scrapped"
+    REISSUED = "reissued"
+    RETESTING = "retesting"
+
+
+class ReworkDisposition(str, Enum):
+    REPAIRABLE = "repairable"
+    REUSABLE = "reusable"
+    SCRAPPED = "scrapped"
+
+
+REWORK_CYCLE_WARNING_ATTEMPTS = 3
+
+
+class InventoryReworkCaseBase(SQLModel):
+    """Spec 10 — open defect/rework case for a hierarchy node (outlives a serial)."""
+    project_id: int = Field(foreign_key="project.id", index=True)
+    flight_id: Optional[int] = Field(default=None, foreign_key="flight.id")
+    sdls_id: Optional[int] = Field(default=None, foreign_key="sdls.id")
+    target_entity_type: str = Field(max_length=32, index=True)
+    target_entity_id: int = Field(index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    original_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    current_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    current_issuance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryissuance.id", index=True
+    )
+    assigned_developer_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
+    status: str = Field(
+        default=ReworkCaseStatus.OPEN.value, index=True, max_length=32
+    )
+    stage: str = Field(
+        default=ReworkStage.FAILED.value, index=True, max_length=32
+    )
+    attempt_count: int = Field(default=1)
+    disposition: Optional[str] = Field(default=None, max_length=32)
+    repaired_at: Optional[datetime] = None
+    repaired_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    opened_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    closed_at: Optional[datetime] = None
+    closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class InventoryIssuanceEventBase(SQLModel):

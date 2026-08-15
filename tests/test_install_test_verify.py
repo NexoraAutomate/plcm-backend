@@ -222,7 +222,15 @@ def test_fail_marks_defect_pending_never_verified(
         types = _event_types(session, int(issued.issued_issuance_id))
         assert IssuanceEventType.TEST_FAILED.value in types
         assert IssuanceEventType.DEFECT_PENDING.value in types
+        assert IssuanceEventType.REWORK_OPENED.value in types
         assert IssuanceEventType.VERIFIED.value not in types
+
+        from app.services.item_rework_service import open_rework_for_entity
+
+        case = open_rework_for_entity(session, "system", int(target.id))
+        assert case is not None
+        assert case.attempt_count == 1
+        assert case.stage == "failed"
     finally:
         _cleanup(session, project, cfg, inv)
 

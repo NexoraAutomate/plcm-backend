@@ -206,6 +206,10 @@ def is_instance_free_for_project_reserve(
         ItemStatus.INSTALLATION_IN_PROGRESS.value,
         ItemStatus.UNDER_TESTING_REVIEW.value,
         ItemStatus.INSTALLED_VERIFIED.value,
+        ItemStatus.RETURNED.value,
+        ItemStatus.INSPECTION.value,
+        ItemStatus.REPAIRABLE.value,
+        ItemStatus.REUSABLE.value,
         ItemStatus.SCRAPPED.value,
     }:
         return False

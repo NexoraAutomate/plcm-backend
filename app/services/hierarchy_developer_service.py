@@ -12,6 +12,7 @@ from app.models.base import ItemRequestStatus, IssuanceStatus
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Component,
+    InventoryInstance,
     InventoryIssuance,
     InventoryItemRequest,
     Module,
@@ -286,17 +287,30 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                 project_name = project.name if project else None
             reserved = reservation is not None
             progress = install_progress_payload(session, et, eid)
+            serial_number = (
+                reservation.serial_number
+                if reservation
+                else getattr(entity, "serial_number", None)
+            )
+            if not serial_number and progress.get("issuance_id"):
+                issuance = session.get(InventoryIssuance, progress["issuance_id"])
+                if issuance is not None:
+                    serial_number = issuance.serial_number
+            if not serial_number and progress.get("rework_id"):
+                from app.models.tables import InventoryReworkCase
+
+                case = session.get(InventoryReworkCase, progress["rework_id"])
+                if case and case.current_instance_id:
+                    inst = session.get(InventoryInstance, case.current_instance_id)
+                    if inst is not None:
+                        serial_number = inst.serial_number
             rows.append(
                 {
                     "entity_type": et,
                     "entity_id": eid,
                     "name": getattr(entity, "name", None),
                     "part_number": getattr(entity, "part_number", None),
-                    "serial_number": (
-                        reservation.serial_number
-                        if reservation
-                        else getattr(entity, "serial_number", None)
-                    ),
+                    "serial_number": serial_number,
                     "project_id": project_id,
                     "project_name": project_name,
                     "assigned_developer_id": int(developer_id),

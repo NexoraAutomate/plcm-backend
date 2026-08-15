@@ -61,6 +61,8 @@ class TestItemReturnPath:
         ):
             assert can_transition("item", ItemStatus.INSPECTION, outcome)
         assert can_transition("item", ItemStatus.REUSABLE, ItemStatus.AVAILABLE)
+        assert can_transition("item", ItemStatus.REPAIRABLE, ItemStatus.ISSUED)
+        assert not can_transition("item", ItemStatus.SCRAPPED, ItemStatus.ISSUED)
 
     def test_release_reserved_to_available(self):
         assert can_transition("item", ItemStatus.RESERVED, ItemStatus.AVAILABLE)
@@ -193,4 +195,44 @@ class TestItemRoleGates:
             ItemStatus.UNDER_TESTING_REVIEW,
             ItemStatus.INSTALLED_VERIFIED,
             actor_role=WorkflowRole.HM,
+        )
+
+    def test_dev_can_return_after_fail(self):
+        assert can_transition(
+            "item",
+            ItemStatus.UNDER_TESTING_REVIEW,
+            ItemStatus.RETURNED,
+            actor_role=WorkflowRole.DEV,
+        )
+        assert not can_transition(
+            "item",
+            ItemStatus.UNDER_TESTING_REVIEW,
+            ItemStatus.RETURNED,
+            actor_role=WorkflowRole.IM,
+        )
+
+    def test_im_inspect_and_repair_reissue(self):
+        assert can_transition(
+            "item",
+            ItemStatus.RETURNED,
+            ItemStatus.INSPECTION,
+            actor_role=WorkflowRole.IM,
+        )
+        assert can_transition(
+            "item",
+            ItemStatus.INSPECTION,
+            ItemStatus.REPAIRABLE,
+            actor_role=WorkflowRole.IM,
+        )
+        assert can_transition(
+            "item",
+            ItemStatus.REPAIRABLE,
+            ItemStatus.ISSUED,
+            actor_role=WorkflowRole.IM,
+        )
+        assert not can_transition(
+            "item",
+            ItemStatus.REPAIRABLE,
+            ItemStatus.ISSUED,
+            actor_role=WorkflowRole.DEV,
         )

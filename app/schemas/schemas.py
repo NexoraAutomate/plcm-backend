@@ -1414,6 +1414,14 @@ class HierarchyAssignmentStatusRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    rework_id: Optional[int] = None
+    rework_status: Optional[str] = None
+    rework_stage: Optional[str] = None
+    rework_attempt_count: Optional[int] = None
+    rework_cycle_warning: bool = False
+    rework_disposition: Optional[str] = None
+    can_remove: bool = False
+    can_return: bool = False
 
 
 class DeveloperAssignedWorkRead(SQLModel):
@@ -1443,6 +1451,14 @@ class DeveloperAssignedWorkRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    rework_id: Optional[int] = None
+    rework_status: Optional[str] = None
+    rework_stage: Optional[str] = None
+    rework_attempt_count: Optional[int] = None
+    rework_cycle_warning: bool = False
+    rework_disposition: Optional[str] = None
+    can_remove: bool = False
+    can_return: bool = False
 
 
 class ItemInstallNotesBody(SQLModel):
@@ -1476,6 +1492,72 @@ class ItemInstallStateRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    rework_id: Optional[int] = None
+    rework_status: Optional[str] = None
+    rework_stage: Optional[str] = None
+    rework_attempt_count: Optional[int] = None
+    rework_cycle_warning: bool = False
+    rework_disposition: Optional[str] = None
+    can_remove: bool = False
+    can_return: bool = False
+
+
+class ItemReworkNotesBody(SQLModel):
+    notes: Optional[str] = None
+
+
+class ItemReworkDispositionBody(SQLModel):
+    outcome: str
+    notes: Optional[str] = None
+
+
+class ItemReworkReissueBody(SQLModel):
+    signature_type: str
+    signature_payload: Optional[str] = None
+    replacement_instance_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class ItemReworkEventRead(SQLModel):
+    id: int
+    issuance_id: int
+    event_type: str
+    actor_name: Optional[str] = None
+    notes: Optional[str] = None
+    serial_number: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ItemReworkCaseRead(SQLModel):
+    id: int
+    project_id: int
+    project_name: Optional[str] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    target_entity_type: str
+    target_entity_id: int
+    target_entity_name: Optional[str] = None
+    inventory_id: int
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    original_instance_id: Optional[int] = None
+    current_instance_id: Optional[int] = None
+    current_issuance_id: Optional[int] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    status: str
+    stage: str
+    attempt_count: int
+    cycle_warning: bool = False
+    disposition: Optional[str] = None
+    repaired_at: Optional[datetime] = None
+    item_status: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    events: Optional[List[ItemReworkEventRead]] = None
 
 
 class ItemIssueRequestTarget(SQLModel):

@@ -35,6 +35,18 @@ from app.services.item_request_service import (
     item_request_to_dict,
     list_item_requests,
 )
+from app.services.item_rework_service import (
+    ItemReworkError,
+    disposition_item,
+    list_rework_cases,
+    reissue_item,
+    remove_item,
+    repair_complete,
+    return_item,
+    rework_case_to_dict,
+    rework_events,
+    start_inspection,
+)
 
 router = APIRouter()
 
@@ -403,4 +415,201 @@ def verify_item_installation(
         )
         return _install_state(session, issuance)
     except ItemInstallVerifyError as exc:
+        raise _http_error(exc) from exc
+
+
+def _rework_read(session: Session, case, *, include_events: bool = False):
+    payload = rework_case_to_dict(session, case)
+    if include_events:
+        payload["events"] = [
+            {
+                "id": ev.id,
+                "issuance_id": ev.issuance_id,
+                "event_type": ev.event_type,
+                "actor_name": ev.actor_name,
+                "notes": ev.notes,
+                "serial_number": ev.serial_number,
+                "created_at": ev.created_at,
+            }
+            for ev in rework_events(session, case)
+        ]
+    return schemas.ItemReworkCaseRead.model_validate(payload)
+
+
+@router.get(
+    "/item-rework/",
+    response_model=List[schemas.ItemReworkCaseRead],
+    tags=["item-rework"],
+)
+def list_item_rework(
+    stage: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    del current_user
+    return [
+        _rework_read(session, row)
+        for row in list_rework_cases(session, stage=stage, status_filter=status_filter)
+    ]
+
+
+@router.get(
+    "/item-rework/{rework_id}/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def get_item_rework(
+    rework_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    del current_user
+    from app.models.tables import InventoryReworkCase
+
+    case = session.get(InventoryReworkCase, rework_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Rework case not found")
+    return _rework_read(session, case, include_events=True)
+
+
+@router.post(
+    "/item-rework/{rework_id}/remove/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def remove_rework_item(
+    rework_id: int,
+    payload: Optional[schemas.ItemReworkNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    try:
+        case = remove_item(
+            session,
+            rework_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-rework/{rework_id}/return/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def return_rework_item(
+    rework_id: int,
+    payload: Optional[schemas.ItemReworkNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.install_test")),
+):
+    try:
+        case = return_item(
+            session,
+            rework_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-rework/{rework_id}/inspect/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def inspect_rework_item(
+    rework_id: int,
+    payload: Optional[schemas.ItemReworkNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    try:
+        case = start_inspection(
+            session,
+            rework_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-rework/{rework_id}/disposition/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def disposition_rework_item(
+    rework_id: int,
+    payload: schemas.ItemReworkDispositionBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    try:
+        case = disposition_item(
+            session,
+            rework_id,
+            actor=current_user,
+            outcome=payload.outcome,
+            notes=payload.notes,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-rework/{rework_id}/repair-complete/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def repair_complete_rework_item(
+    rework_id: int,
+    payload: Optional[schemas.ItemReworkNotesBody] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.inspect")),
+):
+    try:
+        case = repair_complete(
+            session,
+            rework_id,
+            actor=current_user,
+            notes=payload.notes if payload else None,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-rework/{rework_id}/reissue/",
+    response_model=schemas.ItemReworkCaseRead,
+    tags=["item-rework"],
+)
+def reissue_rework_item(
+    rework_id: int,
+    payload: schemas.ItemReworkReissueBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_can_issue_user),
+):
+    try:
+        case = reissue_item(
+            session,
+            rework_id,
+            actor=current_user,
+            signature_type=payload.signature_type,
+            signature_payload=payload.signature_payload,
+            replacement_instance_id=payload.replacement_instance_id,
+            notes=payload.notes,
+        )
+        return _rework_read(session, case)
+    except ItemReworkError as exc:
         raise _http_error(exc) from exc

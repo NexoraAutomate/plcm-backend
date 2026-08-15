@@ -16,13 +16,14 @@ from app.domain.project_progress import (
 )
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
-from app.models.base import InventoryReservationStatus
+from app.models.base import InventoryReservationStatus, ReworkCaseStatus
 from app.models.tables import (
     Component,
     Flight,
     InventoryInstance,
     InventoryIssuance,
     InventoryReservation,
+    InventoryReworkCase,
     Module,
     Project,
     Sdls,
@@ -77,6 +78,33 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
         coverage[key] = {
             "status": _issuance_lifecycle_status(session, issuance),
             "defect_pending": bool(issuance.defect_pending),
+        }
+
+    reworks = session.exec(
+        select(InventoryReworkCase).where(
+            InventoryReworkCase.project_id == project_id,
+            InventoryReworkCase.status == ReworkCaseStatus.OPEN.value,
+        )
+    ).all()
+    for case in reworks:
+        et = (case.target_entity_type or "").strip().lower()
+        eid = case.target_entity_id
+        if not et or eid is None:
+            continue
+        key = (et, int(eid))
+        item_status = None
+        if case.current_instance_id:
+            instance = session.get(InventoryInstance, case.current_instance_id)
+            if instance is not None:
+                item_status = item_status_name(session, instance.status_id)
+        if key in coverage:
+            coverage[key]["defect_pending"] = True
+            if item_status:
+                coverage[key]["status"] = item_status.strip().upper()
+            continue
+        coverage[key] = {
+            "status": (item_status or ItemStatus.UNDER_TESTING_REVIEW.value).strip().upper(),
+            "defect_pending": True,
         }
 
     reservations = session.exec(

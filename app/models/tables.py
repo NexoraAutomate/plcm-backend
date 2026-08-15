@@ -376,6 +376,15 @@ class InventoryItemRequest(InventoryItemRequestBase, table=True):
     )
 
 
+class InventoryReworkCase(InventoryReworkCaseBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project: Optional["Project"] = Relationship()
+    inventory: Optional[Inventory] = Relationship()
+    assigned_developer: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryReworkCase.assigned_developer_id]"},
+    )
+
+
 class InventoryReturnNotice(InventoryReturnNoticeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     issuance_id: int = Field(foreign_key="inventoryissuance.id", index=True)
