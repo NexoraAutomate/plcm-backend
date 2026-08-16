@@ -1,5 +1,6 @@
-from typing import Optional
+from typing import Any, Optional
 from datetime import date, datetime, timezone
+from sqlalchemy import Column, JSON
 from sqlmodel import SQLModel, Field, Relationship
 from enum import Enum
 from decimal import Decimal
@@ -76,6 +77,34 @@ class AuditLogCommon(SQLModel):
 
 class AuditLogBase(AuditLogCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class WorkflowAuditEventCommon(SQLModel):
+    """Spec 13 — append-only workflow audit envelope."""
+
+    actor_user_id: Optional[int] = Field(default=None, index=True)
+    actor_username: Optional[str] = Field(default=None, max_length=255)
+    actor_role: str = Field(max_length=32, index=True)
+    action: str = Field(max_length=64, index=True)
+    entity_type: str = Field(max_length=64, index=True)
+    entity_id: str = Field(max_length=64, index=True)
+    project_id: Optional[int] = Field(default=None, index=True)
+    old_value: Optional[dict[str, Any]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+    new_value: Optional[dict[str, Any]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+    remarks: Optional[str] = None
+    ip_address: Optional[str] = Field(default=None, max_length=64)
+    user_agent: Optional[str] = Field(default=None, max_length=512)
+    correlation_id: Optional[str] = Field(default=None, max_length=64, index=True)
+
+
+class WorkflowAuditEventBase(WorkflowAuditEventCommon):
+    occurred_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), index=True
+    )
 
 
 class SecuritySettingsCommon(SQLModel):

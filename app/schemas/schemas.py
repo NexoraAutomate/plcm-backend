@@ -256,6 +256,33 @@ class AuditLogRead(SQLModel):
         orm_mode = True
 
 
+class WorkflowAuditEventRead(SQLModel):
+    id: str
+    occurred_at: datetime
+    actor_user_id: Optional[int] = None
+    actor_username: Optional[str] = None
+    actor_role: str
+    action: str
+    action_label: Optional[str] = None
+    entity_type: str
+    entity_id: str
+    project_id: Optional[int] = None
+    old_value: Optional[dict] = None
+    new_value: Optional[dict] = None
+    remarks: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+class WorkflowAuditActionCatalogItem(SQLModel):
+    code: str
+    label: str
+
+
 class MaintenanceUserRead(UserCommon):
     """Nested user on maintenance endpoints — avoids loading projects/password."""
     id: int

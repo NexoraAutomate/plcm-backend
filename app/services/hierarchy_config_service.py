@@ -22,6 +22,8 @@ from app.models.tables import (
     HierarchyConfiguration,
     User,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 class HierarchyConfigError(ValueError):
@@ -219,6 +221,8 @@ def update_configuration(
     session: Session,
     config_id: int,
     payload: dict[str, Any],
+    *,
+    actor: Optional[User] = None,
 ) -> HierarchyConfiguration:
     config = get_configuration(session, config_id)
     if not config:
@@ -294,6 +298,14 @@ def update_configuration(
     config.version = int(config.version or 1) + 1
     config.updated_at = _now()
     session.add(config)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.MODIFIED,
+        entity_type="hierarchy_configuration",
+        entity_id=int(config.id),
+        actor=actor,
+        new_value={"code": config.code, "name": config.name, "version": config.version},
+    )
     session.commit()
     session.refresh(config)
     return config
@@ -314,7 +326,9 @@ def set_available(
     return config
 
 
-def delete_configuration(session: Session, config_id: int, *, hard: bool = False) -> None:
+def delete_configuration(
+    session: Session, config_id: int, *, hard: bool = False, actor: Optional[User] = None
+) -> None:
     """
     Soft-retire by default (is_available=False).
     Hard delete removes the row (safe until Spec 02 binds projects).
@@ -344,6 +358,14 @@ def delete_configuration(session: Session, config_id: int, *, hard: bool = False
         )
     )
     session.expire(config, ["nodes", "product_types"])
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.DELETED,
+        entity_type="hierarchy_configuration",
+        entity_id=int(config.id),
+        actor=actor,
+        old_value={"code": config.code, "name": config.name},
+    )
     session.delete(config)
     session.commit()
 

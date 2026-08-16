@@ -34,6 +34,8 @@ from app.services.project_workflow_service import (
     project_status_name,
 )
 from app.services.update_entity import update_entity_status
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 LEVEL_ORDER = {
     HierarchyConfigLevel.SYSTEM.value: 0,
@@ -333,6 +335,19 @@ def generate_project_hierarchy(
         entity=project,
         entity_name=entity_config["display_name"],
         changed_by_user=actor_id,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.HIERARCHY_GENERATED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"status": ProjectWorkflowStatus.APPROVED.value},
+        new_value={
+            "status": ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+            "counts": counts,
+        },
     )
     session.commit()
     session.refresh(project)

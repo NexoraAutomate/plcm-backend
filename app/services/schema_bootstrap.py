@@ -316,6 +316,35 @@ CREATE TABLE IF NOT EXISTS configchangerequest (
 )
 """
 
+WORKFLOW_AUDIT_EVENT_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS workflowauditevent (
+    id VARCHAR(36) PRIMARY KEY,
+    occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    actor_user_id INTEGER,
+    actor_username VARCHAR(255),
+    actor_role VARCHAR(32) NOT NULL,
+    action VARCHAR(64) NOT NULL,
+    entity_type VARCHAR(64) NOT NULL,
+    entity_id VARCHAR(64) NOT NULL,
+    project_id INTEGER,
+    old_value JSONB,
+    new_value JSONB,
+    remarks VARCHAR,
+    ip_address VARCHAR(64),
+    user_agent VARCHAR(512),
+    correlation_id VARCHAR(64)
+)
+"""
+
+WORKFLOW_AUDIT_APPEND_ONLY_FN_DDL = """
+CREATE OR REPLACE FUNCTION workflow_audit_append_only()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'workflowauditevent is append-only';
+END;
+$$ LANGUAGE plpgsql;
+"""
+
 INVENTORY_ITEM_REQUEST_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS inventoryitemrequest (
     id SERIAL PRIMARY KEY,
@@ -366,6 +395,35 @@ def _add_columns_if_missing(table: str, columns: list[tuple[str, str]]) -> None:
                     """
                 )
             )
+
+
+def _restrict_workflow_audit_privileges(conn) -> None:
+    """App role may INSERT + SELECT audit rows; UPDATE/DELETE stay revoked.
+
+    Table ownership still allows DDL (ALTER/trigger). A BEFORE trigger also
+    blocks mutations if a superuser bypasses grants.
+    """
+    conn.execute(text("SAVEPOINT audit_privs"))
+    try:
+        conn.execute(
+            text(
+                "REVOKE UPDATE, DELETE, TRUNCATE ON TABLE workflowauditevent FROM PUBLIC"
+            )
+        )
+        conn.execute(
+            text("GRANT SELECT, INSERT ON TABLE workflowauditevent TO PUBLIC")
+        )
+        conn.execute(
+            text(
+                "REVOKE UPDATE, DELETE, TRUNCATE ON TABLE workflowauditevent FROM CURRENT_USER"
+            )
+        )
+        conn.execute(
+            text("GRANT SELECT, INSERT ON TABLE workflowauditevent TO CURRENT_USER")
+        )
+        conn.execute(text("RELEASE SAVEPOINT audit_privs"))
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT audit_privs"))
 
 
 def ensure_user_management_schema() -> None:
@@ -702,3 +760,103 @@ def ensure_user_management_schema() -> None:
                 """
             )
         )
+        conn.execute(text(WORKFLOW_AUDIT_EVENT_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_occurred_at
+                ON workflowauditevent (occurred_at)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_action
+                ON workflowauditevent (action)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_actor
+                ON workflowauditevent (actor_user_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_entity
+                ON workflowauditevent (entity_type, entity_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_project_id
+                ON workflowauditevent (project_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_actor_role
+                ON workflowauditevent (actor_role)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_workflowauditevent_correlation_id
+                ON workflowauditevent (correlation_id)
+                """
+            )
+        )
+        conn.execute(text(WORKFLOW_AUDIT_APPEND_ONLY_FN_DDL))
+        conn.execute(
+            text(
+                """
+                ALTER TABLE workflowauditevent
+                DROP CONSTRAINT IF EXISTS workflowauditevent_project_id_fkey
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE workflowauditevent
+                DROP CONSTRAINT IF EXISTS workflowauditevent_actor_user_id_fkey
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                ALTER TABLE workflowauditevent
+                ALTER COLUMN actor_user_id DROP NOT NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger
+                        WHERE tgname = 'workflowauditevent_no_mutate'
+                    ) THEN
+                        CREATE TRIGGER workflowauditevent_no_mutate
+                        BEFORE UPDATE OR DELETE ON workflowauditevent
+                        FOR EACH ROW EXECUTE PROCEDURE workflow_audit_append_only();
+                    END IF;
+                END $$;
+                """
+            )
+        )
+        _restrict_workflow_audit_privileges(conn)

@@ -32,6 +32,8 @@ from app.services.project_workflow_service import (
     assert_project_not_cancelled,
     user_can_view_project,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 INSTALLABLE_STATUSES = frozenset(
     {
@@ -317,6 +319,16 @@ def start_install(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, getattr(issuance, "project_id", None))
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.INSTALLATION_IN_PROGRESS,
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=actor,
+        project_id=issuance.project_id,
+        new_value={"status": ItemStatus.INSTALLATION_IN_PROGRESS.value},
+        remarks=notes,
+    )
     session.commit()
     session.refresh(issuance)
     return issuance
@@ -381,6 +393,20 @@ def submit_test(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, getattr(issuance, "project_id", None))
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.UNDER_TESTING,
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=actor,
+        project_id=issuance.project_id,
+        old_value={"status": ItemStatus.INSTALLATION_IN_PROGRESS.value},
+        new_value={
+            "status": ItemStatus.UNDER_TESTING_REVIEW.value,
+            "test_result": outcome,
+        },
+        remarks=notes,
+    )
     session.commit()
     session.refresh(issuance)
     return issuance
@@ -471,6 +497,17 @@ def verify_issuance(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, issuance.project_id)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.INSTALLED_VERIFIED,
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=actor,
+        project_id=issuance.project_id,
+        old_value={"status": ItemStatus.UNDER_TESTING_REVIEW.value},
+        new_value={"status": ItemStatus.INSTALLED_VERIFIED.value},
+        remarks=notes,
+    )
     session.commit()
     session.refresh(issuance)
     return issuance

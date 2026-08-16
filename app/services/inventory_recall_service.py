@@ -55,6 +55,8 @@ from app.services.project_workflow_service import (
     get_project_status_id,
     project_status_name,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 class InventoryRecallError(ValueError):
@@ -549,6 +551,21 @@ def cancel_project(
         commit=False,
     )
 
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.PROJECT_CANCELLED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"status": current},
+        new_value={
+            "status": ProjectWorkflowStatus.CANCELLED.value,
+            "reserved_released": cascade["reserved_released"],
+            "recall_tasks_created": cascade["recall_tasks_created"],
+        },
+        remarks=notes,
+    )
     session.commit()
     session.expire(project, ["status"])
     session.refresh(project)
@@ -632,6 +649,17 @@ def _confirm_return(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, task.project_id)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.RETURNED,
+        entity_type="inventory_recall",
+        entity_id=int(task.id),
+        actor=actor,
+        project_id=task.project_id,
+        old_value={"stage": RecallStage.REQUESTED.value},
+        new_value={"stage": RecallStage.RETURNED.value, "forced": forced},
+        remarks=notes,
+    )
     session.commit()
     session.refresh(task)
     return task
@@ -764,6 +792,17 @@ def disposition_recall(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, task.project_id)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.MODIFIED,
+        entity_type="inventory_recall",
+        entity_id=int(task.id),
+        actor=actor,
+        project_id=task.project_id,
+        old_value={"stage": RecallStage.INSPECTION.value},
+        new_value={"stage": key, "disposition": key, "item_status": to_status},
+        remarks=notes or key,
+    )
     session.commit()
     session.refresh(task)
     try:

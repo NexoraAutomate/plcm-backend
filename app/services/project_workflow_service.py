@@ -17,6 +17,8 @@ from app.models.tables import HierarchyConfiguration, Project, Status, User
 from app.services.create_entity import New_entity
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 class ProjectWorkflowError(ValueError):
@@ -266,6 +268,20 @@ def create_draft_project(
         entity_name=entity_config["display_name"],
         changed_by_user=actor.id,
     )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.PROJECT_CREATED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        new_value={
+            "name": project.name,
+            "status": ProjectWorkflowStatus.DRAFT.value,
+            "hierarchy_config_id": project.hierarchy_config_id,
+            "product_type": project.product_type,
+        },
+    )
     if commit:
         session.commit()
         session.refresh(project)
@@ -364,6 +380,16 @@ def approve_project(
         entity=project,
         entity_name=entity_config["display_name"],
         changed_by_user=actor.id,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.PROJECT_APPROVED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"status": current},
+        new_value={"status": ProjectWorkflowStatus.APPROVED.value},
     )
     session.commit()
     session.refresh(project)

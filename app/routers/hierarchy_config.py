@@ -154,6 +154,7 @@ def update_one_configuration(
             session,
             config_id,
             payload.model_dump(exclude_unset=True),
+            actor=user,
         )
         return _to_read(config)
     except HierarchyConfigError as exc:
@@ -187,7 +188,7 @@ def delete_one_configuration(
     session: Session = Depends(get_session),
 ):
     try:
-        delete_configuration(session, config_id, hard=hard)
+        delete_configuration(session, config_id, hard=hard, actor=user)
         return {"ok": True, "hard": hard}
     except HierarchyConfigError as exc:
         raise _http_error(exc) from exc

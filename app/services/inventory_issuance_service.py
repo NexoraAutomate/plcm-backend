@@ -36,6 +36,8 @@ from app.services.inventory_service import (
     find_inventory_group,
     sync_inventory_quantity,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 OPEN_STATUS = IssuanceStatus.ISSUED.value
@@ -757,6 +759,23 @@ def issue_inventory_unit(
         + (f" ({issuance.serial_number})" if issuance.serial_number else ""),
         notes=notes,
     )
+    write_workflow_audit(
+        session,
+        action=(
+            WorkflowAuditAction.RE_ISSUED if rework else WorkflowAuditAction.ISSUED
+        ),
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=actor,
+        project_id=project_id,
+        old_value={"status": ItemStatus.RESERVED.value},
+        new_value={
+            "status": ItemStatus.ISSUED.value,
+            "issued_to_user_id": issued_to_user_id,
+            "serial_number": serial_number,
+        },
+        remarks=notes,
+    )
     return issuance
 
 
@@ -873,6 +892,7 @@ def accept_return_issuance(
         )
 
     now = datetime.now(timezone.utc)
+    previous_status = issuance.status
     issuance.status = IssuanceStatus.RETURNED.value
     issuance.closed_at = now
     issuance.closed_by_id = decided_by.id
@@ -915,6 +935,17 @@ def accept_return_issuance(
         event_type=IssuanceEventType.RETURN_ACCEPTED.value,
         actor=decided_by,
         notes=cleaned_notes,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.RETURNED,
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=decided_by,
+        project_id=issuance.project_id,
+        old_value={"status": previous_status},
+        new_value={"status": IssuanceStatus.RETURNED.value},
+        remarks=cleaned_notes,
     )
     item_label = issuance.inventory_name or issuance.part_number or f"Inventory #{issuance.inventory_id}"
     create_installer_notice(

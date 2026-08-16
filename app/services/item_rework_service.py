@@ -37,6 +37,8 @@ from app.services.inventory_reservation_service import (
     get_item_status_id,
     item_status_name,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 class ItemReworkError(ValueError):
@@ -435,6 +437,17 @@ def return_item(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, case.project_id)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.RETURNED,
+        entity_type="inventory_rework",
+        entity_id=int(case.id),
+        actor=actor,
+        project_id=case.project_id,
+        old_value={"stage": ReworkStage.REMOVED.value},
+        new_value={"stage": ReworkStage.RETURNED.value, "status": ItemStatus.RETURNED.value},
+        remarks=notes,
+    )
     session.commit()
     session.refresh(case)
     return case

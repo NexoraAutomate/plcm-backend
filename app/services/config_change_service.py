@@ -41,6 +41,8 @@ from app.services.project_workflow_service import (
     is_structural_frozen,
     project_status_name,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 
 class ConfigChangeError(ValueError):
@@ -261,6 +263,16 @@ def request_config_change(
     session.add(row)
     session.flush()
     _advance_if_cleared(session, row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_REQUESTED,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(project.id),
+        new_value={"status": row.status},
+        remarks=notes,
+    )
     session.commit()
     session.refresh(row)
     return row
@@ -299,6 +311,16 @@ def return_config_change_inventory(
         raise ConfigChangeError(str(exc)) from exc
 
     _advance_if_cleared(session, row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_INVENTORY_RETURNED,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(row.source_project_id),
+        old_value={"status": ConfigChangeRequestStatus.REQUESTED.value},
+        new_value={"status": row.status},
+    )
     session.commit()
     session.refresh(row)
     return row
@@ -362,6 +384,21 @@ def submit_config_change(
     row.submitted_at = now
     row.updated_at = now
     session.add(row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_SUBMITTED,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(row.source_project_id),
+        old_value={"status": ConfigChangeRequestStatus.INVENTORY_RETURNED.value},
+        new_value={
+            "status": ConfigChangeRequestStatus.SUBMITTED.value,
+            "target_hierarchy_config_id": int(target_hierarchy_config_id),
+            "target_product_type": product,
+        },
+        remarks=remarks,
+    )
     session.commit()
     session.refresh(row)
     return row
@@ -385,6 +422,16 @@ def approve_config_change(
     row.approved_at = now
     row.updated_at = now
     session.add(row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_APPROVED,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(row.source_project_id),
+        old_value={"status": ConfigChangeRequestStatus.SUBMITTED.value},
+        new_value={"status": ConfigChangeRequestStatus.APPROVED.value},
+    )
     session.commit()
     session.refresh(row)
     return row
@@ -472,6 +519,22 @@ def create_successor_project(
     row.successor_project_id = int(successor.id)
     row.updated_at = now
     session.add(row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_NEW_PROJECT,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(successor.id),
+        old_value={
+            "source_project_id": int(source.id),
+            "source_status": current,
+        },
+        new_value={
+            "successor_project_id": int(successor.id),
+            "status": ConfigChangeRequestStatus.NEW_PROJECT_CREATED.value,
+        },
+    )
     try:
         session.commit()
     except Exception:

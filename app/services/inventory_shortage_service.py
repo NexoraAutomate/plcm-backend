@@ -35,6 +35,9 @@ from app.services.inventory_reservation_service import (
 )
 from app.services.inventory_service import is_component_inventory, normalize_part_number
 
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
+
 AUTO_RESERVE_NOTE = "Auto-reserved: shortage fulfillment"
 ACTIVE_SHORTAGE_STATUSES = (ShortageStatus.OPEN.value, ShortageStatus.PARTIAL.value)
 IM_NOTIFY_ROLE_NAMES = frozenset(
@@ -322,6 +325,19 @@ def record_shortage_for_reserve(
         notice_type=ShortageNoticeType.CREATED.value,
         qty=shortage.qty_short,
     )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.SHORTAGE_CREATED,
+        entity_type="inventory_shortage",
+        entity_id=int(shortage.id),
+        actor=actor,
+        project_id=int(project.id),
+        new_value={
+            "part_number": shortage.part_number,
+            "qty_short": shortage.qty_short,
+            "status": shortage.status,
+        },
+    )
     session.commit()
     session.refresh(shortage)
     return shortage
@@ -535,6 +551,35 @@ def match_and_auto_reserve_on_receipt(
             shortage,
             notice_type=notice_type,
             qty=apply_qty,
+        )
+        write_workflow_audit(
+            session,
+            action=(
+                WorkflowAuditAction.SHORTAGE_FULFILLED
+                if shortage.status == ShortageStatus.FULFILLED.value
+                else WorkflowAuditAction.SHORTAGE_PARTIAL
+            ),
+            entity_type="inventory_shortage",
+            entity_id=int(shortage.id),
+            actor=actor,
+            project_id=int(shortage.project_id),
+            new_value={
+                "qty_applied": apply_qty,
+                "qty_short": shortage.qty_short,
+                "status": shortage.status,
+                "reservation_id": reservation.id,
+            },
+            remarks=AUTO_RESERVE_NOTE,
+        )
+        write_workflow_audit(
+            session,
+            action=WorkflowAuditAction.AUTO_RESERVE,
+            entity_type="inventory_reservation",
+            entity_id=int(reservation.id),
+            actor=actor,
+            project_id=int(shortage.project_id),
+            new_value={"shortage_id": shortage.id, "qty_applied": apply_qty},
+            remarks=AUTO_RESERVE_NOTE,
         )
         session.commit()
         session.refresh(shortage)

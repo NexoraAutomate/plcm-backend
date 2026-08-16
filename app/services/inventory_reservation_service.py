@@ -12,7 +12,7 @@ from sqlmodel import Session, col, select
 
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
-from app.models.base import InventoryReservationStatus
+from app.models.base import AUTO_RELEASE_EXPIRY_REASON, InventoryReservationStatus
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Flight,
@@ -36,6 +36,8 @@ from app.services.inventory_service import (
     is_component_inventory,
 )
 from app.services.project_workflow_service import project_status_name
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 
 DEFAULT_RESERVATION_DAYS = 30
 DEFAULT_RESERVATION_GRACE_DAYS = 7
@@ -691,9 +693,27 @@ def reserve_inventory(
         updated_at=_now(),
     )
     session.add(reservation)
+    session.flush()
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, project_id)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.RESERVED,
+        entity_type="inventory_reservation",
+        entity_id=int(reservation.id),
+        actor=actor,
+        project_id=project_id,
+        old_value={"status": ItemStatus.AVAILABLE.value},
+        new_value={
+            "status": ItemStatus.RESERVED.value,
+            "inventory_id": inventory.id,
+            "inventory_instance_id": instance.id if instance else None,
+            "target_entity_type": et,
+            "target_entity_id": eid,
+        },
+        remarks=payload.get("notes"),
+    )
     session.commit()
     session.refresh(reservation)
     return reservation
@@ -781,6 +801,23 @@ def release_reservation(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, reservation.project_id)
+    expiry = (reason or "").strip() == AUTO_RELEASE_EXPIRY_REASON
+    write_workflow_audit(
+        session,
+        action=(
+            WorkflowAuditAction.AUTO_RELEASE_EXPIRY
+            if expiry
+            else WorkflowAuditAction.RELEASED
+        ),
+        entity_type="inventory_reservation",
+        entity_id=int(reservation.id),
+        actor=None if expiry else actor,
+        system=expiry,
+        project_id=int(reservation.project_id),
+        old_value={"status": InventoryReservationStatus.ACTIVE.value},
+        new_value={"status": InventoryReservationStatus.RELEASED.value},
+        remarks=reason,
+    )
     if commit:
         session.commit()
         session.refresh(reservation)

@@ -498,6 +498,22 @@ class TestSpec010203EndToEnd:
         assert len(tree["flights"]) == 1
         assert len(tree["flights"][0]["sdls"]) == 2
 
+        history = client.get(
+            "/api/audit/",
+            headers=admin_headers,
+            params={"project_id": pid, "limit": 50},
+        )
+        assert history.status_code == 200, history.text
+        actions = [row["action"] for row in reversed(history.json())]
+        for code in (
+            "PROJECT_CREATED",
+            "PROJECT_APPROVED",
+            "HIERARCHY_GENERATED",
+        ):
+            assert code in actions, f"missing {code} in {actions}"
+        assert actions.index("PROJECT_CREATED") < actions.index("PROJECT_APPROVED")
+        assert actions.index("PROJECT_APPROVED") < actions.index("HIERARCHY_GENERATED")
+
         with Session(engine) as session:
             p = session.get(Project, pid)
             if p:

@@ -35,6 +35,10 @@ class AuditLog(AuditLogBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
 
+class WorkflowAuditEvent(WorkflowAuditEventBase, table=True):
+    id: str = Field(primary_key=True, max_length=36)
+
+
 class SecuritySettings(SecuritySettingsBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 

@@ -1,8 +1,9 @@
 import os
 import asyncio
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import (
     get_swagger_ui_html,
@@ -31,6 +32,12 @@ from app.services.inventory_reservation_expiry_service import (
 )
 from app.services.inventory_issue_progress_service import (
     evaluate_issue_progress,
+)
+from app.services.login_history_service import client_ip
+from app.services.workflow_audit_service import (
+    bind_audit_request,
+    ensure_system_user,
+    reset_audit_request,
 )
 
 # Ensure all API datetimes serialize as real UTC (naive PG timestamps are local wall-clock).
@@ -121,6 +128,8 @@ async def lifespan(app: FastAPI):
         # Reusable inactivity job — also runnable via POST /api/auth/run-inactivity-check
         deactivate_inactive_users(session)
         get_or_create_app_definitions(session)
+        ensure_system_user(session)
+        session.commit()
         if _expiry_job_enabled():
             evaluate_reservation_expiry(session)
         if _issue_progress_job_enabled():
@@ -170,8 +179,29 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Total-Count"],
+    expose_headers=["X-Total-Count", "X-Correlation-Id"],
 )
+
+
+@app.middleware("http")
+async def workflow_audit_request_context(request: Request, call_next):
+    correlation_id = (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-correlation-id")
+        or str(uuid.uuid4())
+    )
+    token = bind_audit_request(
+        ip_address=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        correlation_id=correlation_id,
+    )
+    try:
+        response = await call_next(request)
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
+    finally:
+        reset_audit_request(token)
+
 
 app.include_router(router, prefix="/api")
 

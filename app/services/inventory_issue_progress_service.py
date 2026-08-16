@@ -12,6 +12,8 @@ from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus
 from app.models.tables import Inventory, InventoryInstance, InventoryIssuance
 from app.services.inventory_issuance_service import OPEN_STATUS
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 from app.services.inventory_reservation_service import (
     get_item_status_id,
     item_status_name,
@@ -101,6 +103,17 @@ def evaluate_issue_progress(session: Session) -> dict[str, Any]:
             session.add(inventory)
         issuance.item_lifecycle_status = ItemStatus.INSTALLATION_IN_PROGRESS.value
         session.add(issuance)
+        write_workflow_audit(
+            session,
+            action=WorkflowAuditAction.INSTALLATION_IN_PROGRESS,
+            entity_type="inventory_issuance",
+            entity_id=int(issuance.id),
+            system=True,
+            project_id=issuance.project_id,
+            old_value={"status": ItemStatus.ISSUED.value},
+            new_value={"status": ItemStatus.INSTALLATION_IN_PROGRESS.value},
+            remarks="Automatic 24h issue progress",
+        )
         flipped += 1
 
     if flipped:
