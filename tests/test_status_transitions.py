@@ -86,6 +86,33 @@ class TestProjectTransitions:
         for frm, to in zip(chain, chain[1:]):
             assert can_transition("project", frm, to)
 
+    def test_supersede_from_ready(self):
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.SUPERSEDED,
+            actor_role=WorkflowRole.HM,
+        )
+        assert can_transition(
+            "project",
+            ProjectWorkflowStatus.APPROVED,
+            ProjectWorkflowStatus.SUPERSEDED,
+            actor_role=WorkflowRole.ADMIN,
+        )
+        assert not can_transition(
+            "project",
+            ProjectWorkflowStatus.READY_FOR_INVENTORY,
+            ProjectWorkflowStatus.SUPERSEDED,
+            actor_role=WorkflowRole.DEV,
+        )
+
+    def test_superseded_terminal(self):
+        assert not can_transition(
+            "project",
+            ProjectWorkflowStatus.SUPERSEDED,
+            ProjectWorkflowStatus.DRAFT,
+        )
+
     def test_cancel_from_ready(self):
         assert can_transition(
             "project",

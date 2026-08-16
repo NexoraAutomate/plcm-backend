@@ -37,6 +37,7 @@ class ProjectWorkflowStatus(str, Enum):
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
     READY_TO_DELIVER = "READY_TO_DELIVER"
+    SUPERSEDED = "SUPERSEDED"
 
 
 ITEM_STATUS_TYPE = "inventory"
@@ -64,6 +65,7 @@ PROJECT_STATUS_META: dict[ProjectWorkflowStatus, str] = {
     ProjectWorkflowStatus.CANCELLED: "Project cancelled (Spec 11)",
     ProjectWorkflowStatus.COMPLETED: "Project completed (Spec 09)",
     ProjectWorkflowStatus.READY_TO_DELIVER: "Ready to deliver (Spec 09)",
+    ProjectWorkflowStatus.SUPERSEDED: "Replaced by a successor after configuration change (Spec 12)",
 }
 
 # Display labels — same vocabulary as codes (no parallel names like "In Stock")
@@ -89,6 +91,7 @@ PROJECT_STATUS_LABELS: dict[ProjectWorkflowStatus, str] = {
     ProjectWorkflowStatus.CANCELLED: "Cancelled",
     ProjectWorkflowStatus.COMPLETED: "Completed",
     ProjectWorkflowStatus.READY_TO_DELIVER: "Ready To Deliver",
+    ProjectWorkflowStatus.SUPERSEDED: "Superseded",
 }
 
 # Default badge colors (hex) for seed + UI fallbacks
@@ -114,4 +117,5 @@ PROJECT_STATUS_COLORS: dict[ProjectWorkflowStatus, str] = {
     ProjectWorkflowStatus.CANCELLED: "#C00000",
     ProjectWorkflowStatus.COMPLETED: "#375623",
     ProjectWorkflowStatus.READY_TO_DELIVER: "#2F5496",
+    ProjectWorkflowStatus.SUPERSEDED: "#7030A0",
 }

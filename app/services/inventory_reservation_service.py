@@ -107,6 +107,18 @@ def assert_project_can_reserve(project: Project) -> None:
         )
 
 
+def assert_no_open_config_change_for_reserve(session: Session, project_id: int) -> None:
+    from app.services.config_change_service import (
+        ConfigChangeError,
+        assert_no_open_config_change,
+    )
+
+    try:
+        assert_no_open_config_change(session, project_id, action="reservation")
+    except ConfigChangeError as exc:
+        raise InventoryReservationError(str(exc)) from exc
+
+
 def active_reservation_for_instance(
     session: Session, instance_id: int
 ) -> Optional[InventoryReservation]:
@@ -381,6 +393,7 @@ def check_availability(
     if not project:
         raise InventoryReservationError("Project not found")
     assert_project_can_reserve(project)
+    assert_no_open_config_change_for_reserve(session, project_id)
 
     et = target_entity_type.strip().lower()
     if et not in RESERVABLE_ENTITY_TYPES:
@@ -508,6 +521,7 @@ def reserve_inventory(
     if not project:
         raise InventoryReservationError("Project not found")
     assert_project_can_reserve(project)
+    assert_no_open_config_change_for_reserve(session, project_id)
 
     et = str(payload.get("target_entity_type") or "").strip().lower()
     try:

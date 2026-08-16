@@ -161,6 +161,12 @@ class ProjectCommon(SQLModel):
     created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     approved_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     approved_at: Optional[datetime] = None
+    successor_project_id: Optional[int] = Field(
+        default=None, foreign_key="project.id", index=True
+    )
+    predecessor_project_id: Optional[int] = Field(
+        default=None, foreign_key="project.id", index=True
+    )
 
 class ProjectBase(ProjectCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -592,6 +598,7 @@ class ProjectWorkflowStatus(str, Enum):
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
     READY_TO_DELIVER = "READY_TO_DELIVER"
+    SUPERSEDED = "SUPERSEDED"
 
 
 # Status.status_type values for workflow seed rows
@@ -803,6 +810,45 @@ class InventoryReworkCaseBase(SQLModel):
 
 
 PROJECT_CANCELLED_RELEASE_REASON = "PROJECT_CANCELLED"
+CONFIG_CHANGE_RELEASE_REASON = "CONFIG_CHANGE"
+
+
+class ConfigChangeRequestStatus(str, Enum):
+    REQUESTED = "REQUESTED"
+    INVENTORY_RETURNED = "INVENTORY_RETURNED"
+    SUBMITTED = "SUBMITTED"
+    APPROVED = "APPROVED"
+    NEW_PROJECT_CREATED = "NEW_PROJECT_CREATED"
+
+
+class ConfigChangeRequestBase(SQLModel):
+    """Spec 12 — configuration change request (no in-place config mutate)."""
+
+    source_project_id: int = Field(foreign_key="project.id", index=True)
+    target_hierarchy_config_id: Optional[int] = Field(
+        default=None, foreign_key="hierarchyconfiguration.id", index=True
+    )
+    target_product_type: Optional[str] = Field(default=None, max_length=64)
+    target_flight_count: Optional[int] = Field(default=None, ge=1)
+    target_sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+    reason_remarks: Optional[str] = None
+    status: str = Field(
+        default=ConfigChangeRequestStatus.REQUESTED.value,
+        index=True,
+        max_length=32,
+    )
+    successor_project_id: Optional[int] = Field(
+        default=None, foreign_key="project.id", index=True
+    )
+    requested_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    submitted_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    submitted_at: Optional[datetime] = None
+    approved_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    approved_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RecallTaskStatus(str, Enum):

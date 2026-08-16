@@ -57,11 +57,19 @@ def project_is_cancelled(project: Optional[Project]) -> bool:
     return project_status_name(project) == ProjectWorkflowStatus.CANCELLED.value
 
 
+def project_is_superseded(project: Optional[Project]) -> bool:
+    if project is None:
+        return False
+    return project_status_name(project) == ProjectWorkflowStatus.SUPERSEDED.value
+
+
 def assert_project_not_cancelled(
     project: Optional[Project], *, action: str = "inventory operations"
 ) -> None:
     if project_is_cancelled(project):
         raise ProjectWorkflowError(f"Cancelled projects block {action}")
+    if project_is_superseded(project):
+        raise ProjectWorkflowError(f"Superseded projects block {action}")
 
 
 def project_for_hierarchy_entity(session: Session, entity: Any) -> Optional[Project]:
@@ -181,6 +189,7 @@ def create_draft_project(
     payload: dict[str, Any],
     *,
     actor: User,
+    commit: bool = True,
 ) -> Project:
     name = str(payload.get("name") or "").strip()
     if not name:
@@ -257,8 +266,9 @@ def create_draft_project(
         entity_name=entity_config["display_name"],
         changed_by_user=actor.id,
     )
-    session.commit()
-    session.refresh(project)
+    if commit:
+        session.commit()
+        session.refresh(project)
     return project
 
 
@@ -378,6 +388,7 @@ def is_structural_frozen(project: Project) -> bool:
         ProjectWorkflowStatus.COMPLETED.value,
         ProjectWorkflowStatus.READY_TO_DELIVER.value,
         ProjectWorkflowStatus.CANCELLED.value,
+        ProjectWorkflowStatus.SUPERSEDED.value,
     }
 
 

@@ -101,6 +101,10 @@ class TestProjectTransitions:
         assert not can_transition("project", "CANCELLED", "DRAFT")
         assert not can_transition("project", "CANCELLED", "APPROVED")
 
+    def test_supersede_from_ready(self):
+        assert can_transition("project", "READY_FOR_INVENTORY", "SUPERSEDED")
+        assert not can_transition("project", "SUPERSEDED", "DRAFT")
+
     def test_noop_same_status(self):
         assert can_transition("project", "DRAFT", "DRAFT")
         assert can_transition("item", "AVAILABLE", "AVAILABLE")

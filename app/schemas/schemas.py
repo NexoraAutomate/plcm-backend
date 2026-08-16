@@ -413,6 +413,8 @@ class ProjectRead(ProjectBase):
     created_by_id: Optional[int] = None
     approved_by_id: Optional[int] = None
     approved_at: Optional[datetime] = None
+    successor_project_id: Optional[int] = None
+    predecessor_project_id: Optional[int] = None
     systems: Optional[List["SystemRead"]] = None
     class Config:
         orm_mode = True
@@ -485,6 +487,61 @@ class ProjectCancelResult(SQLModel):
     rework_closed: int = 0
     recall_tasks_created: int = 0
     preview: Optional[ProjectCancelPreview] = None
+    project: Optional["ProjectRead"] = None
+
+
+class ConfigChangeRequestCreate(SQLModel):
+    notes: Optional[str] = None
+
+
+class ConfigChangeSubmitRequest(SQLModel):
+    target_hierarchy_config_id: int
+    reason_remarks: str
+    product_type: Optional[str] = None
+    flight_count: Optional[int] = Field(default=None, ge=1)
+    sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+
+
+class ConfigChangeCreateProjectRequest(SQLModel):
+    name: Optional[str] = None
+    product_type: Optional[str] = None
+    flight_count: Optional[int] = Field(default=None, ge=1)
+    sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+
+
+class ConfigChangeRequestRead(SQLModel):
+    id: int
+    source_project_id: int
+    source_project_name: Optional[str] = None
+    source_project_status: Optional[str] = None
+    target_hierarchy_config_id: Optional[int] = None
+    target_hierarchy_config_code: Optional[str] = None
+    target_hierarchy_config_name: Optional[str] = None
+    target_product_type: Optional[str] = None
+    target_flight_count: Optional[int] = None
+    target_sdls_per_flight: Optional[int] = None
+    reason_remarks: Optional[str] = None
+    status: str
+    successor_project_id: Optional[int] = None
+    successor_project_name: Optional[str] = None
+    requested_by_id: Optional[int] = None
+    requested_at: Optional[datetime] = None
+    submitted_by_id: Optional[int] = None
+    submitted_at: Optional[datetime] = None
+    approved_by_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    inventory_cleared: bool = False
+    inventory_preview: Optional[ProjectCancelPreview] = None
+    structural_frozen: bool = False
+    project: Optional["ProjectRead"] = None
+    successor_project: Optional["ProjectRead"] = None
+
+
+class ConfigChangeCreateProjectResult(SQLModel):
+    change: ConfigChangeRequestRead
     project: Optional["ProjectRead"] = None
 
 

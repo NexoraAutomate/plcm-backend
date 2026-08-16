@@ -53,17 +53,21 @@ PROJECT_TRANSITIONS: dict[ProjectWorkflowStatus, Set[ProjectWorkflowStatus]] = {
     ProjectWorkflowStatus.APPROVED: {
         ProjectWorkflowStatus.HIERARCHY_GENERATED,
         ProjectWorkflowStatus.CANCELLED,
+        ProjectWorkflowStatus.SUPERSEDED,
     },
     ProjectWorkflowStatus.HIERARCHY_GENERATED: {
         ProjectWorkflowStatus.READY_FOR_INVENTORY,
         ProjectWorkflowStatus.CANCELLED,
+        ProjectWorkflowStatus.SUPERSEDED,
     },
     ProjectWorkflowStatus.READY_FOR_INVENTORY: {
         ProjectWorkflowStatus.CANCELLED,
         ProjectWorkflowStatus.COMPLETED,
         ProjectWorkflowStatus.READY_TO_DELIVER,
+        ProjectWorkflowStatus.SUPERSEDED,
     },
     ProjectWorkflowStatus.CANCELLED: set(),
+    ProjectWorkflowStatus.SUPERSEDED: set(),
     ProjectWorkflowStatus.COMPLETED: {
         ProjectWorkflowStatus.READY_TO_DELIVER,
     },

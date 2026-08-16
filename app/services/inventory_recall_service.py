@@ -313,6 +313,8 @@ def _create_recall_task(
     *,
     actor: User,
     stage: str,
+    notes: str = "Opened by project cancel",
+    event_notes: str = "Project cancelled — recall opened",
 ) -> InventoryRecallTask:
     existing = _open_task_for_issuance(session, int(issuance.id))
     if existing is not None:
@@ -334,7 +336,7 @@ def _create_recall_task(
         opened_by_id=int(actor.id) if actor.id else None,
         created_at=now,
         updated_at=now,
-        notes="Opened by project cancel",
+        notes=notes,
     )
     if not task.project_id:
         raise InventoryRecallError("Issuance is not bound to a project")
@@ -345,13 +347,18 @@ def _create_recall_task(
         issuance,
         event_type=IssuanceEventType.RECALL_OPENED.value,
         actor=actor,
-        notes="Project cancelled — recall opened",
+        notes=event_notes,
     )
     return task
 
 
 def _close_open_rework(
-    session: Session, project_id: int, *, actor: User
+    session: Session,
+    project_id: int,
+    *,
+    actor: User,
+    close_suffix: str = "Closed because project was cancelled (Spec 11 recall).",
+    event_notes: str = "Rework closed on project cancel",
 ) -> int:
     rows = list(
         session.exec(
@@ -368,7 +375,7 @@ def _close_open_rework(
         case.closed_by_id = int(actor.id) if actor.id else None
         case.updated_at = now
         case.notes = (case.notes or "").strip()
-        suffix = "Closed because project was cancelled (Spec 11 recall)."
+        suffix = close_suffix
         case.notes = f"{case.notes}\n{suffix}".strip() if case.notes else suffix
         session.add(case)
         if case.current_issuance_id:
@@ -379,9 +386,114 @@ def _close_open_rework(
                     issuance,
                     event_type=IssuanceEventType.REWORK_CLOSED.value,
                     actor=actor,
-                    notes="Rework closed on project cancel",
+                    notes=event_notes,
                 )
     return len(rows)
+
+
+def clear_project_inventory(
+    session: Session,
+    project_id: int,
+    *,
+    actor: User,
+    release_reason: str,
+    recall_notes: str,
+    recall_event_notes: str,
+    rework_close_suffix: str,
+    rework_event_notes: str,
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Release reserved stock, cancel shortages/requests, close rework, open recalls.
+
+    Does not change project status. Spec 11 cancel and Spec 12 config-change
+    share this cascade.
+    """
+    project = session.get(Project, project_id)
+    if project is None:
+        raise InventoryRecallError("Project not found")
+
+    shortages = list_shortages(
+        session, project_id=project_id, statuses=list(ACTIVE_SHORTAGE_STATUSES)
+    )
+    shortages_cancelled = 0
+    for row in shortages:
+        cancel_shortage(session, int(row.id), actor=actor, commit=False)
+        shortages_cancelled += 1
+
+    pending_requests = list(
+        session.exec(
+            select(InventoryItemRequest).where(
+                InventoryItemRequest.project_id == project_id,
+                InventoryItemRequest.status == ItemRequestStatus.PENDING.value,
+            )
+        ).all()
+    )
+    now = _now()
+    for row in pending_requests:
+        row.status = ItemRequestStatus.CANCELLED.value
+        row.updated_at = now
+        session.add(row)
+
+    reserved = list_project_reservations(session, project_id, active_only=True)
+    reserved_released = 0
+    for reservation in reserved:
+        release_reservation(
+            session,
+            project_id,
+            int(reservation.id),
+            actor=actor,
+            reason=release_reason,
+            commit=False,
+        )
+        reserved_released += 1
+
+    rework_closed = _close_open_rework(
+        session,
+        project_id,
+        actor=actor,
+        close_suffix=rework_close_suffix,
+        event_notes=rework_event_notes,
+    )
+
+    recall_created = 0
+    for issuance in _project_issuances(session, project_id):
+        life = _lifecycle(session, issuance)
+        stage = _stage_for_lifecycle(life)
+        if stage is None:
+            continue
+        before = _open_task_for_issuance(session, int(issuance.id))
+        _create_recall_task(
+            session,
+            issuance,
+            actor=actor,
+            stage=stage,
+            notes=recall_notes,
+            event_notes=recall_event_notes,
+        )
+        if before is None:
+            recall_created += 1
+
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, project_id)
+    if commit:
+        session.commit()
+
+    return {
+        "reserved_released": reserved_released,
+        "shortages_cancelled": shortages_cancelled,
+        "pending_requests_cancelled": len(pending_requests),
+        "rework_closed": rework_closed,
+        "recall_tasks_created": recall_created,
+    }
+
+
+def inventory_is_cleared(session: Session, project_id: int) -> bool:
+    reserved = list_project_reservations(session, project_id, active_only=True)
+    open_recalls = list_recall_tasks(
+        session, project_id=project_id, status_filter=RecallTaskStatus.OPEN.value
+    )
+    return len(reserved) == 0 and len(open_recalls) == 0
 
 
 def cancel_project(
@@ -425,57 +537,18 @@ def cancel_project(
     session.add(project)
     session.flush()
 
-    shortages = list_shortages(
-        session, project_id=project_id, statuses=list(ACTIVE_SHORTAGE_STATUSES)
+    cascade = clear_project_inventory(
+        session,
+        project_id,
+        actor=actor,
+        release_reason=PROJECT_CANCELLED_RELEASE_REASON,
+        recall_notes="Opened by project cancel",
+        recall_event_notes="Project cancelled — recall opened",
+        rework_close_suffix="Closed because project was cancelled (Spec 11 recall).",
+        rework_event_notes="Rework closed on project cancel",
+        commit=False,
     )
-    shortages_cancelled = 0
-    for row in shortages:
-        cancel_shortage(session, int(row.id), actor=actor, commit=False)
-        shortages_cancelled += 1
 
-    pending_requests = list(
-        session.exec(
-            select(InventoryItemRequest).where(
-                InventoryItemRequest.project_id == project_id,
-                InventoryItemRequest.status == ItemRequestStatus.PENDING.value,
-            )
-        ).all()
-    )
-    now = _now()
-    for row in pending_requests:
-        row.status = ItemRequestStatus.CANCELLED.value
-        row.updated_at = now
-        session.add(row)
-
-    reserved = list_project_reservations(session, project_id, active_only=True)
-    reserved_released = 0
-    for reservation in reserved:
-        release_reservation(
-            session,
-            project_id,
-            int(reservation.id),
-            actor=actor,
-            reason=PROJECT_CANCELLED_RELEASE_REASON,
-            commit=False,
-        )
-        reserved_released += 1
-
-    rework_closed = _close_open_rework(session, project_id, actor=actor)
-
-    recall_created = 0
-    for issuance in _project_issuances(session, project_id):
-        life = _lifecycle(session, issuance)
-        stage = _stage_for_lifecycle(life)
-        if stage is None:
-            continue
-        before = _open_task_for_issuance(session, int(issuance.id))
-        _create_recall_task(session, issuance, actor=actor, stage=stage)
-        if before is None:
-            recall_created += 1
-
-    from app.services.project_progress_service import touch_project_progress
-
-    touch_project_progress(session, project_id)
     session.commit()
     session.expire(project, ["status"])
     session.refresh(project)
@@ -484,11 +557,11 @@ def cancel_project(
         "project_id": int(project.id),
         "project_status": ProjectWorkflowStatus.CANCELLED.value,
         "critical_path_unfinished": preview["critical_path_unfinished"],
-        "reserved_released": reserved_released,
-        "shortages_cancelled": shortages_cancelled,
-        "pending_requests_cancelled": len(pending_requests),
-        "rework_closed": rework_closed,
-        "recall_tasks_created": recall_created,
+        "reserved_released": cascade["reserved_released"],
+        "shortages_cancelled": cascade["shortages_cancelled"],
+        "pending_requests_cancelled": cascade["pending_requests_cancelled"],
+        "rework_closed": cascade["rework_closed"],
+        "recall_tasks_created": cascade["recall_tasks_created"],
         "preview": preview,
     }
 
@@ -693,6 +766,15 @@ def disposition_recall(
     touch_project_progress(session, task.project_id)
     session.commit()
     session.refresh(task)
+    try:
+        from app.services.config_change_service import (
+            ConfigChangeError,
+            maybe_mark_inventory_returned,
+        )
+
+        maybe_mark_inventory_returned(session, int(task.project_id))
+    except ConfigChangeError:
+        pass
     return task
 
 

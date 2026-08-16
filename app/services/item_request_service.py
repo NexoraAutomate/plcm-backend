@@ -83,6 +83,10 @@ def create_item_request(
         assert_project_not_cancelled,
         ProjectWorkflowError,
     )
+    from app.services.config_change_service import (
+        ConfigChangeError,
+        assert_no_open_config_change,
+    )
     from app.models.tables import Project as ProjectModel
 
     try:
@@ -90,7 +94,10 @@ def create_item_request(
             session.get(ProjectModel, reservation.project_id),
             action="item requests",
         )
-    except ProjectWorkflowError as exc:
+        assert_no_open_config_change(
+            session, int(reservation.project_id), action="item requests"
+        )
+    except (ProjectWorkflowError, ConfigChangeError) as exc:
         raise ItemRequestError(str(exc)) from exc
 
     existing = session.exec(
@@ -255,6 +262,10 @@ def issue_item_request(
         assert_project_not_cancelled,
         ProjectWorkflowError,
     )
+    from app.services.config_change_service import (
+        ConfigChangeError,
+        assert_no_open_config_change,
+    )
     from app.models.tables import Project as ProjectModel
 
     try:
@@ -262,7 +273,11 @@ def issue_item_request(
             session.get(ProjectModel, row.project_id),
             action="issue",
         )
-    except ProjectWorkflowError as exc:
+        if row.project_id is not None:
+            assert_no_open_config_change(
+                session, int(row.project_id), action="issue"
+            )
+    except (ProjectWorkflowError, ConfigChangeError) as exc:
         raise ItemRequestError(str(exc)) from exc
 
     reservation = session.get(InventoryReservation, row.reservation_id)

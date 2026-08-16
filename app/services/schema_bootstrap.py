@@ -34,6 +34,8 @@ PROJECT_COLUMN_DDL = [
     ("created_by_id", "INTEGER"),
     ("approved_by_id", "INTEGER"),
     ("approved_at", "TIMESTAMP WITH TIME ZONE"),
+    ("successor_project_id", "INTEGER"),
+    ("predecessor_project_id", "INTEGER"),
 ]
 
 SYSTEM_COLUMN_DDL = [
@@ -285,6 +287,29 @@ CREATE TABLE IF NOT EXISTS inventoryrecalltask (
     inspected_by_id INTEGER REFERENCES "user"(id),
     closed_at TIMESTAMP WITH TIME ZONE,
     closed_by_id INTEGER REFERENCES "user"(id),
+    notes VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
+CONFIG_CHANGE_REQUEST_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS configchangerequest (
+    id SERIAL PRIMARY KEY,
+    source_project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    target_hierarchy_config_id INTEGER REFERENCES hierarchyconfiguration(id),
+    target_product_type VARCHAR(64),
+    target_flight_count INTEGER,
+    target_sdls_per_flight INTEGER,
+    reason_remarks VARCHAR,
+    status VARCHAR(32) NOT NULL DEFAULT 'REQUESTED',
+    successor_project_id INTEGER REFERENCES project(id),
+    requested_by_id INTEGER REFERENCES "user"(id),
+    requested_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    submitted_by_id INTEGER REFERENCES "user"(id),
+    submitted_at TIMESTAMP WITH TIME ZONE,
+    approved_by_id INTEGER REFERENCES "user"(id),
+    approved_at TIMESTAMP WITH TIME ZONE,
     notes VARCHAR,
     created_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE
@@ -641,6 +666,23 @@ def ensure_user_management_schema() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS ix_inventoryrecalltask_project
                 ON inventoryrecalltask (project_id)
+                """
+            )
+        )
+        conn.execute(text(CONFIG_CHANGE_REQUEST_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_configchangerequest_status
+                ON configchangerequest (status)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_configchangerequest_source
+                ON configchangerequest (source_project_id)
                 """
             )
         )

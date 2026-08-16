@@ -394,6 +394,13 @@ class InventoryRecallTask(InventoryRecallTaskBase, table=True):
     )
 
 
+class ConfigChangeRequest(ConfigChangeRequestBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source_project: Optional["Project"] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[ConfigChangeRequest.source_project_id]"},
+    )
+
+
 class InventoryReturnNotice(InventoryReturnNoticeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     issuance_id: int = Field(foreign_key="inventoryissuance.id", index=True)

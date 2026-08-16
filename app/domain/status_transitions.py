@@ -67,12 +67,14 @@ PROJECT_TRANSITIONS: dict[str, frozenset[str]] = {
         {
             ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
             ProjectWorkflowStatus.CANCELLED.value,
+            ProjectWorkflowStatus.SUPERSEDED.value,
         }
     ),
     ProjectWorkflowStatus.HIERARCHY_GENERATED.value: frozenset(
         {
             ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
             ProjectWorkflowStatus.CANCELLED.value,
+            ProjectWorkflowStatus.SUPERSEDED.value,
         }
     ),
     ProjectWorkflowStatus.READY_FOR_INVENTORY.value: frozenset(
@@ -80,9 +82,11 @@ PROJECT_TRANSITIONS: dict[str, frozenset[str]] = {
             ProjectWorkflowStatus.CANCELLED.value,
             ProjectWorkflowStatus.COMPLETED.value,
             ProjectWorkflowStatus.READY_TO_DELIVER.value,
+            ProjectWorkflowStatus.SUPERSEDED.value,
         }
     ),
     ProjectWorkflowStatus.CANCELLED.value: frozenset(),
+    ProjectWorkflowStatus.SUPERSEDED.value: frozenset(),
     ProjectWorkflowStatus.COMPLETED.value: frozenset(
         {ProjectWorkflowStatus.READY_TO_DELIVER.value}
     ),
@@ -148,6 +152,7 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
 }
 
 _CANCEL_ROLES = frozenset({WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.ADMIN})
+_SUPERSEDE_ROLES = frozenset({WorkflowRole.HM, WorkflowRole.ADMIN})
 
 PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
     (
@@ -178,6 +183,18 @@ PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
         ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
         ProjectWorkflowStatus.CANCELLED.value,
     ): frozenset({WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.ADMIN}),
+    (
+        ProjectWorkflowStatus.APPROVED.value,
+        ProjectWorkflowStatus.SUPERSEDED.value,
+    ): _SUPERSEDE_ROLES,
+    (
+        ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
+        ProjectWorkflowStatus.SUPERSEDED.value,
+    ): _SUPERSEDE_ROLES,
+    (
+        ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+        ProjectWorkflowStatus.SUPERSEDED.value,
+    ): _SUPERSEDE_ROLES,
     # Spec 09 — completion is system-calculated; System actor skips this gate.
     (
         ProjectWorkflowStatus.READY_FOR_INVENTORY.value,

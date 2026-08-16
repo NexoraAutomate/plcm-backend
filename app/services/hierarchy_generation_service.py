@@ -207,6 +207,18 @@ def generate_project_hierarchy(
         raise ProjectWorkflowError("Project not found")
 
     assert_can_generate_hierarchy(project, session)
+    if project.id is not None:
+        from app.services.config_change_service import (
+            ConfigChangeError,
+            assert_no_open_config_change,
+        )
+
+        try:
+            assert_no_open_config_change(
+                session, int(project.id), action="hierarchy generation"
+            )
+        except ConfigChangeError as exc:
+            raise ProjectWorkflowError(str(exc)) from exc
 
     if not project.hierarchy_config_id:
         raise ProjectWorkflowError(
