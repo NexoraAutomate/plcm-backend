@@ -33,7 +33,7 @@ def sync_status_id_sequence(session: Session) -> None:
         text(
             "SELECT setval("
             "pg_get_serial_sequence('status', 'id'), "
-            "COALESCE((SELECT MAX(id) FROM status), 0)"
+            "GREATEST(COALESCE((SELECT MAX(id) FROM status), 1), 1)"
             ")"
         )
     )

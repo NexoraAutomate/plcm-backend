@@ -176,6 +176,9 @@ class AppDefinitionsRead(SQLModel):
     part_number_template: str
     configuration_item_template: str
     sku_template: str
+    label_project: str = "Project"
+    label_projects: str = "Projects"
+    abbrev_project: str = "PROJ"
     label_system: str
     label_systems: str
     label_subsystem: str
@@ -212,6 +215,9 @@ class AppDefinitionsUpdate(SQLModel):
     part_number_template: Optional[str] = None
     configuration_item_template: Optional[str] = None
     sku_template: Optional[str] = None
+    label_project: Optional[str] = None
+    label_projects: Optional[str] = None
+    abbrev_project: Optional[str] = None
     label_system: Optional[str] = None
     label_systems: Optional[str] = None
     label_subsystem: Optional[str] = None

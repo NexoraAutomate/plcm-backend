@@ -16,6 +16,9 @@ DEFAULT_APP_DEFINITIONS = {
     "part_number_template": "{project}-{name}{seq}-PN",
     "configuration_item_template": "{project}-{name}{seq}-CI",
     "sku_template": "{serial}-SKU",
+    "label_project": "Project",
+    "label_projects": "Projects",
+    "abbrev_project": "PROJ",
     "label_system": "System",
     "label_systems": "Systems",
     "label_subsystem": "Subsystem",
@@ -43,7 +46,7 @@ DEFAULT_APP_DEFINITIONS = {
     "serial_template_component": "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}",
 }
 
-ENTITY_LEVELS = ("system", "subsystem", "module", "unit", "component")
+ENTITY_LEVELS = ("project", "system", "subsystem", "module", "unit", "component")
 
 TEMPLATE_FIELDS = (
     "serial_number_template",
@@ -63,6 +66,8 @@ TEMPLATE_FIELDS = (
 )
 
 LABEL_FIELDS = (
+    "label_project",
+    "label_projects",
     "label_system",
     "label_systems",
     "label_subsystem",
@@ -76,6 +81,7 @@ LABEL_FIELDS = (
 )
 
 ABBREV_FIELDS = (
+    "abbrev_project",
     "abbrev_system",
     "abbrev_subsystem",
     "abbrev_module",
