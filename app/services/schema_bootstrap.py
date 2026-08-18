@@ -439,6 +439,9 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing(
         "appdefinitions",
         [
+            ("label_project", "VARCHAR DEFAULT 'Project' NOT NULL"),
+            ("label_projects", "VARCHAR DEFAULT 'Projects' NOT NULL"),
+            ("abbrev_project", "VARCHAR DEFAULT 'PROJ' NOT NULL"),
             ("abbrev_system", "VARCHAR DEFAULT 'SYS'"),
             ("abbrev_subsystem", "VARCHAR DEFAULT 'SUB'"),
             ("abbrev_module", "VARCHAR DEFAULT 'MOD'"),

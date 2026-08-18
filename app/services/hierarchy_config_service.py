@@ -12,11 +12,13 @@ from sqlmodel import Session, select
 
 from app.domain.hierarchy_config import (
     CONFIG_RULE_NOTES_DEFAULT,
+    DEFAULT_PRODUCT_TYPE_DEFS,
     PARENT_TEMPLATE_LEVEL,
     TEMPLATE_NODE_LEVELS,
     HierarchyConfigLevel,
 )
 from app.models.tables import (
+    Hierarchy,
     HierarchyConfigNode,
     HierarchyConfigProductType,
     HierarchyConfiguration,
@@ -415,3 +417,99 @@ def configuration_to_dict(config: HierarchyConfiguration) -> dict[str, Any]:
             for n in nodes
         ],
     }
+
+
+def _catalog_rows_to_nodes(rows: list[Hierarchy]) -> list[dict[str, Any]]:
+    allowed = {level.value for level in TEMPLATE_NODE_LEVELS}
+    catalog = [row for row in rows if (row.hierarchy_type or "").strip().lower() in allowed]
+    ids = {row.id for row in catalog if row.id is not None}
+    nodes: list[dict[str, Any]] = []
+    for row in catalog:
+        if row.id is None or not (row.name or "").strip():
+            continue
+        level = row.hierarchy_type.strip().lower()
+        parent_key = None
+        if level != HierarchyConfigLevel.SYSTEM.value:
+            if row.parent_id is None or row.parent_id not in ids:
+                continue
+            parent_key = f"cat-{row.parent_id}"
+        nodes.append(
+            {
+                "client_key": f"cat-{row.id}",
+                "parent_client_key": parent_key,
+                "level": level,
+                "name": row.name.strip(),
+                "description": row.description,
+                "abbreviation": row.abbreviation,
+                "sort_order": int(row.id),
+            }
+        )
+    return nodes
+
+
+def import_catalog_into_empty_configs(session: Session) -> int:
+    """Copy the global hierarchy catalog into configs that have no template nodes.
+
+    If no configurations exist yet, creates one available config from the catalog
+    so Admin trees are not lost after Settings merge.
+    """
+    catalog = list(session.exec(select(Hierarchy)).all())
+    nodes = _catalog_rows_to_nodes(catalog)
+    if not nodes:
+        return 0
+
+    configs = list_configurations(session)
+    product_types = [
+        {
+            "code": pt["code"],
+            "name": pt["name"],
+            "description": pt.get("description"),
+            "sort_order": index,
+        }
+        for index, pt in enumerate(DEFAULT_PRODUCT_TYPE_DEFS)
+    ]
+
+    if not configs:
+        create_configuration(
+            session,
+            {
+                "code": "LEGACY-CATALOG",
+                "name": "Imported System Hierarchy",
+                "description": "Copied from the previous global System Hierarchy catalog.",
+                "notes": CONFIG_RULE_NOTES_DEFAULT,
+                "is_available": True,
+                "product_types": product_types,
+                "nodes": nodes,
+            },
+        )
+        return 1
+
+    imported = 0
+    for config in configs:
+        assert config.id is not None
+        existing = session.exec(
+            select(HierarchyConfigNode).where(
+                HierarchyConfigNode.configuration_id == config.id
+            )
+        ).all()
+        if existing:
+            continue
+        existing_types = [
+            {
+                "code": pt.code,
+                "name": pt.name,
+                "description": pt.description,
+                "sort_order": pt.sort_order,
+            }
+            for pt in (config.product_types or [])
+        ]
+        update_configuration(
+            session,
+            config.id,
+            {
+                "nodes": nodes,
+                "product_types": existing_types or product_types,
+            },
+        )
+        imported += 1
+    return imported

@@ -129,6 +129,14 @@ async def lifespan(app: FastAPI):
         deactivate_inactive_users(session)
         get_or_create_app_definitions(session)
         ensure_system_user(session)
+        try:
+            from app.services.hierarchy_config_service import (
+                import_catalog_into_empty_configs,
+            )
+
+            import_catalog_into_empty_configs(session)
+        except Exception:
+            pass
         session.commit()
         if _expiry_job_enabled():
             evaluate_reservation_expiry(session)
