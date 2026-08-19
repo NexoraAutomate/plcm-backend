@@ -1,6 +1,10 @@
 from typing import List, Optional
+import csv
+import io
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import (
@@ -493,6 +497,177 @@ def list_inventory(
         sort_order=sort_order,
     )
     return [_read_for_user(session, item, current_user) for item in items]
+
+
+# ---------------------------------------------------------------------------
+# CSV export / import
+# ---------------------------------------------------------------------------
+
+CSV_EXPORT_FIELDS = [
+    "id", "name", "inventory_type", "part_number", "original_part_number",
+    "serial_number", "original_serial_number", "quantity", "description",
+    "oem_name", "configuration_item", "sku", "location",
+    "holder_user_id", "status_id", "added_date", "shelf_life_expires_at",
+    "installation_date", "installed_by_id", "picture_url", "entity_id",
+    "updated_at",
+]
+
+CSV_IMPORT_REQUIRED = ["name", "inventory_type"]
+CSV_IMPORT_OPTIONAL = [
+    "part_number", "original_part_number", "serial_number", "original_serial_number",
+    "quantity", "description", "oem_name", "configuration_item", "sku",
+    "location", "shelf_life_expires_at",
+]
+CSV_VALID_TYPES = {"system", "subsystem", "module", "unit", "component"}
+
+
+@router.get("/inventory/export-csv/", tags=["inventory"])
+def export_inventory_csv(
+    inventory_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    """Export all (or filtered) inventory rows as a CSV file."""
+    where = inventory_list_where(
+        scope=_scoped_inventory_filter(session, current_user),
+        inventory_type=inventory_type,
+        search=search,
+    )
+    stmt = select(Inventory)
+    if where is not None:
+        stmt = stmt.where(where)
+    items = session.exec(stmt).all()
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=CSV_EXPORT_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for item in items:
+        row = item.model_dump()
+        for field in ("added_date", "updated_at", "shelf_life_expires_at", "installation_date"):
+            if row.get(field) is not None:
+                row[field] = row[field].isoformat()
+        writer.writerow(row)
+
+    output.seek(0)
+    filename = "inventory_export.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/inventory/import-csv/", tags=["inventory"])
+async def import_inventory_csv(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False, description="Validate only; do not save"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("create_inventory")),
+):
+    """Import inventory items from a CSV file.
+
+    Returns a summary of created rows (or validation errors on dry_run=true).
+    """
+    if not is_inventory_manager(current_user):
+        raise HTTPException(status_code=403, detail="Only inventory managers can import CSV")
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=400, detail="CSV file appears to be empty")
+
+    # Validate required columns
+    missing_cols = [c for c in CSV_IMPORT_REQUIRED if c not in (reader.fieldnames or [])]
+    if missing_cols:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV is missing required columns: {', '.join(missing_cols)}",
+        )
+
+    errors: list[dict] = []
+    created: list[dict] = []
+    valid_row_count = 0
+
+    for row_num, row in enumerate(reader, start=2):
+        row_errors: list[str] = []
+
+        name = (row.get("name") or "").strip()
+        inventory_type = (row.get("inventory_type") or "").strip().lower()
+
+        if not name:
+            row_errors.append("'name' is required")
+        if not inventory_type:
+            row_errors.append("'inventory_type' is required")
+        elif inventory_type not in CSV_VALID_TYPES:
+            row_errors.append(
+                f"'inventory_type' must be one of: {', '.join(sorted(CSV_VALID_TYPES))}"
+            )
+
+        quantity_raw = (row.get("quantity") or "").strip()
+        quantity = 0
+        if quantity_raw:
+            try:
+                quantity = int(quantity_raw)
+                if quantity < 0:
+                    row_errors.append("'quantity' cannot be negative")
+            except ValueError:
+                row_errors.append(f"'quantity' must be an integer, got: {quantity_raw!r}")
+
+        shelf_life_expires_at = None
+        shelf_raw = (row.get("shelf_life_expires_at") or "").strip()
+        if shelf_raw:
+            try:
+                shelf_life_expires_at = datetime.fromisoformat(shelf_raw)
+            except ValueError:
+                row_errors.append(
+                    f"'shelf_life_expires_at' must be ISO 8601 datetime, got: {shelf_raw!r}"
+                )
+
+        if row_errors:
+            errors.append({"row": row_num, "errors": row_errors})
+            continue
+
+        valid_row_count += 1
+        if not dry_run:
+            inv = Inventory(
+                name=name,
+                inventory_type=inventory_type,
+                part_number=(row.get("part_number") or "").strip() or None,
+                original_part_number=(row.get("original_part_number") or "").strip() or None,
+                serial_number=(row.get("serial_number") or "").strip() or None,
+                original_serial_number=(row.get("original_serial_number") or "").strip() or None,
+                quantity=quantity,
+                description=(row.get("description") or "").strip() or None,
+                oem_name=(row.get("oem_name") or "").strip() or None,
+                configuration_item=(row.get("configuration_item") or "").strip() or None,
+                sku=(row.get("sku") or "").strip() or None,
+                location=(row.get("location") or "").strip() or None,
+                shelf_life_expires_at=shelf_life_expires_at,
+                added_date=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(inv)
+            session.flush()
+            created.append({"row": row_num, "id": inv.id, "name": inv.name})
+
+    if errors:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "CSV contains validation errors", "errors": errors},
+        )
+
+    if not dry_run:
+        session.commit()
+        return {"imported": len(created), "rows": created}
+
+    # dry_run — return count of valid rows
+    return {"dry_run": True, "valid_rows": valid_row_count, "errors": []}
 
 
 @router.get("/inventory/by-type/{inventory_type}/", response_model=List[schemas.InventoryRead], tags=["inventory"])
