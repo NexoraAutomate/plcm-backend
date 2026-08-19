@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.tables import (Module, User)
+from app.models.tables import (Module, User, Subsystem)
 from app.schemas import schemas
 from app.services.create_entity import New_entity
 from app.services.create_entitystatusHistory import create_status_history
@@ -10,6 +10,7 @@ from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
 from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
+from app.services.entity_list_service import EntityListError, validate_hardware_entity_name
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
@@ -24,6 +25,16 @@ def create_module(module: schemas.ModuleCreate, session: Session = Depends(get_s
     db_module = Module(**module.model_dump())
     if not db_module.original_serial_number and db_module.serial_number:
         db_module.original_serial_number = db_module.serial_number
+    parent_subsystem = session.get(Subsystem, db_module.subsystem_id)
+    try:
+        validate_hardware_entity_name(
+            session,
+            name=db_module.name,
+            entity_type="module",
+            parent_name=parent_subsystem.name if parent_subsystem else None,
+        )
+    except EntityListError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     require_hierarchy_mutable(session, db_module)
     session.add(db_module)
     session.flush()

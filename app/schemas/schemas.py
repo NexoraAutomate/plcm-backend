@@ -386,6 +386,7 @@ class HierarchyCreate(HierarchyBase):
 
 class HierarchyRead(HierarchyBase):
     id: int
+    parent_name: Optional[str] = None
     class Config:
         orm_mode = True
 

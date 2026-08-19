@@ -10,6 +10,7 @@ from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.routers.auth import require_permission
 from app.auth import require_install_owner_or_manager, require_hierarchy_mutable
+from app.services.entity_list_service import EntityListError, validate_hardware_entity_name
 from app.services.entity_replacement_service import filter_current_installs
 from app.services.list_query import hierarchy_list_where
 from app.services.pagination import paginated_query
@@ -25,6 +26,10 @@ def create_system(system: schemas.SystemCreate, session: Session = Depends(get_s
     # Preserve inventory/user-provided serial numbers — do not rewrite.
     if not db_system.original_serial_number and db_system.serial_number:
         db_system.original_serial_number = db_system.serial_number
+    try:
+        validate_hardware_entity_name(session, name=db_system.name, entity_type="system")
+    except EntityListError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     require_hierarchy_mutable(session, db_system)
     session.add(db_system)
     session.flush()

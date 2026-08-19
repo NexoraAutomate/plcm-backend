@@ -17,6 +17,10 @@ from app.routers.auth import get_current_user, require_permission
 from app.auth import check_permission, is_inventory_manager
 from app.services.pagination import paginated_query
 from app.services.list_query import inventory_list_where
+from app.services.entity_list_service import (
+    EntityListError,
+    validate_inventory_entity_name,
+)
 from app.services.inventory_service import (
     is_component_inventory,
     find_inventory_group,
@@ -27,6 +31,10 @@ from app.services.inventory_service import (
     replace_inventory_child_links,
     delete_inventory_item,
 )
+
+
+def _raise_entity_list_error(exc: EntityListError) -> None:
+    raise HTTPException(status_code=400, detail=str(exc)) from exc
 from app.services.inventory_issuance_service import (
     available_quantity,
     reserved_quantity,
@@ -367,6 +375,13 @@ def create_inventory(
     _require_can_receive_stock(current_user)
     data = inventory.model_dump()
     inventory_type = data["inventory_type"]
+
+    try:
+        validate_inventory_entity_name(
+            session, name=data["name"], inventory_type=inventory_type
+        )
+    except EntityListError as exc:
+        _raise_entity_list_error(exc)
 
     if is_component_inventory(inventory_type):
         part_number = _resolve_part_number(data)

@@ -6,6 +6,7 @@ from app.models.tables import Hierarchy, User
 from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.services.hierarchy_service import create_hierarchy_entry, get_next_hierarchy_id, sync_hierarchy_id_sequence
+from app.services.entity_list_service import enrich_hierarchy_reads
 
 router = APIRouter()
 
@@ -45,7 +46,8 @@ def list_hierarchies(
         query = query.where(Hierarchy.hierarchy_type == hierarchy_type)
     if parent_id is not None:
         query = query.where(Hierarchy.parent_id == parent_id)
-    return session.exec(query).all()
+    entries = list(session.exec(query).all())
+    return enrich_hierarchy_reads(session, entries)
 
 @router.get("/hierarchies/{hierarchy_id}/", response_model=schemas.HierarchyRead, tags=["hierarchy"])
 def get_hierarchy(hierarchy_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_hierarchy"))):

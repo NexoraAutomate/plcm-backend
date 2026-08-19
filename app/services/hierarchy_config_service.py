@@ -26,6 +26,7 @@ from app.models.tables import (
 )
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.services.workflow_audit_service import write_workflow_audit
+from app.services.entity_list_service import validate_config_nodes_entity_list, EntityListError
 
 
 class HierarchyConfigError(ValueError):
@@ -59,7 +60,7 @@ def _validate_product_types(product_types: list[dict[str, Any]]) -> None:
         raise HierarchyConfigError("Product type codes must be unique within a configuration")
 
 
-def _validate_nodes(nodes: list[dict[str, Any]]) -> None:
+def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
     allowed = {level.value for level in TEMPLATE_NODE_LEVELS}
     keys: set[str] = set()
     for index, node in enumerate(nodes):
@@ -104,6 +105,11 @@ def _validate_nodes(nodes: list[dict[str, Any]]) -> None:
             raise HierarchyConfigError(
                 f"Node[{index}] parent must be {expected_parent.value}, got {parent_level}"
             )
+
+    try:
+        validate_config_nodes_entity_list(session, nodes)
+    except EntityListError as exc:
+        raise HierarchyConfigError(str(exc)) from exc
 
 
 def _replace_children(
@@ -198,7 +204,7 @@ def create_configuration(
     product_types = list(payload.get("product_types") or [])
     nodes = list(payload.get("nodes") or [])
     _validate_product_types(product_types)
-    _validate_nodes(nodes)
+    _validate_nodes(session, nodes)
 
     config = HierarchyConfiguration(
         code=code,
@@ -294,7 +300,7 @@ def update_configuration(
             ]
         )
         _validate_product_types(product_types)
-        _validate_nodes(nodes)
+        _validate_nodes(session, nodes)
         _replace_children(session, config, product_types, nodes)
 
     config.version = int(config.version or 1) + 1
