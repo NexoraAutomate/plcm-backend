@@ -1,12 +1,19 @@
-from typing import List
-from fastapi import APIRouter, HTTPException, Depends
+from typing import List, Literal
+from fastapi import APIRouter, HTTPException, Depends, File, Query, UploadFile
+from fastapi.responses import Response
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import Hierarchy, User
 from app.schemas import schemas
-from app.routers.auth import require_permission
+from app.routers.auth import require_permission, require_role
 from app.services.hierarchy_service import create_hierarchy_entry, get_next_hierarchy_id, sync_hierarchy_id_sequence
 from app.services.entity_list_service import enrich_hierarchy_reads
+from app.services.entity_list_import_service import (
+    EntityListImportError,
+    export_entity_list_file,
+    import_entity_list_rows,
+    parse_entity_list_file,
+)
 
 router = APIRouter()
 
@@ -33,6 +40,49 @@ def create_hierarchy_batch(entries: List[schemas.HierarchyCreate], session: Sess
     for db_entry in db_entries:
         session.refresh(db_entry)
     return db_entries
+
+
+@router.post("/hierarchies/import/", tags=["hierarchy"])
+async def import_hierarchy_spreadsheet(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False, description="Validate only; do not save"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("create_hierarchy")),
+):
+    """Import Entity List rows from a CSV or Excel (.xlsx) file.
+
+    Required columns: entity name, entity type.
+    Optional: abbreviation / acronym.
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        rows = parse_entity_list_file(content, file.filename or "")
+        return import_entity_list_rows(session, rows, dry_run=dry_run)
+    except EntityListImportError as exc:
+        if exc.errors:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": exc.message, "errors": exc.errors},
+            ) from exc
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+
+
+@router.get("/hierarchies/export/", tags=["hierarchy"])
+def export_hierarchy_spreadsheet(
+    file_format: Literal["csv", "xlsx"] = Query("csv", alias="format"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Download the Entity List as CSV or Excel. Admin only."""
+    content, filename, media_type = export_entity_list_file(session, file_format)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/hierarchies/", response_model=List[schemas.HierarchyRead], tags=["hierarchy"])
 def list_hierarchies(
