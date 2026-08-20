@@ -1,11 +1,16 @@
 from typing import List
-from fastapi import APIRouter, HTTPException, Depends, Response
+from fastapi import APIRouter, HTTPException, Depends, File, Query, Response, UploadFile
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Status, User)
 from app.schemas import schemas
 from app.routers.auth import require_permission
 from app.services.pagination import paginated_query
+from app.services.status_import_service import (
+    StatusImportError,
+    import_status_rows,
+    parse_status_file,
+)
 
 router = APIRouter()
 
@@ -43,6 +48,33 @@ def create_statuses(
         session.refresh(db_status)
     
     return db_statuses
+
+
+@router.post("/statuses/import/", tags=["statuses"])
+async def import_statuses_spreadsheet(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False, description="Validate only; do not save"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("create_statuses")),
+):
+    """Import statuses from CSV or Excel (.xlsx).
+
+    Required columns: Status, Description, Entity Type.
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    try:
+        rows = parse_status_file(content, file.filename or "")
+        return import_status_rows(session, rows, dry_run=dry_run)
+    except StatusImportError as exc:
+        if exc.errors:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": exc.message, "errors": exc.errors},
+            ) from exc
+        raise HTTPException(status_code=400, detail=exc.message) from exc
 
 @router.get("/statuses/", response_model=List[schemas.StatusRead], tags=["statuses"])
 def list_statuses(

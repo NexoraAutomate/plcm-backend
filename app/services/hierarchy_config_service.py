@@ -339,9 +339,11 @@ def delete_configuration(
 ) -> None:
     """
     Soft-retire by default (is_available=False).
-    Hard delete removes the row (safe until Spec 02 binds projects).
+    Hard delete removes the row and clears project / CR references.
     """
     from sqlalchemy import update
+
+    from app.models.tables import ConfigChangeRequest, Project
 
     config = get_configuration(session, config_id)
     if not config:
@@ -350,6 +352,16 @@ def delete_configuration(
         soft_retire_configuration(session, config_id)
         return
 
+    session.exec(
+        update(Project)
+        .where(Project.hierarchy_config_id == config_id)
+        .values(hierarchy_config_id=None)
+    )
+    session.exec(
+        update(ConfigChangeRequest)
+        .where(ConfigChangeRequest.target_hierarchy_config_id == config_id)
+        .values(target_hierarchy_config_id=None)
+    )
     session.exec(
         update(HierarchyConfigNode)
         .where(HierarchyConfigNode.configuration_id == config_id)
@@ -454,68 +466,9 @@ def _catalog_rows_to_nodes(rows: list[Hierarchy]) -> list[dict[str, Any]]:
 
 
 def import_catalog_into_empty_configs(session: Session) -> int:
-    """Copy the global hierarchy catalog into configs that have no template nodes.
+    """Legacy helper — no longer auto-creates configurations on startup.
 
-    If no configurations exist yet, creates one available config from the catalog
-    so Admin trees are not lost after Settings merge.
+    Kept for optional/manual migration use. Returns 0 (no-op) so empty Admin
+    config lists stay empty until configurations are created deliberately.
     """
-    catalog = list(session.exec(select(Hierarchy)).all())
-    nodes = _catalog_rows_to_nodes(catalog)
-    if not nodes:
-        return 0
-
-    configs = list_configurations(session)
-    product_types = [
-        {
-            "code": pt["code"],
-            "name": pt["name"],
-            "description": pt.get("description"),
-            "sort_order": index,
-        }
-        for index, pt in enumerate(DEFAULT_PRODUCT_TYPE_DEFS)
-    ]
-
-    if not configs:
-        create_configuration(
-            session,
-            {
-                "code": "LEGACY-CATALOG",
-                "name": "Imported System Hierarchy",
-                "description": "Copied from the previous global System Hierarchy catalog.",
-                "notes": CONFIG_RULE_NOTES_DEFAULT,
-                "is_available": True,
-                "product_types": product_types,
-                "nodes": nodes,
-            },
-        )
-        return 1
-
-    imported = 0
-    for config in configs:
-        assert config.id is not None
-        existing = session.exec(
-            select(HierarchyConfigNode).where(
-                HierarchyConfigNode.configuration_id == config.id
-            )
-        ).all()
-        if existing:
-            continue
-        existing_types = [
-            {
-                "code": pt.code,
-                "name": pt.name,
-                "description": pt.description,
-                "sort_order": pt.sort_order,
-            }
-            for pt in (config.product_types or [])
-        ]
-        update_configuration(
-            session,
-            config.id,
-            {
-                "nodes": nodes,
-                "product_types": existing_types or product_types,
-            },
-        )
-        imported += 1
-    return imported
+    return 0

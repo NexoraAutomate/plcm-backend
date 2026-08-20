@@ -1,14 +1,14 @@
 """
 Entity List — master catalog of allowed entity names and categories (hierarchy levels).
 
-The `hierarchy` table stores Entity List entries. Names defined here are the only
-values permitted when building hierarchy configurations, stocking inventory, or
-creating installed hardware entities.
+The `hierarchy` table stores Entity List entries as a flat catalog keyed by
+(name, hierarchy_type). Parent/child tree structure is defined per configuration
+(or installed hardware), not in the Entity List itself.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from sqlmodel import Session, select
 
@@ -47,6 +47,12 @@ def find_entity_list_entry(
     parent_name: str | None = None,
     parent_id: int | None = None,
 ) -> Hierarchy | None:
+    """Return a catalog row matching name + level.
+
+    parent_name / parent_id are accepted for call-site compatibility but are not
+    used: Entity List is a flat catalog; configuration trees choose parent/child.
+    """
+    del parent_name, parent_id  # unused — flat catalog
     level = hierarchy_type.strip().lower()
     if level not in ENTITY_LIST_LEVELS:
         return None
@@ -56,33 +62,8 @@ def find_entity_list_entry(
         return None
 
     entries = list_entity_list_entries(session, hierarchy_type=level)
-    if not entries:
-        return None
-
-    resolved_parent_id: int | None = None
-    if parent_id is not None:
-        resolved_parent_id = parent_id
-    elif parent_name:
-        parent_level = _parent_level(level)
-        if not parent_level:
-            return None
-        parent_entry = find_entity_list_entry(
-            session,
-            name=parent_name,
-            hierarchy_type=parent_level,
-        )
-        if not parent_entry or parent_entry.id is None:
-            return None
-        resolved_parent_id = parent_entry.id
-
     for entry in entries:
-        if entry.name.strip().lower() != normalized_name.lower():
-            continue
-        if level == "system":
-            if entry.parent_id is None:
-                return entry
-            continue
-        if resolved_parent_id is not None and entry.parent_id == resolved_parent_id:
+        if entry.name.strip().lower() == normalized_name.lower():
             return entry
     return None
 
@@ -104,16 +85,10 @@ def require_entity_list_name(
     )
     if entry is None:
         level = hierarchy_type.strip().lower()
-        if parent_name:
-            detail = (
-                f"'{name.strip()}' is not a registered {level} under parent "
-                f"'{parent_name.strip()}'. Add it in Settings → Definitions → Entity List."
-            )
-        else:
-            detail = (
-                f"'{name.strip()}' is not a registered {level}. "
-                "Add it in Settings → Definitions → Entity List."
-            )
+        detail = (
+            f"'{name.strip()}' is not a registered {level}. "
+            "Add it in Settings → Definitions → Entity List."
+        )
         raise EntityListError(detail)
     return entry
 
@@ -121,28 +96,18 @@ def require_entity_list_name(
 def validate_config_nodes_entity_list(
     session: Session, nodes: list[dict[str, Any]]
 ) -> None:
-    by_key = {
-        str(n.get("client_key") or f"n{i}").strip(): n for i, n in enumerate(nodes)
-    }
+    """Ensure every template node name exists in the Entity List for its level."""
     for index, node in enumerate(nodes):
         level = str(node.get("level", "")).strip().lower()
         name = str(node.get("name", "")).strip()
         if level not in ENTITY_LIST_LEVELS or not name:
             continue
 
-        parent_name: str | None = None
-        parent_key = node.get("parent_client_key")
-        if parent_key:
-            parent = by_key.get(str(parent_key).strip())
-            if parent:
-                parent_name = str(parent.get("name", "")).strip() or None
-
         try:
             require_entity_list_name(
                 session,
                 name=name,
                 hierarchy_type=level,
-                parent_name=parent_name,
             )
         except EntityListError as exc:
             raise EntityListError(f"Node[{index}]: {exc}") from exc
@@ -176,12 +141,12 @@ def validate_hardware_entity_name(
     parent_name: str | None = None,
     parent_id: int | None = None,
 ) -> None:
+    # Catalog check is name + type only; parent comes from the install tree.
+    del parent_name, parent_id
     require_entity_list_name(
         session,
         name=name,
         hierarchy_type=entity_type.strip().lower(),
-        parent_name=parent_name,
-        parent_id=parent_id,
     )
 
 
