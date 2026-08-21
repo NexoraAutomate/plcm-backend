@@ -53,10 +53,15 @@ def _env_flag_enabled(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
-def ensure_workflow_demo_users(session: Session) -> None:
-    if not _env_flag_enabled("CREATE_WORKFLOW_DEMO_USERS", default=False):
-        return
+def ensure_workflow_demo_users(session: Session, *, force: bool = False) -> int:
+    """Create missing demo users. Returns count of users created.
 
+    When ``force`` is True (CLI seed), skips the CREATE_WORKFLOW_DEMO_USERS gate.
+    """
+    if not force and not _env_flag_enabled("CREATE_WORKFLOW_DEMO_USERS", default=False):
+        return 0
+
+    created = 0
     for entry in WORKFLOW_DEMO_USERS:
         existing = session.exec(
             select(User).where(User.username == entry["username"])
@@ -76,4 +81,6 @@ def ensure_workflow_demo_users(session: Session) -> None:
         )
         user.roles = [role]
         session.add(user)
+        created += 1
     session.commit()
+    return created
