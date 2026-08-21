@@ -1,0 +1,34 @@
+[
+  {
+    "code": "DEMO-SSDLS-1",
+    "name": "Demo SSDLS-1 (HDR)",
+    "description": "Manual-testing template for High Data Rate product type",
+    "is_available": true,
+    "product_types": [
+      {"code": "SSDLS-1", "name": "High Data Rate"}
+    ],
+    "nodes": [
+      {"client_key": "sys-comm", "level": "system", "name": "Comm"},
+      {"client_key": "sub-rf", "parent_client_key": "sys-comm", "level": "subsystem", "name": "RF"},
+      {"client_key": "mod-modem", "parent_client_key": "sub-rf", "level": "module", "name": "Modem"},
+      {"client_key": "unit-bbu", "parent_client_key": "mod-modem", "level": "unit", "name": "Baseband Unit"},
+      {"client_key": "comp-fpga", "parent_client_key": "unit-bbu", "level": "component", "name": "FPGA Card"}
+    ]
+  },
+  {
+    "code": "DEMO-SSDLS-2",
+    "name": "Demo SSDLS-2 (LDR)",
+    "description": "Manual-testing template for Low Data Rate product type / multi-config scenarios",
+    "is_available": true,
+    "product_types": [
+      {"code": "SSDLS-2", "name": "Low Data Rate"}
+    ],
+    "nodes": [
+      {"client_key": "sys-power", "level": "system", "name": "Power"},
+      {"client_key": "sub-psu", "parent_client_key": "sys-power", "level": "subsystem", "name": "PSU"},
+      {"client_key": "mod-cnv", "parent_client_key": "sub-psu", "level": "module", "name": "Converter"},
+      {"client_key": "unit-reg", "parent_client_key": "mod-cnv", "level": "unit", "name": "Regulator Unit"},
+      {"client_key": "comp-cap", "parent_client_key": "unit-reg", "level": "component", "name": "Cap Bank"}
+    ]
+  }
+]

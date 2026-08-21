@@ -1,0 +1,12 @@
+[
+  {"name": "Comm", "hierarchy_type": "system", "description": "Demo SSDLS-1 communications system", "abbreviation": "COM"},
+  {"name": "RF", "hierarchy_type": "subsystem", "description": "Demo RF subsystem", "abbreviation": "RF"},
+  {"name": "Modem", "hierarchy_type": "module", "description": "Demo modem module", "abbreviation": "MDM"},
+  {"name": "Baseband Unit", "hierarchy_type": "unit", "description": "Demo baseband unit", "abbreviation": "BBU"},
+  {"name": "FPGA Card", "hierarchy_type": "component", "description": "Demo FPGA component", "abbreviation": "FPGA"},
+  {"name": "Power", "hierarchy_type": "system", "description": "Demo SSDLS-2 power system", "abbreviation": "PWR"},
+  {"name": "PSU", "hierarchy_type": "subsystem", "description": "Demo power supply subsystem", "abbreviation": "PSU"},
+  {"name": "Converter", "hierarchy_type": "module", "description": "Demo converter module", "abbreviation": "CNV"},
+  {"name": "Regulator Unit", "hierarchy_type": "unit", "description": "Demo regulator unit", "abbreviation": "REG"},
+  {"name": "Cap Bank", "hierarchy_type": "component", "description": "Demo capacitor bank component", "abbreviation": "CAP"}
+]

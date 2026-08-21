@@ -1,0 +1,40 @@
+name,inventory_type,part_number,serial_number,quantity,location,description
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-001,1,WH-A1,SSDLS-1 Comm — primary stock
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-002,1,WH-A1,SSDLS-1 Comm — second unit
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-003,1,WH-A1,SSDLS-1 Comm — third unit (FCFS / multi-flight)
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-004,1,WH-A1,SSDLS-1 Comm — fourth unit
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-005,1,WH-A1,SSDLS-1 Comm — fifth unit
+Comm,system,PN-DEMO-COMM,DEMO-SN-COMM-006,1,WH-A1,SSDLS-1 Comm — sixth unit (2fl x 3sdls)
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-001,1,WH-A2,RF subsystem stock
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-002,1,WH-A2,RF subsystem stock
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-003,1,WH-A2,RF subsystem stock
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-004,1,WH-A2,RF subsystem stock
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-005,1,WH-A2,RF subsystem stock
+RF,subsystem,PN-DEMO-RF,DEMO-SN-RF-006,1,WH-A2,RF subsystem stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-001,1,WH-B1,Modem module stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-002,1,WH-B1,Modem module stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-003,1,WH-B1,Modem module stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-004,1,WH-B1,Modem module stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-005,1,WH-B1,Modem module stock
+Modem,module,PN-DEMO-MDM,DEMO-SN-MDM-006,1,WH-B1,Modem module stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-001,1,WH-B2,Baseband unit stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-002,1,WH-B2,Baseband unit stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-003,1,WH-B2,Baseband unit stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-004,1,WH-B2,Baseband unit stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-005,1,WH-B2,Baseband unit stock
+Baseband Unit,unit,PN-DEMO-BBU,DEMO-SN-BBU-006,1,WH-B2,Baseband unit stock
+FPGA Card,component,PN-DEMO-FPGA,,24,WH-C1,Component qty pool for 2x3 hierarchy leaves
+Power,system,PN-DEMO-PWR,DEMO-SN-PWR-001,1,WH-D1,SSDLS-2 Power — contention / second config
+Power,system,PN-DEMO-PWR,DEMO-SN-PWR-002,1,WH-D1,SSDLS-2 Power stock
+Power,system,PN-DEMO-PWR,DEMO-SN-PWR-003,1,WH-D1,SSDLS-2 Power stock
+PSU,subsystem,PN-DEMO-PSU,DEMO-SN-PSU-001,1,WH-D2,PSU subsystem stock
+PSU,subsystem,PN-DEMO-PSU,DEMO-SN-PSU-002,1,WH-D2,PSU subsystem stock
+PSU,subsystem,PN-DEMO-PSU,DEMO-SN-PSU-003,1,WH-D2,PSU subsystem stock
+Converter,module,PN-DEMO-CNV,DEMO-SN-CNV-001,1,WH-E1,Converter module stock
+Converter,module,PN-DEMO-CNV,DEMO-SN-CNV-002,1,WH-E1,Converter module stock
+Converter,module,PN-DEMO-CNV,DEMO-SN-CNV-003,1,WH-E1,Converter module stock
+Regulator Unit,unit,PN-DEMO-REG,DEMO-SN-REG-001,1,WH-E2,Regulator unit stock
+Regulator Unit,unit,PN-DEMO-REG,DEMO-SN-REG-002,1,WH-E2,Regulator unit stock
+Regulator Unit,unit,PN-DEMO-REG,DEMO-SN-REG-003,1,WH-E2,Regulator unit stock
+Cap Bank,component,PN-DEMO-CAP,,12,WH-F1,Component qty pool for SSDLS-2
+Comm,system,PN-DEMO-COMM-SHARE,DEMO-SN-SHARE-001,1,WH-Z1,Single shared serial for dual-project contention (Spec 04)
