@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func
 from sqlmodel import Session, select
 
 from app.domain.hierarchy_config import (
@@ -35,6 +35,28 @@ class HierarchyConfigError(ValueError):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _assert_unique_configuration_name(
+    session: Session,
+    name: str,
+    *,
+    exclude_id: int | None = None,
+) -> None:
+    """Reject duplicate configuration names (case-insensitive, trimmed)."""
+    needle = name.strip().lower()
+    if not needle:
+        return
+    stmt = select(HierarchyConfiguration).where(
+        func.lower(HierarchyConfiguration.name) == needle
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(HierarchyConfiguration.id != exclude_id)
+    existing = session.exec(stmt).first()
+    if existing:
+        raise HierarchyConfigError(
+            f"Configuration name '{name.strip()}' already exists"
+        )
 
 
 def get_configuration(session: Session, config_id: int) -> HierarchyConfiguration | None:
@@ -201,6 +223,8 @@ def create_configuration(
     if existing:
         raise HierarchyConfigError(f"Configuration code '{code}' already exists")
 
+    _assert_unique_configuration_name(session, name)
+
     product_types = list(payload.get("product_types") or [])
     nodes = list(payload.get("nodes") or [])
     _validate_product_types(product_types)
@@ -253,6 +277,10 @@ def update_configuration(
         name = str(payload["name"]).strip()
         if not name:
             raise HierarchyConfigError("name cannot be empty")
+        if name.lower() != (config.name or "").strip().lower():
+            _assert_unique_configuration_name(
+                session, name, exclude_id=config_id
+            )
         config.name = name
     if "description" in payload:
         config.description = payload["description"]
