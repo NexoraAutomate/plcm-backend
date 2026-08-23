@@ -1089,6 +1089,19 @@ class InventoryConsumeRead(SQLModel):
     consumed_instance: Optional[InventoryInstanceRead] = None
     issuance: Optional[InventoryIssuanceRead] = None
 
+class InventoryIdsRead(SQLModel):
+    ids: List[int] = Field(default_factory=list)
+
+
+class InventoryBulkDeleteRequest(SQLModel):
+    ids: List[int] = Field(default_factory=list)
+
+
+class InventoryBulkDeleteRead(SQLModel):
+    deleted: int = 0
+    not_found: List[int] = Field(default_factory=list)
+
+
 class InventoryUpdate(SQLModel):
     name: Optional[str] = None
     inventory_type: Optional[str] = None
