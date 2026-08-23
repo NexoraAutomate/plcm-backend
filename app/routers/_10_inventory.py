@@ -1,6 +1,5 @@
 from typing import List, Optional
-import csv
-import io
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File
@@ -34,6 +33,11 @@ from app.services.inventory_service import (
     list_inventory_child_links,
     replace_inventory_child_links,
     delete_inventory_item,
+)
+from app.services.inventory_import_export import (
+    build_export_csv,
+    build_export_payload,
+    import_inventory_payload,
 )
 
 
@@ -499,26 +503,51 @@ def list_inventory(
     return [_read_for_user(session, item, current_user) for item in items]
 
 
+@router.get(
+    "/inventory/ids/",
+    response_model=schemas.InventoryIdsRead,
+    tags=["inventory"],
+)
+def list_inventory_ids(
+    inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
+    search: Optional[str] = Query(None),
+    stock: Optional[str] = Query(None, description="available | reserved | out_of_stock"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    """Return every matching inventory id for the current list filters (all pages)."""
+    where = inventory_list_where(
+        scope=_scoped_inventory_filter(session, current_user),
+        inventory_type=inventory_type,
+        search=search,
+        stock=stock,
+    )
+    stmt = select(Inventory.id)
+    if where is not None:
+        stmt = stmt.where(where)
+    ids = [int(item_id) for item_id in session.exec(stmt).all() if item_id is not None]
+    return schemas.InventoryIdsRead(ids=ids)
+
+
 # ---------------------------------------------------------------------------
-# CSV export / import
+# CSV / JSON export / import  (one catalog row per part number; serials as children)
 # ---------------------------------------------------------------------------
 
-CSV_EXPORT_FIELDS = [
-    "id", "name", "inventory_type", "part_number", "original_part_number",
-    "serial_number", "original_serial_number", "quantity", "description",
-    "oem_name", "configuration_item", "sku", "location",
-    "holder_user_id", "status_id", "added_date", "shelf_life_expires_at",
-    "installation_date", "installed_by_id", "picture_url", "entity_id",
-    "updated_at",
-]
-
-CSV_IMPORT_REQUIRED = ["name", "inventory_type"]
-CSV_IMPORT_OPTIONAL = [
-    "part_number", "original_part_number", "serial_number", "original_serial_number",
-    "quantity", "description", "oem_name", "configuration_item", "sku",
-    "location", "shelf_life_expires_at",
-]
-CSV_VALID_TYPES = {"system", "subsystem", "module", "unit", "component"}
+def _filtered_inventory_items(
+    session: Session,
+    current_user: User,
+    inventory_type: Optional[str],
+    search: Optional[str],
+) -> list[Inventory]:
+    where = inventory_list_where(
+        scope=_scoped_inventory_filter(session, current_user),
+        inventory_type=inventory_type,
+        search=search,
+    )
+    stmt = select(Inventory)
+    if where is not None:
+        stmt = stmt.where(where)
+    return list(session.exec(stmt).all())
 
 
 @router.get("/inventory/export-csv/", tags=["inventory"])
@@ -528,33 +557,52 @@ def export_inventory_csv(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
-    """Export all (or filtered) inventory rows as a CSV file."""
-    where = inventory_list_where(
-        scope=_scoped_inventory_filter(session, current_user),
-        inventory_type=inventory_type,
-        search=search,
-    )
-    stmt = select(Inventory)
-    if where is not None:
-        stmt = stmt.where(where)
-    items = session.exec(stmt).all()
-
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=CSV_EXPORT_FIELDS, extrasaction="ignore")
-    writer.writeheader()
-    for item in items:
-        row = item.model_dump()
-        for field in ("added_date", "updated_at", "shelf_life_expires_at", "installation_date"):
-            if row.get(field) is not None:
-                row[field] = row[field].isoformat()
-        writer.writerow(row)
-
-    output.seek(0)
-    filename = "inventory_export.csv"
+    """Export one catalog row per part number. Serials are in `serial_numbers`."""
+    items = _filtered_inventory_items(session, current_user, inventory_type, search)
+    csv_text = build_export_csv(session, items)
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter([csv_text]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": 'attachment; filename="inventory_export.csv"'},
+    )
+
+
+@router.get("/inventory/export-json/", tags=["inventory"])
+def export_inventory_json(
+    inventory_type: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    """Export nested JSON: each item has `instances[]` child serials."""
+    items = _filtered_inventory_items(session, current_user, inventory_type, search)
+    payload = build_export_payload(session, items)
+    body = json.dumps(payload, indent=2)
+    return StreamingResponse(
+        iter([body]),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="inventory_export.json"'},
+    )
+
+
+async def _import_inventory_file(
+    file: UploadFile,
+    dry_run: bool,
+    session: Session,
+    current_user: User,
+):
+    if not is_inventory_manager(current_user):
+        raise HTTPException(status_code=403, detail="Only inventory managers can import inventory")
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+    return import_inventory_payload(
+        session,
+        filename=file.filename or "inventory.csv",
+        text=text,
+        dry_run=dry_run,
     )
 
 
@@ -565,109 +613,47 @@ async def import_inventory_csv(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("create_inventory")),
 ):
-    """Import inventory items from a CSV file.
+    """Import CSV or JSON. Same part number is merged; serials become child instances."""
+    return await _import_inventory_file(file, dry_run, session, current_user)
 
-    Returns a summary of created rows (or validation errors on dry_run=true).
-    """
-    if not is_inventory_manager(current_user):
-        raise HTTPException(status_code=403, detail="Only inventory managers can import CSV")
 
-    content = await file.read()
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = content.decode("latin-1")
+@router.post("/inventory/import/", tags=["inventory"])
+async def import_inventory(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False, description="Validate only; do not save"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("create_inventory")),
+):
+    """Import inventory from CSV or JSON. Serials attach to the matching part number."""
+    return await _import_inventory_file(file, dry_run, session, current_user)
 
-    reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None:
-        raise HTTPException(status_code=400, detail="CSV file appears to be empty")
 
-    # Validate required columns
-    missing_cols = [c for c in CSV_IMPORT_REQUIRED if c not in (reader.fieldnames or [])]
-    if missing_cols:
-        raise HTTPException(
-            status_code=400,
-            detail=f"CSV is missing required columns: {', '.join(missing_cols)}",
-        )
+@router.post(
+    "/inventory/bulk-delete/",
+    response_model=schemas.InventoryBulkDeleteRead,
+    tags=["inventory"],
+)
+def bulk_delete_inventory(
+    body: schemas.InventoryBulkDeleteRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("delete_inventory")),
+):
+    _require_inventory_manager(current_user)
+    ids = list(dict.fromkeys(int(item_id) for item_id in (body.ids or []) if item_id is not None))
+    if not ids:
+        raise HTTPException(status_code=400, detail="No inventory ids provided")
 
-    errors: list[dict] = []
-    created: list[dict] = []
-    valid_row_count = 0
-
-    for row_num, row in enumerate(reader, start=2):
-        row_errors: list[str] = []
-
-        name = (row.get("name") or "").strip()
-        inventory_type = (row.get("inventory_type") or "").strip().lower()
-
-        if not name:
-            row_errors.append("'name' is required")
-        if not inventory_type:
-            row_errors.append("'inventory_type' is required")
-        elif inventory_type not in CSV_VALID_TYPES:
-            row_errors.append(
-                f"'inventory_type' must be one of: {', '.join(sorted(CSV_VALID_TYPES))}"
-            )
-
-        quantity_raw = (row.get("quantity") or "").strip()
-        quantity = 0
-        if quantity_raw:
-            try:
-                quantity = int(quantity_raw)
-                if quantity < 0:
-                    row_errors.append("'quantity' cannot be negative")
-            except ValueError:
-                row_errors.append(f"'quantity' must be an integer, got: {quantity_raw!r}")
-
-        shelf_life_expires_at = None
-        shelf_raw = (row.get("shelf_life_expires_at") or "").strip()
-        if shelf_raw:
-            try:
-                shelf_life_expires_at = datetime.fromisoformat(shelf_raw)
-            except ValueError:
-                row_errors.append(
-                    f"'shelf_life_expires_at' must be ISO 8601 datetime, got: {shelf_raw!r}"
-                )
-
-        if row_errors:
-            errors.append({"row": row_num, "errors": row_errors})
+    deleted = 0
+    not_found: list[int] = []
+    for inventory_id in ids:
+        inventory = session.get(Inventory, inventory_id)
+        if not inventory:
+            not_found.append(inventory_id)
             continue
-
-        valid_row_count += 1
-        if not dry_run:
-            inv = Inventory(
-                name=name,
-                inventory_type=inventory_type,
-                part_number=(row.get("part_number") or "").strip() or None,
-                original_part_number=(row.get("original_part_number") or "").strip() or None,
-                serial_number=(row.get("serial_number") or "").strip() or None,
-                original_serial_number=(row.get("original_serial_number") or "").strip() or None,
-                quantity=quantity,
-                description=(row.get("description") or "").strip() or None,
-                oem_name=(row.get("oem_name") or "").strip() or None,
-                configuration_item=(row.get("configuration_item") or "").strip() or None,
-                sku=(row.get("sku") or "").strip() or None,
-                location=(row.get("location") or "").strip() or None,
-                shelf_life_expires_at=shelf_life_expires_at,
-                added_date=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc),
-            )
-            session.add(inv)
-            session.flush()
-            created.append({"row": row_num, "id": inv.id, "name": inv.name})
-
-    if errors:
-        raise HTTPException(
-            status_code=422,
-            detail={"message": "CSV contains validation errors", "errors": errors},
-        )
-
-    if not dry_run:
-        session.commit()
-        return {"imported": len(created), "rows": created}
-
-    # dry_run — return count of valid rows
-    return {"dry_run": True, "valid_rows": valid_row_count, "errors": []}
+        delete_inventory_item(session, inventory)
+        deleted += 1
+    session.commit()
+    return schemas.InventoryBulkDeleteRead(deleted=deleted, not_found=not_found)
 
 
 @router.get("/inventory/by-type/{inventory_type}/", response_model=List[schemas.InventoryRead], tags=["inventory"])

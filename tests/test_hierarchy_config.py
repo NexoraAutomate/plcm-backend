@@ -137,6 +137,34 @@ def test_duplicate_code_rejected(session: Session, unique_code: str):
         _cleanup(session, unique_code)
 
 
+def test_duplicate_name_rejected(session: Session, unique_code: str):
+    code_a = f"{unique_code}-a"
+    code_b = f"{unique_code}-b"
+    _cleanup(session, code_a, code_b)
+    try:
+        create_configuration(
+            session,
+            {
+                "code": code_a,
+                "name": "Shared Name",
+                "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                "nodes": [],
+            },
+        )
+        with pytest.raises(HierarchyConfigError, match="name .* already exists"):
+            create_configuration(
+                session,
+                {
+                    "code": code_b,
+                    "name": "shared name",
+                    "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                    "nodes": [],
+                },
+            )
+    finally:
+        _cleanup(session, code_a, code_b)
+
+
 def test_update_bumps_version_and_replaces_nodes(session: Session, unique_code: str):
     _cleanup(session, unique_code)
     try:
