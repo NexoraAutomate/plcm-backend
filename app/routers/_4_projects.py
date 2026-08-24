@@ -355,6 +355,29 @@ def check_reservation_availability(
 
 
 @router.get(
+    "/projects/{project_id}/reservations/plan/",
+    response_model=schemas.ReservationPlan,
+    tags=["projects"],
+)
+def get_reservation_plan(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.reserve")),
+):
+    """Spec 04 — full hierarchy shells with matched AVAILABLE stock (or short)."""
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        build_reservation_plan,
+    )
+
+    _require_visible_project(session, project_id, current_user)
+    try:
+        return schemas.ReservationPlan(**build_reservation_plan(session, project_id))
+    except InventoryReservationError as exc:
+        raise _reservation_http_error(exc) from exc
+
+
+@router.get(
     "/projects/{project_id}/reservations/",
     response_model=List[schemas.InventoryReservationRead],
     tags=["projects"],

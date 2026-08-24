@@ -91,3 +91,24 @@ class TestWorkflowPermissionSeed:
             assert "hierarchy_config.manage" not in _role_perms(
                 WORKFLOW_ROLE_DB_NAMES[role]
             )
+
+    def test_workflow_roles_can_view_generated_hierarchy_shells(self):
+        """Spec 03 shells are listed via /systems|/subsystems|… — not Admin-only."""
+        hierarchy_views = {
+            "view_systems",
+            "view_subsystems",
+            "view_modules",
+            "view_units",
+            "view_components",
+        }
+        for role in (WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
+            perms = _role_perms(WORKFLOW_ROLE_DB_NAMES[role])
+            missing = hierarchy_views - perms
+            assert not missing, f"{WORKFLOW_ROLE_DB_NAMES[role]} missing {missing}"
+
+    def test_workflow_roles_can_view_statuses_for_project_pages(self):
+        """Project detail loads system statuses; all workflow actors need view_statuses."""
+        for role in (WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
+            assert "view_statuses" in _role_perms(WORKFLOW_ROLE_DB_NAMES[role]), (
+                f"{WORKFLOW_ROLE_DB_NAMES[role]} missing view_statuses"
+            )

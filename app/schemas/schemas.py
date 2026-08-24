@@ -1525,6 +1525,37 @@ class InventoryAvailabilityCheck(SQLModel):
     reason: Optional[str] = None
 
 
+class ReservationPlanItem(SQLModel):
+    target_entity_type: str
+    target_entity_id: int
+    entity_name: str
+    path: str
+    depth: int = 0
+    status: str  # available | short | reserved
+    available: bool = False
+    reason: Optional[str] = None
+    free_quantity: Optional[int] = None
+    inventory_id: Optional[int] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    serial_numbers: Optional[List[str]] = None
+    suggested_serial: Optional[str] = None
+    reservation_id: Optional[int] = None
+    flight_id: Optional[int] = None
+    sdls_id: Optional[int] = None
+    system_id: Optional[int] = None
+
+
+class ReservationPlan(SQLModel):
+    project_id: int
+    project_status: Optional[str] = None
+    total: int = 0
+    available_count: int = 0
+    short_count: int = 0
+    reserved_count: int = 0
+    items: List[ReservationPlanItem] = []
+
+
 class HierarchyAssignDeveloperRequest(SQLModel):
     developer_user_id: Optional[int] = None
 

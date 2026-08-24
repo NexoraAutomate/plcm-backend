@@ -944,3 +944,196 @@ def reservation_to_dict(reservation: InventoryReservation) -> dict[str, Any]:
             else None
         ),
     }
+
+
+def _plan_row_for_entity(
+    session: Session,
+    *,
+    project_id: int,
+    entity_type: str,
+    entity: Any,
+    path_parts: list[str],
+) -> dict[str, Any]:
+    name = str(getattr(entity, "name", "") or "")
+    eid = int(entity.id)
+    base = {
+        "target_entity_type": entity_type,
+        "target_entity_id": eid,
+        "entity_name": name,
+        "path": " / ".join(path_parts),
+        "depth": max(0, len(path_parts) - 2),
+    }
+    try:
+        avail = check_availability(
+            session,
+            project_id=project_id,
+            target_entity_type=entity_type,
+            target_entity_id=eid,
+        )
+    except InventoryReservationError as exc:
+        return {
+            **base,
+            "status": "short",
+            "available": False,
+            "reason": str(exc),
+            "free_quantity": 0,
+            "inventory_id": None,
+            "inventory_name": None,
+            "part_number": None,
+            "serial_numbers": [],
+            "suggested_serial": None,
+            "reservation_id": None,
+            "flight_id": None,
+            "sdls_id": None,
+            "system_id": None,
+        }
+
+    if avail.get("reservation_id"):
+        status_code = "reserved"
+    elif avail.get("available"):
+        status_code = "available"
+    else:
+        status_code = "short"
+
+    serials = list(avail.get("serial_numbers") or [])
+    return {
+        **base,
+        "status": status_code,
+        "available": bool(avail.get("available")),
+        "reason": avail.get("reason"),
+        "free_quantity": avail.get("free_quantity"),
+        "inventory_id": avail.get("inventory_id"),
+        "inventory_name": avail.get("inventory_name"),
+        "part_number": avail.get("part_number"),
+        "serial_numbers": serials,
+        "suggested_serial": serials[0] if serials else None,
+        "reservation_id": avail.get("reservation_id"),
+        "flight_id": avail.get("flight_id"),
+        "sdls_id": avail.get("sdls_id"),
+        "system_id": avail.get("system_id"),
+    }
+
+
+def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
+    """
+    Spec 04 UI — every reservable hierarchy shell under the project with a
+    matched AVAILABLE stock suggestion (or short / already-reserved).
+    """
+    from app.services.entity_replacement_service import filter_current_installs
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise InventoryReservationError("Project not found")
+    assert_project_can_reserve(project)
+    assert_no_open_config_change_for_reserve(session, project_id)
+
+    flights = session.exec(
+        select(Flight)
+        .where(Flight.project_id == project_id)
+        .order_by(Flight.sequence, Flight.id)
+    ).all()
+
+    items: list[dict[str, Any]] = []
+    for flight in flights:
+        flight_label = flight.name or flight.code or f"Flight-{flight.id}"
+        sdls_rows = session.exec(
+            select(Sdls)
+            .where(Sdls.flight_id == flight.id)
+            .order_by(Sdls.sequence, Sdls.id)
+        ).all()
+        for sdls in sdls_rows:
+            sdls_label = sdls.name or sdls.code or f"SDLS-{sdls.id}"
+            systems = filter_current_installs(
+                [
+                    s
+                    for s in (project.systems or [])
+                    if s.sdls_id == sdls.id
+                ]
+            )
+            systems = sorted(systems, key=lambda s: (s.name or "", int(s.id or 0)))
+            for system in systems:
+                sys_path = [flight_label, sdls_label, system.name]
+                items.append(
+                    _plan_row_for_entity(
+                        session,
+                        project_id=project_id,
+                        entity_type="system",
+                        entity=system,
+                        path_parts=sys_path,
+                    )
+                )
+                subsystems = filter_current_installs(list(system.subsystems or []))
+                subsystems = sorted(
+                    subsystems, key=lambda s: (s.name or "", int(s.id or 0))
+                )
+                for subsystem in subsystems:
+                    sub_path = [*sys_path, subsystem.name]
+                    items.append(
+                        _plan_row_for_entity(
+                            session,
+                            project_id=project_id,
+                            entity_type="subsystem",
+                            entity=subsystem,
+                            path_parts=sub_path,
+                        )
+                    )
+                    modules = filter_current_installs(list(subsystem.modules or []))
+                    modules = sorted(
+                        modules, key=lambda m: (m.name or "", int(m.id or 0))
+                    )
+                    for module in modules:
+                        mod_path = [*sub_path, module.name]
+                        items.append(
+                            _plan_row_for_entity(
+                                session,
+                                project_id=project_id,
+                                entity_type="module",
+                                entity=module,
+                                path_parts=mod_path,
+                            )
+                        )
+                        units = filter_current_installs(list(module.units or []))
+                        units = sorted(
+                            units, key=lambda u: (u.name or "", int(u.id or 0))
+                        )
+                        for unit in units:
+                            unit_path = [*mod_path, unit.name]
+                            items.append(
+                                _plan_row_for_entity(
+                                    session,
+                                    project_id=project_id,
+                                    entity_type="unit",
+                                    entity=unit,
+                                    path_parts=unit_path,
+                                )
+                            )
+                            components = filter_current_installs(
+                                list(unit.components or [])
+                            )
+                            components = sorted(
+                                components,
+                                key=lambda c: (c.name or "", int(c.id or 0)),
+                            )
+                            for component in components:
+                                items.append(
+                                    _plan_row_for_entity(
+                                        session,
+                                        project_id=project_id,
+                                        entity_type="component",
+                                        entity=component,
+                                        path_parts=[*unit_path, component.name],
+                                    )
+                                )
+
+    available = sum(1 for row in items if row["status"] == "available")
+    short = sum(1 for row in items if row["status"] == "short")
+    reserved = sum(1 for row in items if row["status"] == "reserved")
+    return {
+        "project_id": project_id,
+        "project_status": project_status_name(project),
+        "total": len(items),
+        "available_count": available,
+        "short_count": short,
+        "reserved_count": reserved,
+        "items": items,
+    }

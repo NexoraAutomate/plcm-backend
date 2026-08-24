@@ -26,6 +26,7 @@ from app.services.hierarchy_config_service import (
 from app.services.hierarchy_generation_service import generate_project_hierarchy
 from app.services.inventory_reservation_service import (
     InventoryReservationError,
+    build_reservation_plan,
     check_availability,
     list_project_reservations,
     release_reservation,
@@ -382,4 +383,23 @@ def test_reserved_serial_exposes_project_hold(session: Session, admin_user: User
     assert hold["target_entity_type"] == "system"
     assert hold["serial_number"] == "SN-HOLD"
 
+    _cleanup(session, project, cfg, inv)
+
+
+def test_reservation_plan_matches_available_and_short(
+    session: Session, admin_user: User
+):
+    project, cfg = _ready_project(
+        session, admin_user, flights=1, sdls=1, system_name="Comm"
+    )
+    inv = _stock_for_system(session, name="Comm", serials=["SN-PLAN-1"])
+    plan = build_reservation_plan(session, int(project.id))
+    assert plan["total"] >= 1
+    system_rows = [
+        row for row in plan["items"] if row["target_entity_type"] == "system"
+    ]
+    assert len(system_rows) == 1
+    assert system_rows[0]["status"] == "available"
+    assert system_rows[0]["suggested_serial"] == "SN-PLAN-1"
+    assert plan["available_count"] >= 1
     _cleanup(session, project, cfg, inv)
