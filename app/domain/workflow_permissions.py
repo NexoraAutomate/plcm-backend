@@ -37,6 +37,8 @@ WORKFLOW_PERMISSION_NAMES: list[str] = [p["name"] for p in WORKFLOW_PERMISSION_D
 WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
     WorkflowRole.ADMIN: list(WORKFLOW_PERMISSION_NAMES),
     WorkflowRole.PD: [
+        "project.create_draft",
+        "project.approve",
         "project.assign_hm",
         "project.cancel",
         "audit.read",

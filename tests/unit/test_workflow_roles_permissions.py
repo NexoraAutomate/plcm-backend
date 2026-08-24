@@ -25,7 +25,12 @@ SPEC_00_PERMISSIONS = [
 ]
 
 ROLE_PRIMARY_PERMS = {
-    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]: ["project.assign_hm", "project.cancel"],
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]: [
+        "project.create_draft",
+        "project.approve",
+        "project.assign_hm",
+        "project.cancel",
+    ],
     WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM]: [
         "project.create_draft",
         "hierarchy.generate",
@@ -72,14 +77,20 @@ class TestWorkflowPermissionSeed:
             for key in keys:
                 assert key in perms, f"{role_name} missing {key}"
 
-    def test_project_approve_is_admin_not_hm(self):
+    def test_project_approve_is_admin_and_pd_not_hm(self):
         assert "project.approve" in _role_perms(
             WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN]
+        )
+        assert "project.approve" in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
         )
         assert "project.approve" not in _role_perms(
             WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM]
         )
-        assert "project.approve" not in _role_perms(
+        assert "create_projects" in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
+        )
+        assert "project.create_draft" in _role_perms(
             WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
         )
 
@@ -111,4 +122,11 @@ class TestWorkflowPermissionSeed:
         for role in (WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
             assert "view_statuses" in _role_perms(WORKFLOW_ROLE_DB_NAMES[role]), (
                 f"{WORKFLOW_ROLE_DB_NAMES[role]} missing view_statuses"
+            )
+
+    def test_hm_and_pd_can_view_orders_for_project_create(self):
+        """Project create form lists order numbers via /orders/."""
+        for role in (WorkflowRole.PD, WorkflowRole.HM):
+            assert "view_orders" in _role_perms(WORKFLOW_ROLE_DB_NAMES[role]), (
+                f"{WORKFLOW_ROLE_DB_NAMES[role]} missing view_orders"
             )

@@ -664,6 +664,9 @@ DEFAULT_ROLES = [
         "description": WORKFLOW_ROLE_LABELS[WorkflowRole.PD],
         "permissions": [
             "view_projects",
+            "create_projects",
+            "edit_projects",
+            "view_orders",
             "view_users",
             # Generated / fielded hierarchy must be readable (Spec 03 shells).
             "view_systems",
@@ -688,6 +691,7 @@ DEFAULT_ROLES = [
             "view_projects",
             "create_projects",
             "edit_projects",
+            "view_orders",
             "view_users",
             "view_hierarchy",
             # Spec 03 generate creates System→Component shells; HM must list them.

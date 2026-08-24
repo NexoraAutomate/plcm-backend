@@ -10,9 +10,11 @@ from app.models.tables import ConfigChangeRequest, Project, User
 from app.routers._4_projects import _to_project_read
 from app.routers.auth import require_permission
 from app.schemas import schemas
+from app.models.base import ConfigChangeRequestStatus
 from app.services.config_change_service import (
     ConfigChangeError,
     approve_config_change,
+    cancel_config_change,
     config_change_to_dict,
     create_successor_project,
     get_open_config_change,
@@ -108,8 +110,18 @@ def get_project_config_change_endpoint(
 ):
     row = get_open_config_change(session, project_id)
     if row is None:
+        # Prefer a completed successor flow for history; skip cancelled withdrawals
+        # so HM can request again and resume reserve / generate.
         rows = list_config_changes(session, source_project_id=project_id)
-        row = rows[0] if rows else None
+        row = next(
+            (
+                r
+                for r in rows
+                if r.status
+                == ConfigChangeRequestStatus.NEW_PROJECT_CREATED.value
+            ),
+            None,
+        )
     if row is None:
         return None
     return _to_read(session, row, include_project=True)
@@ -130,6 +142,26 @@ def request_config_change_endpoint(
     try:
         row = request_config_change(
             session, project_id, actor=current_user, notes=payload.notes
+        )
+    except ConfigChangeError as exc:
+        raise _http_error(exc) from exc
+    return _to_read(session, row, include_project=True)
+
+
+@router.post(
+    "/config-changes/{change_id}/cancel/",
+    response_model=schemas.ConfigChangeRequestRead,
+    tags=["config-changes"],
+)
+def cancel_config_change_endpoint(
+    change_id: int,
+    payload: schemas.ConfigChangeCancelRequest = schemas.ConfigChangeCancelRequest(),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("config_change.request")),
+):
+    try:
+        row = cancel_config_change(
+            session, change_id, actor=current_user, notes=payload.notes
         )
     except ConfigChangeError as exc:
         raise _http_error(exc) from exc

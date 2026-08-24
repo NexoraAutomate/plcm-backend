@@ -59,7 +59,7 @@ ITEM_STATUS_META: dict[ItemStatus, str] = {
 
 PROJECT_STATUS_META: dict[ProjectWorkflowStatus, str] = {
     ProjectWorkflowStatus.DRAFT: "HM created project; waiting Admin approval",
-    ProjectWorkflowStatus.APPROVED: "Admin approved; Generate Hierarchy enabled",
+    ProjectWorkflowStatus.APPROVED: "Approved; Generate Hierarchy enabled",
     ProjectWorkflowStatus.HIERARCHY_GENERATED: "Tree materialised from configuration",
     ProjectWorkflowStatus.READY_FOR_INVENTORY: "May reserve / assign inventory",
     ProjectWorkflowStatus.CANCELLED: "Project cancelled (Spec 11)",

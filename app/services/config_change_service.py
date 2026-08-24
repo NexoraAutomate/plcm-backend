@@ -404,6 +404,61 @@ def submit_config_change(
     return row
 
 
+CANCELLABLE_CR_STATUSES = frozenset(
+    {
+        ConfigChangeRequestStatus.REQUESTED.value,
+        ConfigChangeRequestStatus.INVENTORY_RETURNED.value,
+        ConfigChangeRequestStatus.SUBMITTED.value,
+    }
+)
+
+
+def cancel_config_change(
+    session: Session,
+    change_id: int,
+    *,
+    actor: User,
+    notes: Optional[str] = None,
+) -> ConfigChangeRequest:
+    """Withdraw an open configuration change so inventory ops can resume.
+
+    Allowed before Admin approval. Does not undo inventory already returned —
+    released stock stays Available and can be reserved again.
+    """
+    row = _require_cr(session, change_id)
+    if row.status == ConfigChangeRequestStatus.CANCELLED.value:
+        return row
+    if row.status not in CANCELLABLE_CR_STATUSES:
+        raise ConfigChangeError(
+            f"Configuration change cannot be cancelled in status {row.status}"
+        )
+
+    old_status = row.status
+    now = _now()
+    row.status = ConfigChangeRequestStatus.CANCELLED.value
+    row.updated_at = now
+    if notes is not None:
+        remark = (notes or "").strip()
+        if remark:
+            existing = (row.notes or "").strip()
+            row.notes = f"{existing}; {remark}".strip("; ") if existing else remark
+    session.add(row)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CONFIG_CHANGE_CANCELLED,
+        entity_type="config_change",
+        entity_id=int(row.id),
+        actor=actor,
+        project_id=int(row.source_project_id),
+        old_value={"status": old_status},
+        new_value={"status": ConfigChangeRequestStatus.CANCELLED.value},
+        remarks=notes,
+    )
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 def approve_config_change(
     session: Session,
     change_id: int,

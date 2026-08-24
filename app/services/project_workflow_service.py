@@ -1,5 +1,5 @@
 """
-Spec 02 — project draft creation, HM assignment, and Admin approval.
+Spec 02 — project draft creation, HM assignment, and Admin/PD approval.
 """
 
 from __future__ import annotations
@@ -325,15 +325,22 @@ def assign_hm(
     return project
 
 
+def _can_approve_project(user: User) -> bool:
+    names = _role_names(user)
+    return has_workflow_role(names, WorkflowRole.ADMIN) or has_workflow_role(
+        names, WorkflowRole.PD
+    )
+
+
 def approve_project(
     session: Session,
     project_id: int,
     *,
     actor: User,
 ) -> Project:
-    if not _is_admin(actor):
+    if not _can_approve_project(actor):
         # Permission decorator also gates; keep domain guard for tests
-        raise ProjectWorkflowError("Only Admin can approve projects")
+        raise ProjectWorkflowError("Only Admin or Project Director can approve projects")
 
     project = session.get(Project, project_id)
     if not project:
@@ -345,7 +352,7 @@ def approve_project(
             "project",
             current,
             ProjectWorkflowStatus.APPROVED.value,
-            actor_role=WorkflowRole.ADMIN,
+            actor_role=_actor_workflow_role(actor) or WorkflowRole.ADMIN,
         )
     except ValueError as exc:
         raise ProjectWorkflowError(str(exc)) from exc

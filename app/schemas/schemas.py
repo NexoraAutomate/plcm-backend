@@ -528,6 +528,10 @@ class ConfigChangeRequestCreate(SQLModel):
     notes: Optional[str] = None
 
 
+class ConfigChangeCancelRequest(SQLModel):
+    notes: Optional[str] = None
+
+
 class ConfigChangeSubmitRequest(SQLModel):
     target_hierarchy_config_id: int
     reason_remarks: str
@@ -600,10 +604,34 @@ class HierarchyGenerationResult(SQLModel):
     project: Optional["ProjectRead"] = None
 
 
+class HierarchyTreeComponentNode(SQLModel):
+    id: int
+    name: str
+
+
+class HierarchyTreeUnitNode(SQLModel):
+    id: int
+    name: str
+    components: List[HierarchyTreeComponentNode] = []
+
+
+class HierarchyTreeModuleNode(SQLModel):
+    id: int
+    name: str
+    units: List[HierarchyTreeUnitNode] = []
+
+
+class HierarchyTreeSubsystemNode(SQLModel):
+    id: int
+    name: str
+    modules: List[HierarchyTreeModuleNode] = []
+
+
 class HierarchyTreeSystemNode(SQLModel):
     id: int
     name: str
     subsystem_count: int = 0
+    subsystems: List[HierarchyTreeSubsystemNode] = []
 
 
 class SdlsTreeNode(SQLModel):

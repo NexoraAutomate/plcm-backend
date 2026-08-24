@@ -356,8 +356,17 @@ class TestSpec03System:
         for flight in tree_body["flights"]:
             for sdls in flight["sdls"]:
                 assert len(sdls["systems"]) == 1
-                assert sdls["systems"][0]["name"] == "Comm"
+                system = sdls["systems"][0]
+                assert system["name"] == "Comm"
                 assert sdls["product_type"] == "SSDLS-1"
+                assert system["subsystem_count"] >= 1
+                assert len(system.get("subsystems") or []) >= 1
+                subsystem = system["subsystems"][0]
+                assert len(subsystem.get("modules") or []) >= 1
+                module = subsystem["modules"][0]
+                assert len(module.get("units") or []) >= 1
+                unit = module["units"][0]
+                assert len(unit.get("components") or []) >= 1
 
         again = client.post(
             f"/api/projects/{project['id']}/generate-hierarchy/",

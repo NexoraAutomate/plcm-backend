@@ -197,7 +197,7 @@ def test_non_admin_cannot_approve_domain(
         },
         actor=admin_user,
     )
-    with pytest.raises(ProjectWorkflowError, match="Only Admin"):
+    with pytest.raises(ProjectWorkflowError, match="Only Admin or Project Director"):
         approve_project(session, project.id, actor=actor)
 
     session.delete(project)

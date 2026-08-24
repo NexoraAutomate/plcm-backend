@@ -34,7 +34,9 @@ from app.models.tables import (
 from app.services.config_change_service import (
     ConfigChangeError,
     approve_config_change,
+    cancel_config_change,
     create_successor_project,
+    get_open_config_change,
     request_config_change,
     return_config_change_inventory,
     submit_config_change,
@@ -533,6 +535,55 @@ def test_generate_blocked_while_config_change_open(
         }
         with pytest.raises(ProjectWorkflowError, match="configuration change"):
             generate_project_hierarchy(session, project.id, actor=admin_user)
+    finally:
+        _cleanup(session, project, cfg, [])
+
+
+def test_cancel_config_change_unblocks_operations(
+    session: Session, admin_user: User
+):
+    # Use Entity List catalog names (Settings → Definitions).
+    names = ["Comm"]
+    code = f"C12X-{uuid.uuid4().hex[:8].upper()}"
+    cfg = _available_config(session, admin_user, names, code)
+    project = create_draft_project(
+        session,
+        {
+            "name": f"CfgCancel-{code}",
+            "hierarchy_config_id": cfg.id,
+            "product_type": "SSDLS-1",
+            "flight_count": 1,
+            "sdls_per_flight": 1,
+            "start_date": datetime.now(timezone.utc),
+        },
+        actor=admin_user,
+    )
+    approve_project(session, project.id, actor=admin_user)
+    try:
+        cr = request_config_change(session, int(project.id), actor=admin_user)
+        assert cr.status in {
+            ConfigChangeRequestStatus.REQUESTED.value,
+            ConfigChangeRequestStatus.INVENTORY_RETURNED.value,
+        }
+        assert get_open_config_change(session, int(project.id)) is not None
+
+        with pytest.raises(ProjectWorkflowError, match="configuration change"):
+            generate_project_hierarchy(session, project.id, actor=admin_user)
+
+        cancelled = cancel_config_change(session, int(cr.id), actor=admin_user)
+        assert cancelled.status == ConfigChangeRequestStatus.CANCELLED.value
+        assert get_open_config_change(session, int(project.id)) is None
+
+        # Withdrawal unblocks hierarchy generation again.
+        result = generate_project_hierarchy(session, project.id, actor=admin_user)
+        assert result["status"] == ProjectWorkflowStatus.READY_FOR_INVENTORY.value
+
+        again = request_config_change(session, int(project.id), actor=admin_user)
+        assert again.id != cr.id
+        assert again.status in {
+            ConfigChangeRequestStatus.REQUESTED.value,
+            ConfigChangeRequestStatus.INVENTORY_RETURNED.value,
+        }
     finally:
         _cleanup(session, project, cfg, [])
 

@@ -851,6 +851,7 @@ class ConfigChangeRequestStatus(str, Enum):
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
     NEW_PROJECT_CREATED = "NEW_PROJECT_CREATED"
+    CANCELLED = "CANCELLED"
 
 
 class ConfigChangeRequestBase(SQLModel):

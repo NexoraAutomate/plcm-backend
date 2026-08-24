@@ -27,6 +27,7 @@ class WorkflowAuditAction:
     CONFIG_CHANGE_SUBMITTED = "CONFIG_CHANGE_SUBMITTED"
     CONFIG_CHANGE_APPROVED = "CONFIG_CHANGE_APPROVED"
     CONFIG_CHANGE_NEW_PROJECT = "CONFIG_CHANGE_NEW_PROJECT"
+    CONFIG_CHANGE_CANCELLED = "CONFIG_CHANGE_CANCELLED"
     SHORTAGE_CREATED = "SHORTAGE_CREATED"
     SHORTAGE_PARTIAL = "SHORTAGE_PARTIAL"
     SHORTAGE_FULFILLED = "SHORTAGE_FULFILLED"
@@ -60,6 +61,7 @@ WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
     WorkflowAuditAction.CONFIG_CHANGE_SUBMITTED: "Config Change Submitted",
     WorkflowAuditAction.CONFIG_CHANGE_APPROVED: "Config Change Approved",
     WorkflowAuditAction.CONFIG_CHANGE_NEW_PROJECT: "Config Change New Project",
+    WorkflowAuditAction.CONFIG_CHANGE_CANCELLED: "Config Change Cancelled",
     WorkflowAuditAction.SHORTAGE_CREATED: "Shortage Created",
     WorkflowAuditAction.SHORTAGE_PARTIAL: "Shortage Partial",
     WorkflowAuditAction.SHORTAGE_FULFILLED: "Shortage Fulfilled",

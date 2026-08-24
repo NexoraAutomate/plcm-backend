@@ -224,10 +224,56 @@ def get_project_hierarchy_tree(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_projects")),
 ):
-    """Spec 03 — nested Flight → SDLS → System tree for project navigation."""
+    """Spec 03 — nested Flight → SDLS → System → … → Component tree."""
     from app.models.tables import Flight, Sdls
+    from app.services.entity_replacement_service import filter_current_installs
 
     project = _require_visible_project(session, project_id, current_user)
+
+    def _sorted_current(rows):
+        return sorted(
+            filter_current_installs(list(rows or [])),
+            key=lambda row: (getattr(row, "name", None) or "", int(row.id or 0)),
+        )
+
+    def _component_node(component) -> schemas.HierarchyTreeComponentNode:
+        return schemas.HierarchyTreeComponentNode(
+            id=int(component.id),
+            name=component.name,
+        )
+
+    def _unit_node(unit) -> schemas.HierarchyTreeUnitNode:
+        components = _sorted_current(unit.components)
+        return schemas.HierarchyTreeUnitNode(
+            id=int(unit.id),
+            name=unit.name,
+            components=[_component_node(c) for c in components],
+        )
+
+    def _module_node(module) -> schemas.HierarchyTreeModuleNode:
+        units = _sorted_current(module.units)
+        return schemas.HierarchyTreeModuleNode(
+            id=int(module.id),
+            name=module.name,
+            units=[_unit_node(u) for u in units],
+        )
+
+    def _subsystem_node(subsystem) -> schemas.HierarchyTreeSubsystemNode:
+        modules = _sorted_current(subsystem.modules)
+        return schemas.HierarchyTreeSubsystemNode(
+            id=int(subsystem.id),
+            name=subsystem.name,
+            modules=[_module_node(m) for m in modules],
+        )
+
+    def _system_node(system) -> schemas.HierarchyTreeSystemNode:
+        subsystems = _sorted_current(system.subsystems)
+        return schemas.HierarchyTreeSystemNode(
+            id=int(system.id),
+            name=system.name,
+            subsystem_count=len(subsystems),
+            subsystems=[_subsystem_node(s) for s in subsystems],
+        )
 
     flights = session.exec(
         select(Flight)
@@ -244,11 +290,9 @@ def get_project_hierarchy_tree(
         ).all()
         sdls_nodes: list[schemas.SdlsTreeNode] = []
         for sdls in sdls_rows:
-            systems = [
-                s
-                for s in (project.systems or [])
-                if s.sdls_id == sdls.id
-            ]
+            systems = _sorted_current(
+                [s for s in (project.systems or []) if s.sdls_id == sdls.id]
+            )
             sdls_nodes.append(
                 schemas.SdlsTreeNode(
                     id=int(sdls.id),
@@ -256,14 +300,7 @@ def get_project_hierarchy_tree(
                     code=sdls.code,
                     sequence=sdls.sequence,
                     product_type=sdls.product_type,
-                    systems=[
-                        schemas.HierarchyTreeSystemNode(
-                            id=int(s.id),
-                            name=s.name,
-                            subsystem_count=len(s.subsystems or []),
-                        )
-                        for s in systems
-                    ],
+                    systems=[_system_node(s) for s in systems],
                 )
             )
         flight_nodes.append(

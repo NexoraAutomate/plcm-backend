@@ -70,7 +70,7 @@ PROJECT_STATUS_META: dict[ProjectWorkflowStatus, dict[str, str]] = {
         "color": "#A6A6A6",
     },
     ProjectWorkflowStatus.APPROVED: {
-        "description": "Admin approved; Generate Hierarchy enabled",
+        "description": "Approved; Generate Hierarchy enabled",
         "color": "#00B050",
     },
     ProjectWorkflowStatus.HIERARCHY_GENERATED: {

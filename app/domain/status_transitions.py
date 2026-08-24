@@ -158,7 +158,7 @@ PROJECT_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
     (
         ProjectWorkflowStatus.DRAFT.value,
         ProjectWorkflowStatus.APPROVED.value,
-    ): frozenset({WorkflowRole.ADMIN}),
+    ): frozenset({WorkflowRole.ADMIN, WorkflowRole.PD}),
     (
         ProjectWorkflowStatus.DRAFT.value,
         ProjectWorkflowStatus.CANCELLED.value,
