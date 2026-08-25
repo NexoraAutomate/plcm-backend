@@ -48,6 +48,8 @@ _ROLE_ALIASES: dict[str, WorkflowRole] = {
     **{name.lower(): code for name, code in DB_NAME_TO_WORKFLOW_ROLE.items()},
     "administrator": WorkflowRole.ADMIN,
     "project director": WorkflowRole.PD,
+    "project manager": WorkflowRole.PD,
+    "projectmanager": WorkflowRole.PD,
     "hierarchy manager": WorkflowRole.HM,
     "inventory manager": WorkflowRole.IM,
 }

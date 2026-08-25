@@ -78,7 +78,7 @@ def _require_inventory_manager(user: User) -> None:
     if not is_inventory_manager(user):
         raise HTTPException(
             status_code=403,
-            detail="Only Admin or SubAdmin can manage warehouse inventory issuance",
+            detail="Only inventory managers can manage warehouse inventory issuance",
         )
 
 
@@ -97,11 +97,6 @@ def _require_can_receive_stock(user: User) -> None:
     """Admin/SubAdmin or workflow Inventory Manager may receive stock (Spec 05)."""
     if is_inventory_manager(user):
         return
-    from app.domain.workflow_roles import WorkflowRole, has_workflow_role
-
-    names = [r.name for r in (user.roles or []) if r.name]
-    if has_workflow_role(names, WorkflowRole.IM):
-        return
     raise HTTPException(
         status_code=403,
         detail="Only inventory managers can receive stock",
@@ -112,7 +107,7 @@ def _require_installer_not_manager(user: User) -> None:
     if is_inventory_manager(user):
         raise HTTPException(
             status_code=403,
-            detail="Admin/SubAdmin cannot revert installs; installers revert, managers issue/accept returns",
+            detail="Inventory managers cannot revert installs; installers revert, managers issue/accept returns",
         )
 
 

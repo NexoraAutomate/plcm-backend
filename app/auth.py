@@ -128,15 +128,20 @@ def check_any_role(user: User, required_roles: List[str]) -> bool:
 
 
 def is_inventory_manager(user: User) -> bool:
-    """Admin or SubAdmin — full warehouse visibility and issue/return management."""
-    return check_any_role(user, ["Admin", "SubAdmin"])
+    """Admin, SubAdmin, or workflow Inventory Manager — full warehouse visibility and issue/return."""
+    if check_any_role(user, ["Admin", "SubAdmin"]):
+        return True
+    from app.domain.workflow_roles import WorkflowRole, has_workflow_role
+
+    names = [r.name for r in (user.roles or []) if r.name]
+    return has_workflow_role(names, WorkflowRole.IM)
 
 
 def require_install_owner_or_manager(user: User, entity: object) -> None:
     """
     Non-managers may only mutate hierarchy installs they performed.
-    Admin/SubAdmin may manage any install. Entities with no installer remain open
-    to anyone who already has edit/delete permission.
+    Admin/SubAdmin/InventoryManager may manage any install. Entities with no
+    installer remain open to anyone who already has edit/delete permission.
     """
     from fastapi import HTTPException
 

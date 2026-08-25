@@ -1,5 +1,8 @@
 """Spec 00 — workflow role mapping smoke tests."""
 
+from types import SimpleNamespace
+
+from app.auth import is_inventory_manager
 from app.domain.workflow_roles import (
     WORKFLOW_ROLE_DB_NAMES,
     WorkflowRole,
@@ -22,6 +25,10 @@ def test_normalize_accepts_code_and_db_name():
     assert normalize_workflow_role("HM") == WorkflowRole.HM
     assert normalize_workflow_role("HierarchyManager") == WorkflowRole.HM
     assert normalize_workflow_role("admin") == WorkflowRole.ADMIN
+    # Legacy ProjectManager role is the product "Project Manager" → Spec PD
+    assert normalize_workflow_role("ProjectManager") == WorkflowRole.PD
+    assert normalize_workflow_role("project manager") == WorkflowRole.PD
+    assert has_workflow_role(["ProjectManager"], WorkflowRole.PD)
 
 
 def test_has_workflow_role_matrix():
@@ -29,6 +36,20 @@ def test_has_workflow_role_matrix():
     assert has_workflow_role(roles, WorkflowRole.HM)
     assert has_workflow_role(roles, "DEV")
     assert not has_workflow_role(roles, WorkflowRole.PD)
+
+
+def test_is_inventory_manager_includes_workflow_im():
+    """Warehouse list scoping must treat workflow IM like Admin/SubAdmin (Spec 00 / F-02)."""
+
+    def user_with(*role_names: str):
+        return SimpleNamespace(roles=[SimpleNamespace(name=n) for n in role_names])
+
+    assert is_inventory_manager(user_with("Admin"))
+    assert is_inventory_manager(user_with("SubAdmin"))
+    assert is_inventory_manager(user_with("InventoryManager"))
+    assert is_inventory_manager(user_with("inventory manager"))
+    assert not is_inventory_manager(user_with("HierarchyManager"))
+    assert not is_inventory_manager(user_with("Developer"))
 
 
 def test_permission_stubs_cover_spec_list():
