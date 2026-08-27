@@ -39,6 +39,7 @@ from app.services.inventory_reservation_service import (
     InventoryReservationError,
     _load_hierarchy_entity,
     _resolve_flight_sdls_for_entity,
+    effective_inventory_source,
     get_item_status_id,
     reserve_inventory,
 )
@@ -153,10 +154,32 @@ def _has_verified_issuance(session: Session, entity_type: str, entity_id: int) -
     return row is not None
 
 
+def _project_id_for_entity(
+    session: Session, entity_type: str, entity: Any
+) -> Optional[int]:
+    try:
+        flight, _sdls, _system = _resolve_flight_sdls_for_entity(
+            session, entity_type, entity
+        )
+    except InventoryReservationError:
+        return None
+    return int(flight.project_id) if flight.project_id is not None else None
+
+
 def child_is_complete(session: Session, entity_type: str, entity: Any) -> bool:
     if entity is None or getattr(entity, "id", None) is None:
         return False
-    if is_build_from_children(getattr(entity, "inventory_source", None)):
+    project_id = _project_id_for_entity(session, entity_type, entity)
+    if project_id is not None:
+        source = effective_inventory_source(
+            session,
+            entity=entity,
+            entity_type=entity_type,
+            project_id=project_id,
+        )
+    else:
+        source = getattr(entity, "inventory_source", None)
+    if is_build_from_children(source):
         return (
             get_assembled_inventory(session, entity_type, int(entity.id)) is not None
         )
@@ -425,7 +448,17 @@ def evaluate_parent_assembly(
     if parent_info is None:
         return []
     parent_type, parent = parent_info
-    if not is_build_from_children(getattr(parent, "inventory_source", None)):
+    project_id = _project_id_for_entity(session, parent_type, parent)
+    if project_id is not None:
+        parent_source = effective_inventory_source(
+            session,
+            entity=parent,
+            entity_type=parent_type,
+            project_id=project_id,
+        )
+    else:
+        parent_source = getattr(parent, "inventory_source", None)
+    if not is_build_from_children(parent_source):
         return []
 
     parent = _lock_entity(session, parent_type, int(parent.id))

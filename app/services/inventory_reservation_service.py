@@ -12,13 +12,23 @@ from sqlmodel import Session, col, select
 
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
-from app.domain.hierarchy_config import is_build_from_children
-from app.models.base import AUTO_RELEASE_EXPIRY_REASON, InventoryReservationStatus
+from app.domain.hierarchy_config import (
+    InventorySource,
+    is_build_from_children,
+    normalize_inventory_source,
+)
+from app.models.base import (
+    AUTO_RELEASE_EXPIRY_REASON,
+    InventoryReservationStatus,
+    IssuanceStatus,
+)
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
     Flight,
+    HierarchyConfigNode,
     Inventory,
     InventoryInstance,
+    InventoryIssuance,
     InventoryReservation,
     Module,
     Project,
@@ -247,6 +257,98 @@ def _load_hierarchy_entity(
     return entity
 
 
+def _config_source_for_entity(
+    session: Session,
+    *,
+    project_id: int,
+    entity_type: str,
+    entity_name: str,
+) -> Optional[str]:
+    """Look up inventory_source from the project's hierarchy configuration template."""
+    project = session.get(Project, project_id)
+    if project is None or project.hierarchy_config_id is None:
+        return None
+    et = entity_type.strip().lower()
+    name = (entity_name or "").strip()
+    if not name:
+        return None
+    node = session.exec(
+        select(HierarchyConfigNode).where(
+            HierarchyConfigNode.configuration_id == project.hierarchy_config_id,
+            HierarchyConfigNode.level == et,
+            col(HierarchyConfigNode.name).ilike(name),
+        )
+    ).first()
+    if node is None:
+        return None
+    try:
+        return normalize_inventory_source(getattr(node, "inventory_source", None))
+    except ValueError:
+        return None
+
+
+def effective_inventory_source(
+    session: Session,
+    *,
+    entity: Any,
+    entity_type: str,
+    project_id: int,
+    heal: bool = True,
+) -> str:
+    """
+    Resolve TURNKEY vs BUILD for a hierarchy shell.
+
+    Priority: runtime children (structural parent) → entity snapshot →
+    project config template (level+name) → turnkey.
+    Parents with generated child shells are always BUILD regardless of stale
+    turnkey flags or warehouse stock.
+    """
+    et = entity_type.strip().lower()
+    eid = getattr(entity, "id", None)
+    if eid is not None:
+        from app.services.inventory_assembly_service import _direct_children
+
+        if _direct_children(session, et, int(eid)):
+            resolved = InventorySource.BUILD_FROM_CHILDREN.value
+            if heal and hasattr(entity, "inventory_source"):
+                current = getattr(entity, "inventory_source", None)
+                try:
+                    current_norm = (
+                        normalize_inventory_source(current) if current else None
+                    )
+                except ValueError:
+                    current_norm = None
+                if current_norm != resolved:
+                    entity.inventory_source = resolved
+                    session.add(entity)
+                    session.flush()
+            return resolved
+
+    raw = getattr(entity, "inventory_source", None)
+    if raw is not None and str(raw).strip():
+        try:
+            return normalize_inventory_source(raw)
+        except ValueError:
+            pass
+
+    from_config = _config_source_for_entity(
+        session,
+        project_id=project_id,
+        entity_type=entity_type,
+        entity_name=str(getattr(entity, "name", "") or ""),
+    )
+    resolved = from_config or InventorySource.TURNKEY.value
+
+    if heal and hasattr(entity, "inventory_source"):
+        current = getattr(entity, "inventory_source", None)
+        if current is None or not str(current).strip():
+            entity.inventory_source = resolved
+            session.add(entity)
+            session.flush()
+
+    return resolved
+
+
 def _resolve_flight_sdls_for_entity(
     session: Session, entity_type: str, entity: Any
 ) -> tuple[Flight, Sdls, System]:
@@ -384,6 +486,208 @@ def pick_free_instance(
     return None
 
 
+_LIFECYCLE_PLAN_STATUS: dict[str, str] = {
+    ItemStatus.RESERVED.value: "reserved",
+    ItemStatus.ISSUED.value: "issued",
+    ItemStatus.INSTALLATION_IN_PROGRESS.value: "installing",
+    ItemStatus.UNDER_TESTING_REVIEW.value: "testing",
+    ItemStatus.INSTALLED_VERIFIED.value: "verified",
+    ItemStatus.RETURNED.value: "returned",
+    ItemStatus.INSPECTION.value: "inspection",
+    ItemStatus.REUSABLE.value: "reusable",
+    ItemStatus.REPAIRABLE.value: "repairable",
+    ItemStatus.SCRAPPED.value: "scrapped",
+}
+
+_LIFECYCLE_REASONS: dict[str, str] = {
+    ItemStatus.RESERVED.value: "Reserved for this hierarchy node",
+    ItemStatus.ISSUED.value: "Issued to developer — installation not started",
+    ItemStatus.INSTALLATION_IN_PROGRESS.value: "Installation in progress",
+    ItemStatus.UNDER_TESTING_REVIEW.value: "Under testing / review — awaiting HM verification",
+    ItemStatus.INSTALLED_VERIFIED.value: "Installed and verified",
+    ItemStatus.RETURNED.value: "Returned — awaiting IM disposition",
+    ItemStatus.INSPECTION.value: "Under IM inspection",
+    ItemStatus.REUSABLE.value: "Inspection complete — reusable",
+    ItemStatus.REPAIRABLE.value: "Marked repairable",
+    ItemStatus.SCRAPPED.value: "Scrapped",
+}
+
+
+def _plan_status_for_item_lifecycle(item_status: str) -> str:
+    normalized = (item_status or "").strip().upper()
+    return _LIFECYCLE_PLAN_STATUS.get(normalized, "in_progress")
+
+
+def _lifecycle_reason(item_status: str) -> str:
+    normalized = (item_status or "").strip().upper()
+    return _LIFECYCLE_REASONS.get(
+        normalized, "Already committed to this hierarchy node"
+    )
+
+
+def _entity_commitment_state(
+    session: Session,
+    *,
+    project_id: int,
+    entity_type: str,
+    entity_id: int,
+    flight_id: int,
+    sdls_id: int,
+    system_id: int,
+    inventory_source: str,
+) -> Optional[dict[str, Any]]:
+    """
+    Return plan/availability payload when a node is already reserved, issued,
+    installing, testing, or verified — so HM cannot pick warehouse stock again.
+    """
+    et = entity_type.strip().lower()
+    eid = int(entity_id)
+
+    from app.services.item_install_verify_service import (
+        current_item_status,
+        install_progress_payload,
+        open_issuance_for_entity,
+    )
+
+    issuance = open_issuance_for_entity(session, et, eid)
+    if issuance is not None and int(issuance.project_id or 0) == int(project_id):
+        progress = install_progress_payload(session, et, eid, issuance=issuance)
+        item_status = str(progress.get("item_status") or ItemStatus.ISSUED.value)
+        plan_status = _plan_status_for_item_lifecycle(item_status)
+        return {
+            "available": False,
+            "assemble": False,
+            "plan_status": plan_status,
+            "item_status": item_status,
+            "reason": _lifecycle_reason(item_status),
+            "free_quantity": 0,
+            "inventory_id": issuance.inventory_id,
+            "inventory_name": (
+                issuance.inventory.name if issuance.inventory else None
+            ),
+            "part_number": issuance.part_number or (
+                issuance.inventory.part_number if issuance.inventory else None
+            ),
+            "serial_numbers": [issuance.serial_number]
+            if issuance.serial_number
+            else [],
+            "suggested_serial": issuance.serial_number,
+            "reservation_id": None,
+            "issuance_id": issuance.id,
+            "flight_id": flight_id,
+            "sdls_id": sdls_id,
+            "system_id": system_id,
+            "inventory_source": inventory_source,
+        }
+
+    active = session.exec(
+        select(InventoryReservation).where(
+            InventoryReservation.project_id == project_id,
+            InventoryReservation.target_entity_type == et,
+            InventoryReservation.target_entity_id == eid,
+            InventoryReservation.status == InventoryReservationStatus.ACTIVE.value,
+        )
+    ).first()
+    if active:
+        item_status = ItemStatus.RESERVED.value
+        return {
+            "available": False,
+            "assemble": False,
+            "plan_status": "reserved",
+            "item_status": item_status,
+            "reason": _lifecycle_reason(item_status),
+            "free_quantity": 0,
+            "inventory_id": active.inventory_id,
+            "inventory_name": active.inventory.name if active.inventory else None,
+            "part_number": active.part_number,
+            "serial_numbers": [active.serial_number] if active.serial_number else [],
+            "suggested_serial": active.serial_number,
+            "reservation_id": active.id,
+            "issuance_id": None,
+            "flight_id": flight.id if (flight := active.flight) else flight_id,
+            "sdls_id": sdls.id if (sdls := active.sdls) else sdls_id,
+            "system_id": system_id,
+            "inventory_source": inventory_source,
+        }
+
+    consumed = session.exec(
+        select(InventoryReservation)
+        .where(
+            InventoryReservation.project_id == project_id,
+            InventoryReservation.target_entity_type == et,
+            InventoryReservation.target_entity_id == eid,
+            InventoryReservation.status == InventoryReservationStatus.CONSUMED.value,
+        )
+        .order_by(col(InventoryReservation.reserved_at).desc())
+    ).first()
+    if consumed:
+        item_status = ItemStatus.ISSUED.value
+        return {
+            "available": False,
+            "assemble": False,
+            "plan_status": _plan_status_for_item_lifecycle(item_status),
+            "item_status": item_status,
+            "reason": "Previously reserved and issued to this hierarchy node",
+            "free_quantity": 0,
+            "inventory_id": consumed.inventory_id,
+            "inventory_name": consumed.inventory.name if consumed.inventory else None,
+            "part_number": consumed.part_number,
+            "serial_numbers": [consumed.serial_number]
+            if consumed.serial_number
+            else [],
+            "suggested_serial": consumed.serial_number,
+            "reservation_id": consumed.id,
+            "issuance_id": None,
+            "flight_id": flight_id,
+            "sdls_id": sdls_id,
+            "system_id": system_id,
+            "inventory_source": inventory_source,
+        }
+
+    verified_issuance = session.exec(
+        select(InventoryIssuance)
+        .where(
+            InventoryIssuance.project_id == project_id,
+            InventoryIssuance.target_entity_type == et,
+            InventoryIssuance.target_entity_id == eid,
+            InventoryIssuance.verified_at.is_not(None),
+            InventoryIssuance.status != IssuanceStatus.REVERTED.value,
+            InventoryIssuance.status != IssuanceStatus.RETURNED.value,
+        )
+        .order_by(col(InventoryIssuance.verified_at).desc())
+    ).first()
+    if verified_issuance:
+        item_status = current_item_status(session, verified_issuance)
+        plan_status = _plan_status_for_item_lifecycle(item_status)
+        return {
+            "available": False,
+            "assemble": False,
+            "plan_status": plan_status,
+            "item_status": item_status,
+            "reason": _lifecycle_reason(item_status),
+            "free_quantity": 0,
+            "inventory_id": verified_issuance.inventory_id,
+            "inventory_name": (
+                verified_issuance.inventory.name
+                if verified_issuance.inventory
+                else None
+            ),
+            "part_number": verified_issuance.part_number,
+            "serial_numbers": [verified_issuance.serial_number]
+            if verified_issuance.serial_number
+            else [],
+            "suggested_serial": verified_issuance.serial_number,
+            "reservation_id": None,
+            "issuance_id": verified_issuance.id,
+            "flight_id": flight_id,
+            "sdls_id": sdls_id,
+            "system_id": system_id,
+            "inventory_source": inventory_source,
+        }
+
+    return None
+
+
 def check_availability(
     session: Session,
     *,
@@ -391,12 +695,14 @@ def check_availability(
     target_entity_type: str,
     target_entity_id: int,
     part_number: Optional[str] = None,
+    require_reserve_window: bool = True,
 ) -> dict[str, Any]:
     project = session.get(Project, project_id)
     if not project:
         raise InventoryReservationError("Project not found")
-    assert_project_can_reserve(project)
-    assert_no_open_config_change_for_reserve(session, project_id)
+    if require_reserve_window:
+        assert_project_can_reserve(project)
+        assert_no_open_config_change_for_reserve(session, project_id)
 
     et = target_entity_type.strip().lower()
     if et not in RESERVABLE_ENTITY_TYPES:
@@ -410,27 +716,27 @@ def check_availability(
     if flight.project_id != project_id:
         raise InventoryReservationError("Hierarchy entity is not under this project")
 
-    # Prevent double-reserve of same hierarchy node
-    existing = session.exec(
-        select(InventoryReservation).where(
-            InventoryReservation.project_id == project_id,
-            InventoryReservation.target_entity_type == et,
-            InventoryReservation.target_entity_id == target_entity_id,
-            InventoryReservation.status == InventoryReservationStatus.ACTIVE.value,
-        )
-    ).first()
-    if existing:
-        return {
-            "available": False,
-            "reason": "Hierarchy node already has an active reservation",
-            "reservation_id": existing.id,
-            "flight_id": flight.id,
-            "sdls_id": sdls.id,
-            "system_id": system.id,
-            "inventory_source": getattr(entity, "inventory_source", None),
-        }
+    source = effective_inventory_source(
+        session,
+        entity=entity,
+        entity_type=et,
+        project_id=project_id,
+    )
 
-    if is_build_from_children(getattr(entity, "inventory_source", None)):
+    committed = _entity_commitment_state(
+        session,
+        project_id=project_id,
+        entity_type=et,
+        entity_id=target_entity_id,
+        flight_id=flight.id,
+        sdls_id=sdls.id,
+        system_id=system.id,
+        inventory_source=source,
+    )
+    if committed:
+        return committed
+
+    if is_build_from_children(source):
         return {
             "available": False,
             "reason": (
@@ -445,7 +751,7 @@ def check_availability(
             "flight_id": flight.id,
             "sdls_id": sdls.id,
             "system_id": system.id,
-            "inventory_source": getattr(entity, "inventory_source", None),
+            "inventory_source": source,
         }
 
     inventory = resolve_inventory_for_entity(
@@ -470,6 +776,8 @@ def check_availability(
             "flight_id": flight.id,
             "sdls_id": sdls.id,
             "system_id": system.id,
+            "inventory_source": source,
+            "assemble": False,
             "reason": None if free >= 1 else "No available quantity in stock",
         }
 
@@ -492,6 +800,8 @@ def check_availability(
         "flight_id": flight.id,
         "sdls_id": sdls.id,
         "system_id": system.id,
+        "inventory_source": source,
+        "assemble": False,
         "reason": None if free_instances else "No available serialized units in stock",
     }
 
@@ -561,7 +871,13 @@ def reserve_inventory(
         raise InventoryReservationError(f"Unsupported target entity type: {et}")
 
     entity = _load_hierarchy_entity(session, et, eid)
-    if is_build_from_children(getattr(entity, "inventory_source", None)) and not allow_assembled:
+    source = effective_inventory_source(
+        session,
+        entity=entity,
+        entity_type=et,
+        project_id=project_id,
+    )
+    if is_build_from_children(source) and not allow_assembled:
         raise InventoryReservationError(
             "This hierarchy node is configured as build-from-children and "
             "cannot be reserved from procured inventory"
@@ -569,6 +885,22 @@ def reserve_inventory(
     flight, sdls, system = _resolve_flight_sdls_for_entity(session, et, entity)
     if flight.project_id != project_id:
         raise InventoryReservationError("Hierarchy entity is not under this project")
+
+    if not allow_assembled:
+        committed = _entity_commitment_state(
+            session,
+            project_id=project_id,
+            entity_type=et,
+            entity_id=eid,
+            flight_id=flight.id,
+            sdls_id=sdls.id,
+            system_id=system.id,
+            inventory_source=source,
+        )
+        if committed:
+            raise InventoryReservationError(
+                committed.get("reason") or "Hierarchy node is not open for reservation"
+            )
 
     # Optional explicit flight/sdls must match resolved
     if payload.get("flight_id") is not None and int(payload["flight_id"]) != flight.id:
@@ -977,6 +1309,35 @@ def reservation_to_dict(reservation: InventoryReservation) -> dict[str, Any]:
     }
 
 
+def _plan_assignment_fields(
+    session: Session,
+    *,
+    entity_type: str,
+    entity: Any,
+    entity_id: int,
+    status_code: str,
+) -> dict[str, Any]:
+    from app.services.hierarchy_developer_service import (
+        assigned_developer_payload,
+        entity_is_physically_issued,
+    )
+    from app.services.inventory_assembly_service import get_assembled_inventory
+
+    et = entity_type.strip().lower()
+    eid = int(entity_id)
+    payload = assigned_developer_payload(session, entity, et)
+    issued = entity_is_physically_issued(session, et, eid)
+    assembled = get_assembled_inventory(session, et, eid) is not None
+    can_assign = status_code == "reserved" and not issued
+    return {
+        "assigned_developer_id": payload.get("assigned_developer_id"),
+        "assigned_developer_name": payload.get("assigned_developer_name"),
+        "can_assign_developer": can_assign,
+        "assembled": assembled,
+        "issued": issued,
+    }
+
+
 def _plan_row_for_entity(
     session: Session,
     *,
@@ -987,7 +1348,12 @@ def _plan_row_for_entity(
 ) -> dict[str, Any]:
     name = str(getattr(entity, "name", "") or "")
     eid = int(entity.id)
-    source = getattr(entity, "inventory_source", None)
+    source = effective_inventory_source(
+        session,
+        entity=entity,
+        entity_type=entity_type,
+        project_id=project_id,
+    )
     base = {
         "target_entity_type": entity_type,
         "target_entity_id": eid,
@@ -1002,6 +1368,7 @@ def _plan_row_for_entity(
             project_id=project_id,
             target_entity_type=entity_type,
             target_entity_id=eid,
+            require_reserve_window=False,
         )
     except InventoryReservationError as exc:
         return {
@@ -1020,9 +1387,13 @@ def _plan_row_for_entity(
             "sdls_id": None,
             "system_id": None,
             "inventory_source": source,
+            "children_total": None,
+            "children_complete": None,
         }
 
-    if avail.get("reservation_id"):
+    if avail.get("plan_status"):
+        status_code = str(avail["plan_status"])
+    elif avail.get("reservation_id"):
         status_code = "reserved"
     elif avail.get("assemble"):
         status_code = "assemble"
@@ -1031,24 +1402,68 @@ def _plan_row_for_entity(
     else:
         status_code = "short"
 
+    children_total: Optional[int] = None
+    children_complete: Optional[int] = None
+    if status_code == "assemble":
+        children_total, children_complete = _assemble_children_progress(
+            session, entity_type, eid
+        )
+
     serials = list(avail.get("serial_numbers") or [])
+    assignment = _plan_assignment_fields(
+        session,
+        entity_type=entity_type,
+        entity=entity,
+        entity_id=eid,
+        status_code=status_code,
+    )
+    reason = avail.get("reason")
+    if assignment.get("assembled") and status_code == "reserved":
+        reason = (
+            "Automatically assembled from verified children — "
+            "assign a developer for IM to issue and install"
+        )
     return {
         **base,
         "status": status_code,
         "available": bool(avail.get("available")),
-        "reason": avail.get("reason"),
+        "reason": reason,
         "free_quantity": avail.get("free_quantity"),
         "inventory_id": avail.get("inventory_id"),
         "inventory_name": avail.get("inventory_name"),
         "part_number": avail.get("part_number"),
         "serial_numbers": serials,
-        "suggested_serial": serials[0] if serials else None,
+        "suggested_serial": avail.get("suggested_serial") or (serials[0] if serials else None),
         "reservation_id": avail.get("reservation_id"),
+        "issuance_id": avail.get("issuance_id"),
+        "item_status": avail.get("item_status"),
         "flight_id": avail.get("flight_id"),
         "sdls_id": avail.get("sdls_id"),
         "system_id": avail.get("system_id"),
-        "inventory_source": source,
+        "inventory_source": avail.get("inventory_source") or source,
+        "children_total": children_total,
+        "children_complete": children_complete,
+        **assignment,
     }
+
+
+def _assemble_children_progress(
+    session: Session, entity_type: str, entity_id: int
+) -> tuple[int, int]:
+    """Return (total, complete) for immediate children of a BUILD node."""
+    from app.services.inventory_assembly_service import (
+        _direct_children,
+        child_is_complete,
+    )
+
+    children = _direct_children(session, entity_type, int(entity_id))
+    total = len(children)
+    complete = sum(
+        1
+        for child_type, child in children
+        if child_is_complete(session, child_type, child)
+    )
+    return total, complete
 
 
 def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
@@ -1061,8 +1476,6 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
     project = session.get(Project, project_id)
     if not project:
         raise InventoryReservationError("Project not found")
-    assert_project_can_reserve(project)
-    assert_no_open_config_change_for_reserve(session, project_id)
 
     flights = session.exec(
         select(Flight)

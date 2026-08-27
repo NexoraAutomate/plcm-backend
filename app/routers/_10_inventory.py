@@ -46,6 +46,7 @@ def _raise_entity_list_error(exc: EntityListError) -> None:
 from app.services.inventory_issuance_service import (
     available_quantity,
     reserved_quantity,
+    installed_used_quantity,
     instance_reservation_map,
     issue_inventory_unit,
     return_issuance,
@@ -201,6 +202,7 @@ def _inventory_to_read(
     avail = available_quantity(session, inventory)
     data["reserved_quantity"] = reserved
     data["available_quantity"] = avail
+    data["total_used"] = installed_used_quantity(session, int(inventory.id))
     if is_component_inventory(inventory.inventory_type):
         data["instances"] = None
         if issued_to_user_id is not None:

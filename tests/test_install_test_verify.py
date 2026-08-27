@@ -172,6 +172,11 @@ def test_happy_path_pass_and_verify(
         assert row["item_status"] == ItemStatus.INSTALLED_VERIFIED.value
         assert row["verified"] is True
         assert row["can_install"] is False
+
+        session.refresh(target)
+        issuance_row = session.get(InventoryIssuance, issued.issued_issuance_id)
+        assert target.part_number == issuance_row.part_number
+        assert target.serial_number == issuance_row.serial_number
     finally:
         _cleanup(session, project, cfg, inv)
 
@@ -273,5 +278,55 @@ def test_event_order_on_pass_path(
             IssuanceEventType.VERIFIED.value,
         ]
         assert types == expected
+    finally:
+        _cleanup(session, project, cfg, inv)
+
+
+def test_installed_issuance_cannot_be_returned(
+    session: Session, admin_user: User, developer_user: User
+):
+    from fastapi import HTTPException
+
+    from app.services.inventory_issuance_service import (
+        issuance_is_returnable,
+        return_issuance,
+    )
+
+    project, cfg, inv, target, issued = _issue_to_developer(
+        session, admin_user, developer_user, "SN-ITV-6"
+    )
+    try:
+        start_install(session, "system", int(target.id), actor=developer_user)
+        row = session.get(InventoryIssuance, issued.issued_issuance_id)
+        assert issuance_is_returnable(row) is False
+        with pytest.raises(HTTPException, match="Installed or verified"):
+            return_issuance(
+                session,
+                row,
+                closed_by=admin_user,
+                is_manager=True,
+                notes="Should be blocked",
+            )
+    finally:
+        _cleanup(session, project, cfg, inv)
+
+
+def test_total_used_counts_verified_issuance(
+    session: Session, admin_user: User, developer_user: User
+):
+    from app.services.inventory_issuance_service import installed_used_quantity
+
+    project, cfg, inv, target, issued = _issue_to_developer(
+        session, admin_user, developer_user, "SN-ITV-7"
+    )
+    try:
+        assert installed_used_quantity(session, int(inv.id)) == 0
+        start_install(session, "system", int(target.id), actor=developer_user)
+        submit_test(
+            session, "system", int(target.id), result="pass", actor=developer_user
+        )
+        report_complete(session, "system", int(target.id), actor=developer_user)
+        verify_issuance(session, int(issued.issued_issuance_id), actor=admin_user)
+        assert installed_used_quantity(session, int(inv.id)) == 1
     finally:
         _cleanup(session, project, cfg, inv)

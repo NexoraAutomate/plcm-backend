@@ -159,6 +159,31 @@ def _require_active_project(session: Session, issuance: InventoryIssuance) -> No
         raise ItemInstallVerifyError(str(exc)) from exc
 
 
+def _sync_entity_install_identity(
+    session: Session,
+    entity: Any,
+    issuance: InventoryIssuance,
+) -> None:
+    """Copy warehouse PN/SN onto the hierarchy node after HM verification."""
+    part_number = (issuance.part_number or "").strip()
+    serial_number = (issuance.serial_number or "").strip()
+    if part_number:
+        entity.part_number = part_number
+    if serial_number:
+        entity.serial_number = serial_number
+    if part_number and hasattr(entity, "configuration_item"):
+        current_ci = (getattr(entity, "configuration_item", None) or "").strip()
+        if not current_ci:
+            entity.configuration_item = part_number
+    if issuance.installed_at is not None and hasattr(entity, "installation_date"):
+        if getattr(entity, "installation_date", None) is None:
+            entity.installation_date = issuance.installed_at
+    if issuance.installed_by_id is not None and hasattr(entity, "installed_by_id"):
+        if getattr(entity, "installed_by_id", None) is None:
+            entity.installed_by_id = int(issuance.installed_by_id)
+    session.add(entity)
+
+
 def _require_open_issuance(
     session: Session, entity_type: str, entity_id: int
 ) -> tuple[Any, InventoryIssuance]:
@@ -484,6 +509,14 @@ def verify_issuance(
     issuance.verified_at = _now()
     issuance.verified_by_id = int(actor.id)
     session.add(issuance)
+    et = (issuance.target_entity_type or issuance.installed_entity_type or "").strip().lower()
+    eid = issuance.target_entity_id or issuance.installed_entity_id
+    if et and eid:
+        try:
+            target = _load_entity(session, et, int(eid))
+            _sync_entity_install_identity(session, target, issuance)
+        except Exception:
+            pass
     record_issuance_event(
         session,
         issuance,

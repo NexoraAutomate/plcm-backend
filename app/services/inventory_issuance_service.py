@@ -42,6 +42,7 @@ from app.services.workflow_audit_service import write_workflow_audit
 
 OPEN_STATUS = IssuanceStatus.ISSUED.value
 RETURN_PENDING_STATUS = IssuanceStatus.RETURN_PENDING.value
+INSTALLED_LIFECYCLE = ItemStatus.INSTALLED_VERIFIED.value
 # Still reserved / visible on installer inventory list
 RESERVED_STATUSES = (OPEN_STATUS, RETURN_PENDING_STATUS)
 
@@ -779,6 +780,36 @@ def issue_inventory_unit(
     return issuance
 
 
+def issuance_is_returnable(issuance: InventoryIssuance) -> bool:
+    """Open issued stock that has not entered install / verify may be returned."""
+    if issuance.status != OPEN_STATUS:
+        return False
+    if issuance.verified_at is not None:
+        return False
+    if issuance.installed_at is not None:
+        return False
+    lifecycle = (issuance.item_lifecycle_status or ItemStatus.ISSUED.value).strip().upper()
+    return lifecycle == ItemStatus.ISSUED.value
+
+
+def installed_used_quantity(session: Session, inventory_id: int) -> int:
+    """Units consumed from warehouse after install+verify (or legacy installed consume)."""
+    total = session.exec(
+        select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
+            InventoryIssuance.inventory_id == inventory_id,
+            (
+                InventoryIssuance.verified_at.is_not(None)
+                | (
+                    InventoryIssuance.item_lifecycle_status
+                    == INSTALLED_LIFECYCLE
+                )
+                | (InventoryIssuance.status == IssuanceStatus.INSTALLED.value)
+            ),
+        )
+    ).one()
+    return int(total or 0)
+
+
 def return_issuance(
     session: Session,
     issuance: InventoryIssuance,
@@ -802,6 +833,17 @@ def return_issuance(
                     f"(current status: {issuance.status})"
                 ),
             )
+        if (
+            issuance.status == OPEN_STATUS
+            and not issuance_is_returnable(issuance)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Installed or verified inventory cannot be returned "
+                    f"(lifecycle: {issuance.item_lifecycle_status or '—'})"
+                ),
+            )
         return accept_return_issuance(
             session,
             issuance,
@@ -812,11 +854,15 @@ def return_issuance(
             request_notes=cleaned_notes if issuance.status == OPEN_STATUS else None,
         )
 
-    if issuance.status != OPEN_STATUS:
+    if not issuance_is_returnable(issuance):
         raise HTTPException(
             status_code=400,
-            detail=f"Only open issuances can be returned (current status: {issuance.status})",
+            detail=(
+                "Installed or verified inventory cannot be returned "
+                f"(lifecycle: {issuance.item_lifecycle_status or '—'})"
+            ),
         )
+
     if issuance.issued_to_user_id != closed_by.id:
         raise HTTPException(
             status_code=403,

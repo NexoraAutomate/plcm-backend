@@ -942,6 +942,7 @@ class InventoryRead(InventoryBase):
     instances: Optional[List[InventoryInstanceRead]] = None
     reserved_quantity: int = 0
     available_quantity: Optional[int] = None
+    total_used: int = 0
     fcfs_fulfillments: Optional[List[FCFSFulfillmentRead]] = None
 
     class Config:
@@ -996,6 +997,7 @@ class InventoryIssuanceRead(SQLModel):
     flight_id: Optional[int] = None
     sdls_id: Optional[int] = None
     item_lifecycle_status: Optional[str] = None
+    verified_at: Optional[datetime] = None
     issued_to_name: Optional[str] = None
     issued_by_name: Optional[str] = None
     installed_by_name: Optional[str] = None
@@ -1552,7 +1554,12 @@ class InventoryAvailabilityCheck(SQLModel):
     sdls_id: Optional[int] = None
     system_id: Optional[int] = None
     reservation_id: Optional[int] = None
+    issuance_id: Optional[int] = None
+    item_status: Optional[str] = None
+    plan_status: Optional[str] = None
     reason: Optional[str] = None
+    assemble: bool = False
+    inventory_source: Optional[str] = None
 
 
 class ReservationPlanItem(SQLModel):
@@ -1561,7 +1568,7 @@ class ReservationPlanItem(SQLModel):
     entity_name: str
     path: str
     depth: int = 0
-    status: str  # available | short | reserved
+    status: str  # available | short | reserved | assemble | issued | installing | testing | verified
     available: bool = False
     reason: Optional[str] = None
     free_quantity: Optional[int] = None
@@ -1571,9 +1578,19 @@ class ReservationPlanItem(SQLModel):
     serial_numbers: Optional[List[str]] = None
     suggested_serial: Optional[str] = None
     reservation_id: Optional[int] = None
+    issuance_id: Optional[int] = None
+    item_status: Optional[str] = None
     flight_id: Optional[int] = None
     sdls_id: Optional[int] = None
     system_id: Optional[int] = None
+    inventory_source: Optional[str] = None
+    children_total: Optional[int] = None
+    children_complete: Optional[int] = None
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    can_assign_developer: bool = False
+    assembled: bool = False
+    issued: bool = False
 
 
 class ReservationPlan(SQLModel):
@@ -1583,6 +1600,7 @@ class ReservationPlan(SQLModel):
     available_count: int = 0
     short_count: int = 0
     reserved_count: int = 0
+    assemble_count: int = 0
     items: List[ReservationPlanItem] = []
 
 

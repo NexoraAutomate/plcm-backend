@@ -47,6 +47,7 @@ from app.services.inventory_assembly_service import (
 )
 from app.services.inventory_reservation_service import (
     InventoryReservationError,
+    build_reservation_plan,
     reserve_inventory,
 )
 from app.services.inventory_service import create_inventory_instance
@@ -348,9 +349,10 @@ def _complete_serialized_child(
     return inv
 
 
-def test_s1_turnkey_parent_is_not_auto_created(
+def test_turnkey_parent_with_children_waits_and_assembles(
     session: Session, admin_user: User, developer_user: User
 ):
+    """Parents with runtime children are BUILD even when config says turnkey."""
     project, cfg = _ready_project(
         session,
         admin_user,
@@ -368,6 +370,15 @@ def test_s1_turnkey_parent_is_not_auto_created(
     try:
         system = _first_system(session, project)
         sub = system.subsystems[0]
+        plan = build_reservation_plan(session, int(project.id))
+        system_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "system"
+            and row["target_entity_id"] == int(system.id)
+        )
+        assert system_row["status"] == "assemble"
+
         inventories.append(
             _complete_serialized_child(
                 session,
@@ -380,8 +391,9 @@ def test_s1_turnkey_parent_is_not_auto_created(
                 serial=f"SN-S1-{uuid.uuid4().hex[:6]}",
             )
         )
-        assert get_assembled_inventory(session, "system", int(system.id)) is None
-        assert system.inventory_source in (None, InventorySource.TURNKEY.value)
+        assert get_assembled_inventory(session, "system", int(system.id)) is not None
+        session.refresh(system)
+        assert system.inventory_source == InventorySource.BUILD_FROM_CHILDREN.value
     finally:
         _cleanup(session, project, cfg, inventories)
 
@@ -442,6 +454,22 @@ def test_s2_build_parent_created_after_one_child(
         instance = session.get(InventoryInstance, assembled.inventory_instance_id)
         assert instance is not None
         assert instance.serial_number == system.serial_number
+        plan = build_reservation_plan(session, int(project.id))
+        system_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "system"
+            and row["target_entity_id"] == int(system.id)
+        )
+        assert system_row["status"] == "reserved"
+        assert system_row["can_assign_developer"] is True
+        assert system_row["assembled"] is True
+        assert system_row["suggested_serial"] == system.serial_number
+        assign_developer(
+            session, "system", int(system.id), int(developer_user.id), actor=admin_user
+        )
+        session.refresh(system)
+        assert system.assigned_developer_id == developer_user.id
     finally:
         _cleanup(session, project, cfg, inventories)
 
