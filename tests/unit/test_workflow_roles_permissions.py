@@ -130,3 +130,9 @@ class TestWorkflowPermissionSeed:
             assert "view_orders" in _role_perms(WORKFLOW_ROLE_DB_NAMES[role]), (
                 f"{WORKFLOW_ROLE_DB_NAMES[role]} missing view_orders"
             )
+
+    def test_inventory_manager_can_view_entity_list(self):
+        """Add-inventory category dropdown reads Settings → Entity List via /hierarchies/."""
+        im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
+        assert "view_hierarchy" in im
+        assert "create_inventory" in im

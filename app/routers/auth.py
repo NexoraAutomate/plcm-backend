@@ -233,6 +233,29 @@ def require_permission(permission: str):
         return user
     return check_permission_dependency
 
+
+def require_any_permission(*permissions: str):
+    """Require at least one of the given permissions (live DB check)."""
+    async def check_permission_dependency(
+        token: str = Depends(oauth2_scheme),
+        session: Session = Depends(get_session),
+    ):
+        user = get_user_from_token(token, session)
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User is inactive or not found",
+            )
+        if any(check_permission(user, perm) for perm in permissions):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User does not have any of: {', '.join(permissions)}",
+        )
+
+    return check_permission_dependency
+
+
 def require_role(role: str):
     """Dependency to check if user has a specific role."""
     async def check_role_dependency(user: User = Depends(get_current_user),):

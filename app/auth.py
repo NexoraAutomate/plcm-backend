@@ -731,6 +731,8 @@ DEFAULT_ROLES = [
             "view_units",
             "view_components",
             "view_entities",
+            # Entity List catalog — required to pick registered names when stocking inventory.
+            "view_hierarchy",
             "view_statuses",
             "view_status_history",
             "view_notifications",

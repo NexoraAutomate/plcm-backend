@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import Hierarchy, User
 from app.schemas import schemas
-from app.routers.auth import require_permission, require_role
+from app.routers.auth import require_permission, require_any_permission, require_role
 from app.services.hierarchy_service import create_hierarchy_entry, get_next_hierarchy_id, sync_hierarchy_id_sequence
 from app.services.entity_list_service import enrich_hierarchy_reads
 from app.services.entity_list_import_service import (
@@ -89,7 +89,9 @@ def list_hierarchies(
     hierarchy_type: str | None = None,
     parent_id: int | None = None,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_hierarchy"))
+    current_user: User = Depends(
+        require_any_permission("view_hierarchy", "create_inventory", "edit_inventory")
+    ),
 ):
     query = select(Hierarchy)
     if hierarchy_type:
@@ -100,7 +102,13 @@ def list_hierarchies(
     return enrich_hierarchy_reads(session, entries)
 
 @router.get("/hierarchies/{hierarchy_id}/", response_model=schemas.HierarchyRead, tags=["hierarchy"])
-def get_hierarchy(hierarchy_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_hierarchy"))):
+def get_hierarchy(
+    hierarchy_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission("view_hierarchy", "create_inventory", "edit_inventory")
+    ),
+):
     entry = session.get(Hierarchy, hierarchy_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Hierarchy entry not found")
