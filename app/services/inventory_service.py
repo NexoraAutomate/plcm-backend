@@ -42,6 +42,48 @@ def find_inventory_group(
     return session.exec(query).first()
 
 
+def find_inventory_catalog_group(
+    session: Session,
+    *,
+    name: str,
+    inventory_type: str,
+    part_number: Optional[str] = None,
+) -> Optional[Inventory]:
+    """Warehouse stock group for an entity category (name + inventory type).
+
+    All serialized units of the same category share one part number; additional
+    receipts add instances to the existing group rather than creating a new row.
+    """
+    if part_number:
+        exact = find_inventory_group(
+            session,
+            name=name,
+            inventory_type=inventory_type,
+            part_number=part_number,
+        )
+        if exact:
+            return exact
+
+    rows = list(
+        session.exec(
+            select(Inventory).where(
+                Inventory.inventory_type == inventory_type,
+                func.lower(Inventory.name) == name.strip().lower(),
+            )
+        ).all()
+    )
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0]
+    if part_number:
+        normalized_part = normalize_part_number(part_number)
+        for row in rows:
+            if normalize_part_number(row.part_number) == normalized_part:
+                return row
+    return None
+
+
 def sync_inventory_quantity(session: Session, inventory: Inventory) -> int:
     if is_component_inventory(inventory.inventory_type):
         return inventory.quantity

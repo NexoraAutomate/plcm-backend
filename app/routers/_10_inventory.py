@@ -27,6 +27,7 @@ from app.services.entity_list_service import (
 from app.services.inventory_service import (
     is_component_inventory,
     find_inventory_group,
+    find_inventory_catalog_group,
     create_inventory_instance,
     sync_inventory_quantity,
     normalize_part_number,
@@ -394,7 +395,33 @@ def create_inventory(
             data["part_number"] = part_number
         if not data.get("configuration_item"):
             data["configuration_item"] = part_number or data.get("name")
-        data["quantity"] = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
+        add_qty = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
+        existing = find_inventory_catalog_group(
+            session,
+            name=data["name"],
+            inventory_type=inventory_type,
+            part_number=part_number,
+        )
+        if existing:
+            existing.quantity = int(existing.quantity or 0) + add_qty
+            if data.get("description") and not existing.description:
+                existing.description = data["description"]
+            if data.get("oem_name") and not existing.oem_name:
+                existing.oem_name = data["oem_name"]
+            if data.get("location") and not existing.location:
+                existing.location = data["location"]
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            fulfillments = _run_receipt_fcfs(
+                session,
+                existing,
+                actor=current_user,
+                qty=add_qty,
+            )
+            return _with_fcfs(_inventory_to_read(session, existing), fulfillments)
+
+        data["quantity"] = add_qty
         db_inventory = Inventory(**data)
         session.add(db_inventory)
         session.commit()
@@ -434,7 +461,7 @@ def create_inventory(
     data["original_part_number"] = None
     data["original_serial_number"] = None
 
-    existing = find_inventory_group(
+    existing = find_inventory_catalog_group(
         session,
         name=data["name"],
         inventory_type=inventory_type,
