@@ -33,6 +33,7 @@ class WorkflowAuditAction:
     SHORTAGE_FULFILLED = "SHORTAGE_FULFILLED"
     AUTO_RESERVE = "AUTO_RESERVE"
     AUTO_RELEASE_EXPIRY = "AUTO_RELEASE_EXPIRY"
+    ASSEMBLED_INVENTORY = "ASSEMBLED_INVENTORY"
 
 
 WORKFLOW_AUDIT_ACTIONS: tuple[str, ...] = tuple(
@@ -67,6 +68,7 @@ WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
     WorkflowAuditAction.SHORTAGE_FULFILLED: "Shortage Fulfilled",
     WorkflowAuditAction.AUTO_RESERVE: "Auto-Reserve",
     WorkflowAuditAction.AUTO_RELEASE_EXPIRY: "Auto-Release (Expiry)",
+    WorkflowAuditAction.ASSEMBLED_INVENTORY: "Assembled Inventory",
 }
 
 WORKFLOW_AUDIT_ROLE_LABELS: dict[str, str] = {

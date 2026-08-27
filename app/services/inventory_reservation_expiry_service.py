@@ -19,6 +19,7 @@ from app.models.base import (
     ReservationExpiryNoticeType,
 )
 from app.models.tables import (
+    AssembledInventory,
     Inventory,
     InventoryInstance,
     InventoryReservation,
@@ -43,6 +44,20 @@ def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _is_assembled_reservation(
+    session: Session, reservation: InventoryReservation
+) -> bool:
+    return (
+        session.exec(
+            select(AssembledInventory).where(
+                AssembledInventory.target_entity_type == reservation.target_entity_type,
+                AssembledInventory.target_entity_id == int(reservation.target_entity_id),
+            )
+        ).first()
+        is not None
+    )
 
 
 def reservation_has_progressed(
@@ -254,6 +269,9 @@ def evaluate_reservation_expiry(
     released = 0
     skipped_progressed = 0
     for reservation in rows:
+        if _is_assembled_reservation(session, reservation):
+            skipped_progressed += 1
+            continue
         if reservation_has_progressed(session, reservation):
             skipped_progressed += 1
             continue

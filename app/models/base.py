@@ -326,6 +326,9 @@ class HardwareEntityFields(HierarchyInstallFields, HardwareReplacementFields):
     assigned_developer_id: Optional[int] = Field(
         default=None, foreign_key="user.id", index=True
     )
+    # Snapshot of the template node's inventory source at hierarchy generation.
+    # NULL on legacy rows is treated as turnkey.
+    inventory_source: Optional[str] = Field(default=None, max_length=32)
 
 
 class SystemCommon(HardwareEntityFields):
@@ -1302,6 +1305,7 @@ class HierarchyConfigNodeCommon(SQLModel):
     abbreviation: Optional[str] = Field(default=None, max_length=32)
     sort_order: int = 0
     client_key: Optional[str] = Field(default=None, max_length=64)
+    inventory_source: str = Field(default="turnkey", max_length=32)
 
 
 class HierarchyConfigNodeBase(HierarchyConfigNodeCommon):
@@ -1309,6 +1313,28 @@ class HierarchyConfigNodeBase(HierarchyConfigNodeCommon):
     parent_id: Optional[int] = Field(
         default=None, foreign_key="hierarchyconfignode.id", index=True
     )
+
+
+class AssembledInventoryCommon(SQLModel):
+    """Idempotent record of inventory auto-created from verified children."""
+    target_entity_type: str = Field(max_length=32, index=True)
+    target_entity_id: int = Field(index=True)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    project_id: Optional[int] = Field(default=None, foreign_key="project.id", index=True)
+    flight_id: Optional[int] = Field(default=None, foreign_key="flight.id", index=True)
+    sdls_id: Optional[int] = Field(default=None, foreign_key="sdls.id", index=True)
+    configuration_id: Optional[int] = Field(
+        default=None, foreign_key="hierarchyconfiguration.id", index=True
+    )
+    created_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    source_summary: Optional[str] = None
+
+
+class AssembledInventoryBase(AssembledInventoryCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Token(SQLModel):

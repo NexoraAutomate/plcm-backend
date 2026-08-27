@@ -11,19 +11,29 @@ from app.database import engine
 from app.domain.hierarchy_config import (
     FIXED_HIERARCHY_LEVELS,
     HierarchyConfigLevel,
+    InventorySource,
     fixed_levels_payload,
 )
-from app.models.tables import HierarchyConfiguration
+from app.models.tables import Hierarchy, HierarchyConfiguration
+from app.services.entity_list_service import find_entity_list_entry
 from app.services.hierarchy_config_service import (
     HierarchyConfigError,
     _validate_nodes,
     _validate_product_types,
+    configuration_to_dict,
     create_configuration,
     delete_configuration,
     list_configurations,
     set_available,
     update_configuration,
 )
+from app.services.schema_bootstrap import ensure_user_management_schema
+from app.services.hierarchy_service import get_next_hierarchy_id, sync_hierarchy_id_sequence
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _bootstrap():
+    ensure_user_management_schema()
 
 
 @pytest.fixture()
@@ -33,8 +43,34 @@ def session():
 
 
 @pytest.fixture()
+def catalog(session: Session):
+    for name, level in (
+        ("Comm", "system"),
+        ("Power", "system"),
+        ("A", "system"),
+        ("B", "subsystem"),
+        ("RF", "subsystem"),
+    ):
+        _ensure_catalog(session, name, level)
+
+
+@pytest.fixture()
 def unique_code():
     return f"T-{uuid.uuid4().hex[:10].upper()}"
+
+
+def _ensure_catalog(session: Session, name: str, hierarchy_type: str) -> None:
+    if find_entity_list_entry(session, name=name, hierarchy_type=hierarchy_type):
+        return
+    row = Hierarchy(
+        id=get_next_hierarchy_id(session),
+        name=name,
+        hierarchy_type=hierarchy_type,
+        abbreviation=name[:4].upper(),
+    )
+    session.add(row)
+    session.commit()
+    sync_hierarchy_id_sequence(session)
 
 
 def _cleanup(session: Session, *codes: str) -> None:
@@ -75,9 +111,10 @@ def test_validate_product_types_requires_unique_codes():
         )
 
 
-def test_validate_nodes_parent_rules():
+def test_validate_nodes_parent_rules(session: Session):
     with pytest.raises(HierarchyConfigError, match="parent"):
         _validate_nodes(
+            session,
             [
                 {"client_key": "s1", "level": "system", "name": "Comm"},
                 {
@@ -90,7 +127,7 @@ def test_validate_nodes_parent_rules():
         )
 
 
-def test_create_two_configs_and_available_filter(session: Session, unique_code: str):
+def test_create_two_configs_and_available_filter(session: Session, unique_code: str, catalog):
     code_a = f"{unique_code}-A"
     code_b = f"{unique_code}-B"
     _cleanup(session, code_a, code_b)
@@ -165,7 +202,7 @@ def test_duplicate_name_rejected(session: Session, unique_code: str):
         _cleanup(session, code_a, code_b)
 
 
-def test_update_bumps_version_and_replaces_nodes(session: Session, unique_code: str):
+def test_update_bumps_version_and_replaces_nodes(session: Session, unique_code: str, catalog):
     _cleanup(session, unique_code)
     try:
         cfg = create_configuration(
@@ -204,3 +241,80 @@ def test_update_bumps_version_and_replaces_nodes(session: Session, unique_code: 
         assert len(refreshed.nodes) == 2
     finally:
         _cleanup(session, unique_code)
+
+
+def test_inventory_source_defaults_to_turnkey(session: Session, unique_code: str, catalog):
+    _cleanup(session, unique_code)
+    try:
+        cfg = create_configuration(
+            session,
+            {
+                "code": unique_code,
+                "name": f"Src {unique_code}",
+                "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                "nodes": [
+                    {"client_key": "s1", "level": "system", "name": "Comm"},
+                    {
+                        "client_key": "ss1",
+                        "parent_client_key": "s1",
+                        "level": "subsystem",
+                        "name": "RF",
+                    },
+                ],
+            },
+        )
+        payload = configuration_to_dict(cfg)
+        sources = {n["name"]: n["inventory_source"] for n in payload["nodes"]}
+        assert sources["Comm"] == InventorySource.TURNKEY.value
+        assert sources["RF"] == InventorySource.TURNKEY.value
+    finally:
+        _cleanup(session, unique_code)
+
+
+def test_inventory_source_build_round_trip(session: Session, unique_code: str, catalog):
+    _cleanup(session, unique_code)
+    try:
+        cfg = create_configuration(
+            session,
+            {
+                "code": unique_code,
+                "name": f"Build {unique_code}",
+                "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                "nodes": [
+                    {
+                        "client_key": "s1",
+                        "level": "system",
+                        "name": "Comm",
+                        "inventory_source": "build_from_children",
+                    },
+                    {
+                        "client_key": "ss1",
+                        "parent_client_key": "s1",
+                        "level": "subsystem",
+                        "name": "RF",
+                        "inventory_source": "turnkey",
+                    },
+                ],
+            },
+        )
+        payload = configuration_to_dict(cfg)
+        by_name = {n["name"]: n["inventory_source"] for n in payload["nodes"]}
+        assert by_name["Comm"] == InventorySource.BUILD_FROM_CHILDREN.value
+        assert by_name["RF"] == InventorySource.TURNKEY.value
+    finally:
+        _cleanup(session, unique_code)
+
+
+def test_build_from_children_rejected_on_leaf(session: Session, catalog):
+    with pytest.raises(HierarchyConfigError, match="build-from-children"):
+        _validate_nodes(
+            session,
+            [
+                {
+                    "client_key": "s1",
+                    "level": "system",
+                    "name": "Comm",
+                    "inventory_source": "build_from_children",
+                }
+            ],
+        )

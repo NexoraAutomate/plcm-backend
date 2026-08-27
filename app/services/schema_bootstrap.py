@@ -187,6 +187,31 @@ HIERARCHY_ASSIGN_DEVELOPER_DDL = [
     ("assigned_developer_id", "INTEGER"),
 ]
 
+HIERARCHY_INVENTORY_SOURCE_DDL = [
+    ("inventory_source", "VARCHAR(32)"),
+]
+
+HIERARCHY_CONFIG_NODE_COLUMN_DDL = [
+    ("inventory_source", "VARCHAR(32) DEFAULT 'turnkey' NOT NULL"),
+]
+
+ASSEMBLED_INVENTORY_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS assembledinventory (
+    id SERIAL PRIMARY KEY,
+    target_entity_type VARCHAR(32) NOT NULL,
+    target_entity_id INTEGER NOT NULL,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id),
+    inventory_instance_id INTEGER REFERENCES inventoryinstance(id),
+    project_id INTEGER REFERENCES project(id),
+    flight_id INTEGER REFERENCES flight(id),
+    sdls_id INTEGER REFERENCES sdls(id),
+    configuration_id INTEGER REFERENCES hierarchyconfiguration(id),
+    created_by_user_id INTEGER REFERENCES "user"(id),
+    source_summary TEXT,
+    created_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 RETURN_NOTICE_COLUMN_DDL = [
     ("decision", "VARCHAR DEFAULT 'pending'"),
     ("decided_at", "TIMESTAMP WITH TIME ZONE"),
@@ -579,6 +604,12 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing("module", HIERARCHY_ASSIGN_DEVELOPER_DDL)
     _add_columns_if_missing("unit", HIERARCHY_ASSIGN_DEVELOPER_DDL)
     _add_columns_if_missing("component", HIERARCHY_ASSIGN_DEVELOPER_DDL)
+    _add_columns_if_missing("system", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("subsystem", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("module", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("unit", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("component", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("hierarchyconfignode", HIERARCHY_CONFIG_NODE_COLUMN_DDL)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -863,3 +894,22 @@ def ensure_user_management_schema() -> None:
             )
         )
         _restrict_workflow_audit_privileges(conn)
+
+    with engine.begin() as conn:
+        conn.execute(text(ASSEMBLED_INVENTORY_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_assembledinventory_target
+                ON assembledinventory (target_entity_type, target_entity_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_assembledinventory_project_id
+                ON assembledinventory (project_id)
+                """
+            )
+        )

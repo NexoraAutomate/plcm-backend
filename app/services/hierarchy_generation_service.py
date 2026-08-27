@@ -10,7 +10,7 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from app.config.entities import ENTITY_CONFIG
-from app.domain.hierarchy_config import HierarchyConfigLevel
+from app.domain.hierarchy_config import HierarchyConfigLevel, normalize_inventory_source
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_roles import WorkflowRole, has_workflow_role
 from app.domain.workflow_status import ProjectWorkflowStatus
@@ -85,6 +85,15 @@ def _sorted_template_nodes(
     )
 
 
+def _source_for_node(node: HierarchyConfigNode) -> str:
+    try:
+        return normalize_inventory_source(getattr(node, "inventory_source", None))
+    except ValueError:
+        from app.domain.hierarchy_config import InventorySource
+
+        return InventorySource.TURNKEY.value
+
+
 def _clone_template_under_sdls(
     session: Session,
     *,
@@ -109,6 +118,7 @@ def _clone_template_under_sdls(
                 description=description,
                 project_id=int(project.id),
                 sdls_id=int(sdls.id),
+                inventory_source=_source_for_node(node),
             )
             session.add(entity)
             session.flush()
@@ -128,6 +138,7 @@ def _clone_template_under_sdls(
                 name=name,
                 description=description,
                 system_id=int(parent.id),
+                inventory_source=_source_for_node(node),
             )
             session.add(entity)
             session.flush()
@@ -139,6 +150,7 @@ def _clone_template_under_sdls(
                 name=name,
                 description=description,
                 subsystem_id=int(parent.id),
+                inventory_source=_source_for_node(node),
             )
             session.add(entity)
             session.flush()
@@ -150,6 +162,7 @@ def _clone_template_under_sdls(
                 name=name,
                 description=description,
                 module_id=int(parent.id),
+                inventory_source=_source_for_node(node),
             )
             session.add(entity)
             session.flush()
@@ -161,6 +174,7 @@ def _clone_template_under_sdls(
                 name=name,
                 description=description,
                 unit_id=int(parent.id),
+                inventory_source=_source_for_node(node),
             )
             session.add(entity)
             session.flush()

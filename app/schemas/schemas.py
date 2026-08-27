@@ -1326,6 +1326,7 @@ class HierarchyConfigNodeIn(SQLModel):
     description: Optional[str] = None
     abbreviation: Optional[str] = None
     sort_order: int = 0
+    inventory_source: str = "turnkey"
 
 
 class HierarchyConfigurationCreate(SQLModel):
@@ -1369,6 +1370,7 @@ class HierarchyConfigNodeRead(SQLModel):
     description: Optional[str] = None
     abbreviation: Optional[str] = None
     sort_order: int = 0
+    inventory_source: str = "turnkey"
 
     class Config:
         orm_mode = True

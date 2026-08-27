@@ -2,6 +2,7 @@ from .base import *
 from typing import List, Optional
 from sqlmodel import Column, Field, Relationship
 import sqlalchemy as sa
+from sqlalchemy import UniqueConstraint
 from enum import Enum
 from sqlalchemy import Enum as SQLEnum
 from app.models.base import ConfigurationHistoryBase, InventoryChildLinkBase
@@ -796,4 +797,15 @@ class HierarchyConfigNode(HierarchyConfigNodeBase, table=True):
             "foreign_keys": "[HierarchyConfigNode.parent_id]",
         },
     )
+
+
+class AssembledInventory(AssembledInventoryBase, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "target_entity_type",
+            "target_entity_id",
+            name="uq_assembledinventory_target",
+        ),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
 

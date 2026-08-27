@@ -18,6 +18,7 @@ from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
 from app.models.base import InventoryReservationStatus, ReworkCaseStatus
 from app.models.tables import (
+    AssembledInventory,
     Component,
     Flight,
     InventoryInstance,
@@ -120,6 +121,21 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
             continue
         coverage[key] = {
             "status": ItemStatus.RESERVED.value,
+            "defect_pending": False,
+        }
+
+    assembled_rows = session.exec(
+        select(AssembledInventory).where(
+            AssembledInventory.project_id == project_id
+        )
+    ).all()
+    for assembled in assembled_rows:
+        et = (assembled.target_entity_type or "").strip().lower()
+        if not et or assembled.target_entity_id is None:
+            continue
+        key = (et, int(assembled.target_entity_id))
+        coverage[key] = {
+            "status": ItemStatus.INSTALLED_VERIFIED.value,
             "defect_pending": False,
         }
     return coverage

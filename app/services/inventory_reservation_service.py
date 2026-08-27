@@ -12,6 +12,7 @@ from sqlmodel import Session, col, select
 
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
+from app.domain.hierarchy_config import is_build_from_children
 from app.models.base import AUTO_RELEASE_EXPIRY_REASON, InventoryReservationStatus
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
@@ -426,6 +427,25 @@ def check_availability(
             "flight_id": flight.id,
             "sdls_id": sdls.id,
             "system_id": system.id,
+            "inventory_source": getattr(entity, "inventory_source", None),
+        }
+
+    if is_build_from_children(getattr(entity, "inventory_source", None)):
+        return {
+            "available": False,
+            "reason": (
+                "This item is automatically created in inventory when its "
+                "required child items are installed and verified"
+            ),
+            "assemble": True,
+            "free_quantity": 0,
+            "inventory_id": None,
+            "inventory_name": None,
+            "part_number": None,
+            "flight_id": flight.id,
+            "sdls_id": sdls.id,
+            "system_id": system.id,
+            "inventory_source": getattr(entity, "inventory_source", None),
         }
 
     inventory = resolve_inventory_for_entity(
@@ -518,11 +538,16 @@ def reserve_inventory(
     *,
     actor: User,
     create_shortage_if_unavailable: bool = True,
+    commit: bool = True,
+    allow_assembled: bool = False,
 ) -> InventoryReservation:
     project = session.get(Project, project_id)
     if not project:
         raise InventoryReservationError("Project not found")
-    assert_project_can_reserve(project)
+    # Auto-assembly may run after the last child verify, which can already
+    # mark the project COMPLETED. Skip the HM reserve-window check.
+    if not allow_assembled:
+        assert_project_can_reserve(project)
     assert_no_open_config_change_for_reserve(session, project_id)
 
     et = str(payload.get("target_entity_type") or "").strip().lower()
@@ -536,6 +561,11 @@ def reserve_inventory(
         raise InventoryReservationError(f"Unsupported target entity type: {et}")
 
     entity = _load_hierarchy_entity(session, et, eid)
+    if is_build_from_children(getattr(entity, "inventory_source", None)) and not allow_assembled:
+        raise InventoryReservationError(
+            "This hierarchy node is configured as build-from-children and "
+            "cannot be reserved from procured inventory"
+        )
     flight, sdls, system = _resolve_flight_sdls_for_entity(session, et, entity)
     if flight.project_id != project_id:
         raise InventoryReservationError("Hierarchy entity is not under this project")
@@ -714,8 +744,9 @@ def reserve_inventory(
         },
         remarks=payload.get("notes"),
     )
-    session.commit()
-    session.refresh(reservation)
+    if commit:
+        session.commit()
+        session.refresh(reservation)
     return reservation
 
 
@@ -956,12 +987,14 @@ def _plan_row_for_entity(
 ) -> dict[str, Any]:
     name = str(getattr(entity, "name", "") or "")
     eid = int(entity.id)
+    source = getattr(entity, "inventory_source", None)
     base = {
         "target_entity_type": entity_type,
         "target_entity_id": eid,
         "entity_name": name,
         "path": " / ".join(path_parts),
         "depth": max(0, len(path_parts) - 2),
+        "inventory_source": source,
     }
     try:
         avail = check_availability(
@@ -986,10 +1019,13 @@ def _plan_row_for_entity(
             "flight_id": None,
             "sdls_id": None,
             "system_id": None,
+            "inventory_source": source,
         }
 
     if avail.get("reservation_id"):
         status_code = "reserved"
+    elif avail.get("assemble"):
+        status_code = "assemble"
     elif avail.get("available"):
         status_code = "available"
     else:
@@ -1011,6 +1047,7 @@ def _plan_row_for_entity(
         "flight_id": avail.get("flight_id"),
         "sdls_id": avail.get("sdls_id"),
         "system_id": avail.get("system_id"),
+        "inventory_source": source,
     }
 
 
@@ -1128,6 +1165,7 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
     available = sum(1 for row in items if row["status"] == "available")
     short = sum(1 for row in items if row["status"] == "short")
     reserved = sum(1 for row in items if row["status"] == "reserved")
+    assemble = sum(1 for row in items if row["status"] == "assemble")
     return {
         "project_id": project_id,
         "project_status": project_status_name(project),
@@ -1135,5 +1173,6 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
         "available_count": available,
         "short_count": short,
         "reserved_count": reserved,
+        "assemble_count": assemble,
         "items": items,
     }

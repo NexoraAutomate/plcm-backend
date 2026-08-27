@@ -16,6 +16,8 @@ from app.domain.hierarchy_config import (
     PARENT_TEMPLATE_LEVEL,
     TEMPLATE_NODE_LEVELS,
     HierarchyConfigLevel,
+    InventorySource,
+    normalize_inventory_source,
 )
 from app.models.tables import (
     Hierarchy,
@@ -128,6 +130,29 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
                 f"Node[{index}] parent must be {expected_parent.value}, got {parent_level}"
             )
 
+    children_of: dict[str, list[dict[str, Any]]] = {}
+    for index, node in enumerate(nodes):
+        parent_key = node.get("parent_client_key")
+        if parent_key:
+            children_of.setdefault(str(parent_key).strip(), []).append(node)
+
+    for index, node in enumerate(nodes):
+        try:
+            source = normalize_inventory_source(node.get("inventory_source"))
+        except ValueError as exc:
+            raise HierarchyConfigError(f"Node[{index}] {exc}") from exc
+        node["inventory_source"] = source
+        client_key = str(node.get("client_key") or f"n{index}").strip()
+        has_children = bool(children_of.get(client_key))
+        if (
+            source == InventorySource.BUILD_FROM_CHILDREN.value
+            and not has_children
+        ):
+            raise HierarchyConfigError(
+                f"Node[{index}] ({node.get('name')}) cannot be build-from-children "
+                "because it has no child nodes"
+            )
+
     try:
         validate_config_nodes_entity_list(session, nodes)
     except EntityListError as exc:
@@ -198,6 +223,7 @@ def _replace_children(
             sort_order=int(node.get("sort_order", index)),
             client_key=client_key,
             parent_id=parent_id,
+            inventory_source=normalize_inventory_source(node.get("inventory_source")),
         )
         session.add(db_node)
         session.flush()
@@ -323,6 +349,9 @@ def update_configuration(
                     "description": n.description,
                     "abbreviation": n.abbreviation,
                     "sort_order": n.sort_order,
+                    "inventory_source": normalize_inventory_source(
+                        getattr(n, "inventory_source", None)
+                    ),
                 }
                 for n in config.nodes
             ]
@@ -459,6 +488,9 @@ def configuration_to_dict(config: HierarchyConfiguration) -> dict[str, Any]:
                 "description": n.description,
                 "abbreviation": n.abbreviation,
                 "sort_order": n.sort_order,
+                "inventory_source": normalize_inventory_source(
+                    getattr(n, "inventory_source", None)
+                ),
             }
             for n in nodes
         ],
@@ -488,6 +520,7 @@ def _catalog_rows_to_nodes(rows: list[Hierarchy]) -> list[dict[str, Any]]:
                 "description": row.description,
                 "abbreviation": row.abbreviation,
                 "sort_order": int(row.id),
+                "inventory_source": InventorySource.TURNKEY.value,
             }
         )
     return nodes

@@ -494,9 +494,6 @@ def verify_issuance(
     from app.services.item_rework_service import close_rework_for_issuance
 
     close_rework_for_issuance(session, issuance, actor=actor, notes=notes)
-    from app.services.project_progress_service import touch_project_progress
-
-    touch_project_progress(session, issuance.project_id)
     write_workflow_audit(
         session,
         action=WorkflowAuditAction.INSTALLED_VERIFIED,
@@ -508,6 +505,18 @@ def verify_issuance(
         new_value={"status": ItemStatus.INSTALLED_VERIFIED.value},
         remarks=notes,
     )
+    from app.services.inventory_assembly_service import (
+        InventoryAssemblyError,
+        evaluate_assembly_after_verification,
+    )
+
+    try:
+        evaluate_assembly_after_verification(session, issuance, actor=actor)
+    except InventoryAssemblyError as exc:
+        raise ItemInstallVerifyError(str(exc)) from exc
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, issuance.project_id)
     session.commit()
     session.refresh(issuance)
     return issuance
