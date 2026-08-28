@@ -296,7 +296,7 @@ def get_project_hierarchy_tree(
             sdls_nodes.append(
                 schemas.SdlsTreeNode(
                     id=int(sdls.id),
-                    name=sdls.name,
+                    name=f"SDLS-{sdls.sequence}",
                     code=sdls.code,
                     sequence=sdls.sequence,
                     product_type=sdls.product_type,

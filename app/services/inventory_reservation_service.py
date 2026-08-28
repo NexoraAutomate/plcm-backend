@@ -546,10 +546,10 @@ def _entity_commitment_state(
     from app.services.item_install_verify_service import (
         current_item_status,
         install_progress_payload,
-        open_issuance_for_entity,
+        resolved_issuance_for_entity,
     )
 
-    issuance = open_issuance_for_entity(session, et, eid)
+    issuance = resolved_issuance_for_entity(session, et, eid)
     if issuance is not None and int(issuance.project_id or 0) == int(project_id):
         progress = install_progress_payload(session, et, eid, issuance=issuance)
         item_status = str(progress.get("item_status") or ItemStatus.ISSUED.value)
@@ -621,13 +621,15 @@ def _entity_commitment_state(
         .order_by(col(InventoryReservation.reserved_at).desc())
     ).first()
     if consumed:
-        item_status = ItemStatus.ISSUED.value
+        progress = install_progress_payload(session, et, eid)
+        item_status = str(progress.get("item_status") or ItemStatus.ISSUED.value)
+        plan_status = _plan_status_for_item_lifecycle(item_status)
         return {
             "available": False,
             "assemble": False,
-            "plan_status": _plan_status_for_item_lifecycle(item_status),
+            "plan_status": plan_status,
             "item_status": item_status,
-            "reason": "Previously reserved and issued to this hierarchy node",
+            "reason": _lifecycle_reason(item_status),
             "free_quantity": 0,
             "inventory_id": consumed.inventory_id,
             "inventory_name": consumed.inventory.name if consumed.inventory else None,

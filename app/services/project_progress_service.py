@@ -16,7 +16,7 @@ from app.domain.project_progress import (
 )
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
-from app.models.base import InventoryReservationStatus, ReworkCaseStatus
+from app.models.base import InventoryReservationStatus, IssuanceStatus, ReworkCaseStatus
 from app.models.tables import (
     AssembledInventory,
     Component,
@@ -49,13 +49,18 @@ class ProjectProgressError(ValueError):
 
 
 def _issuance_lifecycle_status(session: Session, issuance: InventoryIssuance) -> str:
+    lifecycle = (issuance.item_lifecycle_status or "").strip().upper()
+    if issuance.verified_at is not None:
+        return lifecycle or ItemStatus.INSTALLED_VERIFIED.value
+    if lifecycle:
+        return lifecycle
     if issuance.inventory_instance_id:
         instance = session.get(InventoryInstance, issuance.inventory_instance_id)
         if instance is not None:
             name = item_status_name(session, instance.status_id)
             if name:
                 return name.strip().upper()
-    return (issuance.item_lifecycle_status or ItemStatus.ISSUED.value).strip().upper()
+    return ItemStatus.ISSUED.value
 
 
 def _load_coverage(session: Session, project_id: int) -> Coverage:
@@ -139,6 +144,34 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
             "defect_pending": False,
         }
     return coverage
+
+
+def _assembled_parents_are_verified(session: Session, project_id: int) -> bool:
+    """BUILD parents do not complete the project until their own workflow completes.
+
+    Assembly makes a parent available for assignment and keeps progress at 100%,
+    but it is not an installed/verified issuance by itself.
+    """
+    assembled_rows = session.exec(
+        select(AssembledInventory).where(
+            AssembledInventory.project_id == project_id
+        )
+    ).all()
+    for assembled in assembled_rows:
+        verified = session.exec(
+            select(InventoryIssuance).where(
+                InventoryIssuance.project_id == project_id,
+                InventoryIssuance.target_entity_type
+                == assembled.target_entity_type,
+                InventoryIssuance.target_entity_id == assembled.target_entity_id,
+                InventoryIssuance.verified_at.is_not(None),
+                InventoryIssuance.status != IssuanceStatus.RETURNED.value,
+                InventoryIssuance.status != IssuanceStatus.REVERTED.value,
+            )
+        ).first()
+        if verified is None:
+            return False
+    return True
 
 
 def _apply_coverage(
@@ -330,7 +363,7 @@ def _load_progress_tree(session: Session, project: Project) -> ProgressNode:
                 ProgressNode(
                     entity_type="sdls",
                     entity_id=int(sdls.id),
-                    name=sdls.name,
+                    name=f"SDLS-{sdls.sequence}",
                     code=sdls.code,
                     product_type=sdls.product_type,
                     children=system_nodes,
@@ -443,7 +476,12 @@ def compute_project_progress(session: Session, project_id: int) -> dict[str, Any
     coverage = _load_coverage(session, int(project.id))
     _apply_coverage(root, coverage)
     rollup_progress(root)
-    return _to_payload(project, root)
+    snapshot = _to_payload(project, root)
+    snapshot["can_complete"] = bool(
+        snapshot["can_complete"]
+        and _assembled_parents_are_verified(session, int(project.id))
+    )
+    return snapshot
 
 
 def _apply_completion_gate(

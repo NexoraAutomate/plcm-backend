@@ -474,6 +474,74 @@ def test_s2_build_parent_created_after_one_child(
         _cleanup(session, project, cfg, inventories)
 
 
+def test_verified_subsystem_reports_installed_verified_status(
+    session: Session, admin_user: User, developer_user: User
+):
+    """Reserve-inventory plan and assignment APIs must show HM-verified lifecycle."""
+    from app.services.hierarchy_developer_service import assignment_status_map
+
+    project, cfg = _ready_project(
+        session,
+        admin_user,
+        _nodes(
+            {
+                "client_key": "s1",
+                "level": "system",
+                "name": "Comm",
+                "inventory_source": InventorySource.BUILD_FROM_CHILDREN.value,
+            },
+            {
+                "client_key": "ss1",
+                "parent_client_key": "s1",
+                "level": "subsystem",
+                "name": "RF",
+            },
+        ),
+    )
+    inventories: list[Inventory] = []
+    try:
+        system = _first_system(session, project)
+        sub = system.subsystems[0]
+        inventories.append(
+            _complete_serialized_child(
+                session,
+                admin=admin_user,
+                developer=developer_user,
+                project=project,
+                entity_type="subsystem",
+                entity_id=int(sub.id),
+                name="RF",
+                serial=f"SN-STAT-{uuid.uuid4().hex[:6]}",
+            )
+        )
+        assignment = assignment_status_map(session, "subsystem", [int(sub.id)])
+        sub_status = assignment[int(sub.id)]
+        assert sub_status["item_status"] == ItemStatus.INSTALLED_VERIFIED.value
+        assert sub_status["verified"] is True
+
+        plan = build_reservation_plan(session, int(project.id))
+        sub_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "subsystem"
+            and row["target_entity_id"] == int(sub.id)
+        )
+        assert sub_row["status"] == "verified"
+        assert sub_row["item_status"] == ItemStatus.INSTALLED_VERIFIED.value
+
+        system_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "system"
+            and row["target_entity_id"] == int(system.id)
+        )
+        assert system_row["status"] == "reserved"
+        assert system_row["assembled"] is True
+        assert system_row["item_status"] == ItemStatus.RESERVED.value
+    finally:
+        _cleanup(session, project, cfg, inventories)
+
+
 def test_s3_s7_partial_then_exactly_once(
     session: Session, admin_user: User, developer_user: User
 ):

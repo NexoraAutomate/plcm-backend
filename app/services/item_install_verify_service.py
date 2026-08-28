@@ -10,7 +10,7 @@ from sqlmodel import Session, col, select
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_roles import WorkflowRole, has_workflow_role
 from app.domain.workflow_status import ItemStatus
-from app.models.base import IssuanceEventType, ItemTestResult
+from app.models.base import IssuanceEventType, IssuanceStatus, ItemTestResult
 from app.models.tables import (
     Inventory,
     InventoryInstance,
@@ -92,20 +92,46 @@ def open_issuance_for_entity(
     ).first()
 
 
+def resolved_issuance_for_entity(
+    session: Session, entity_type: str, entity_id: int
+) -> Optional[InventoryIssuance]:
+    """Open issuance for in-flight work, else the latest verified issuance."""
+    et = (entity_type or "").strip().lower()
+    row = open_issuance_for_entity(session, et, int(entity_id))
+    if row is not None:
+        return row
+    return session.exec(
+        select(InventoryIssuance)
+        .where(
+            InventoryIssuance.target_entity_type == et,
+            InventoryIssuance.target_entity_id == int(entity_id),
+            InventoryIssuance.verified_at.is_not(None),
+            InventoryIssuance.status != IssuanceStatus.RETURNED.value,
+            InventoryIssuance.status != IssuanceStatus.REVERTED.value,
+        )
+        .order_by(col(InventoryIssuance.verified_at).desc())
+    ).first()
+
+
 def current_item_status(session: Session, issuance: InventoryIssuance) -> str:
+    lifecycle = (issuance.item_lifecycle_status or "").strip().upper()
+    if issuance.verified_at is not None:
+        return lifecycle or ItemStatus.INSTALLED_VERIFIED.value
+    if lifecycle:
+        return lifecycle
     instance = None
     if issuance.inventory_instance_id:
         instance = session.get(InventoryInstance, issuance.inventory_instance_id)
     if instance is not None:
         name = item_status_name(session, instance.status_id)
         if name:
-            return name
+            return name.strip().upper()
     inventory = session.get(Inventory, issuance.inventory_id)
     if inventory is not None:
         name = item_status_name(session, inventory.status_id)
         if name:
-            return name
-    return (issuance.item_lifecycle_status or ItemStatus.ISSUED.value).strip().upper()
+            return name.strip().upper()
+    return ItemStatus.ISSUED.value
 
 
 def _advance_item_status(
@@ -203,14 +229,25 @@ def install_progress_payload(
     *,
     issuance: Optional[InventoryIssuance] = None,
 ) -> dict[str, Any]:
-    row = issuance or open_issuance_for_entity(session, entity_type, entity_id)
+    et = (entity_type or "").strip().lower()
+    row = issuance or resolved_issuance_for_entity(session, et, int(entity_id))
     from app.services.item_rework_service import rework_progress_fields
 
     rework = rework_progress_fields(session, entity_type, entity_id)
     if row is None:
+        from app.services.inventory_assembly_service import get_assembled_inventory
+        from app.services.inventory_reservation_service import (
+            active_reservation_for_entity,
+        )
+
+        assembled = get_assembled_inventory(session, et, int(entity_id))
+        reservation = active_reservation_for_entity(session, et, int(entity_id))
+        item_status = None
+        if assembled is not None and reservation is not None:
+            item_status = ItemStatus.RESERVED.value
         return {
             "issuance_id": None,
-            "item_status": None,
+            "item_status": item_status,
             "test_result": None,
             "complete_reported": False,
             "complete_reported_at": None,

@@ -262,7 +262,6 @@ def generate_project_hierarchy(
 
     flight_count = int(project.flight_count)
     sdls_per_flight = int(project.sdls_per_flight)
-    product_type = project.product_type or ""
     actor_id = int(actor.id)
     role = _actor_role(actor)
 
@@ -290,19 +289,14 @@ def generate_project_hierarchy(
         counts["flights"] += 1
 
         for s_idx in range(1, sdls_per_flight + 1):
-            sdls_name = (
-                f"{product_type}-{s_idx}" if product_type else f"SDLS-{s_idx}"
-            )
+            sdls_name = f"SDLS-{s_idx}"
             sdls = Sdls(
                 name=sdls_name,
                 code=f"F{f_idx:02d}-S{s_idx:02d}",
                 sequence=s_idx,
                 flight_id=int(flight.id),
-                product_type=product_type or None,
-                description=(
-                    f"Generated SDLS {s_idx} under {flight.code} "
-                    f"({product_type or 'product'})"
-                ),
+                product_type=project.product_type,
+                description=f"Generated SDLS {s_idx} under {flight.code}",
             )
             session.add(sdls)
             session.flush()
@@ -373,6 +367,6 @@ def generate_project_hierarchy(
         or ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
         "config_code": config.code,
         "config_name": config.name,
-        "product_type": product_type,
+        "product_type": project.product_type or "",
         "counts": counts,
     }

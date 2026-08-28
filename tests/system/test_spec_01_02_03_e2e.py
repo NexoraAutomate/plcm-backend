@@ -358,6 +358,7 @@ class TestSpec03System:
                 assert len(sdls["systems"]) == 1
                 system = sdls["systems"][0]
                 assert system["name"] == "Comm"
+                assert sdls["name"] == f"SDLS-{sdls['sequence']}"
                 assert sdls["product_type"] == "SSDLS-1"
                 assert system["subsystem_count"] >= 1
                 assert len(system.get("subsystems") or []) >= 1

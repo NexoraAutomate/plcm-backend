@@ -242,7 +242,7 @@ def test_product_type_appears_on_sdls(
     ).all()
     assert len(sdls_rows) == 2
     assert all(s.product_type == "SSDLS-2" for s in sdls_rows)
-    assert {s.name for s in sdls_rows} == {"SSDLS-2-1", "SSDLS-2-2"}
+    assert {s.name for s in sdls_rows} == {"SDLS-1", "SDLS-2"}
 
 
 def test_non_hm_without_permission_role_still_domain_ok_for_admin(
