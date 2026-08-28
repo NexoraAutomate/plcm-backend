@@ -1045,7 +1045,10 @@ def list_inventory_shortages(
         statuses=statuses,
         assigned_hm_id=hm_id,
     )
-    return [schemas.InventoryShortageRead(**shortage_to_dict(r)) for r in rows]
+    return [
+        schemas.InventoryShortageRead(**shortage_to_dict(r, session=session))
+        for r in rows
+    ]
 
 
 @router.post(

@@ -4,15 +4,17 @@ Spec 05 — shortage rows, in-app notify, and FCFS auto-reserve on receipt.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from app.domain.workflow_roles import WORKFLOW_ROLE_DB_NAMES, WorkflowRole
 from app.domain.workflow_status import ItemStatus
 from app.models.base import ShortageNoticeType, ShortageStatus
 from app.models.tables import (
+    AppDefinitions,
     Component,
     Flight,
     Inventory,
@@ -29,6 +31,10 @@ from app.models.tables import (
     User,
     UserRole,
     Unit,
+)
+from app.services.app_definitions_service import (
+    DEFAULT_APP_DEFINITIONS,
+    build_entity_identifiers,
 )
 from app.services.inventory_reservation_service import (
     InventoryReservationError,
@@ -75,7 +81,119 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def shortage_to_dict(shortage: InventoryShortage) -> dict[str, Any]:
+def _next_serial_from_existing(
+    serials: list[Optional[str]], fallback: str
+) -> str:
+    best_serial = ""
+    best_sequence = -1
+    for serial in serials:
+        value = (serial or "").strip()
+        match = re.match(r"^(.*?)(\d+)$", value)
+        if match is None:
+            continue
+        sequence = int(match.group(2))
+        if sequence > best_sequence:
+            best_sequence = sequence
+            best_serial = value
+    if not best_serial:
+        return fallback
+    match = re.match(r"^(.*?)(\d+)$", best_serial)
+    if match is None:
+        return fallback
+    return f"{match.group(1)}{best_sequence + 1:0{len(match.group(2))}d}"
+
+
+def _suggested_inventory_identifiers(
+    session: Session, shortage: InventoryShortage
+) -> tuple[Optional[str], Optional[str]]:
+    entity_type = (shortage.target_entity_type or "").strip().lower()
+    name = (shortage.lru_name or "").strip()
+    if not entity_type or not name:
+        return shortage.part_number, None
+
+    inventory = (
+        session.get(Inventory, shortage.inventory_id)
+        if shortage.inventory_id is not None
+        else None
+    )
+    if inventory is None:
+        inventory = session.exec(
+            select(Inventory).where(
+                Inventory.inventory_type == entity_type,
+                func.lower(Inventory.name) == name.lower(),
+            )
+        ).first()
+
+    instance_count = 0
+    existing_serials: list[Optional[str]] = []
+    if inventory is not None and inventory.id is not None:
+        instance_count = int(
+            session.exec(
+                select(func.count())
+                .select_from(InventoryInstance)
+                .where(InventoryInstance.inventory_id == inventory.id)
+            ).one()
+            or 0
+        )
+        existing_serials = list(
+            session.exec(
+                select(InventoryInstance.serial_number).where(
+                    InventoryInstance.inventory_id == inventory.id
+                )
+            ).all()
+        )
+        existing_serials.append(inventory.serial_number)
+
+    definitions = session.exec(select(AppDefinitions).limit(1)).first()
+    if definitions is None:
+        definitions = AppDefinitions(**DEFAULT_APP_DEFINITIONS)
+    entity_models = {
+        "system": System,
+        "subsystem": Subsystem,
+        "module": Module,
+        "unit": Unit,
+        "component": Component,
+    }
+    entity = (
+        session.get(entity_models[entity_type], shortage.target_entity_id)
+        if entity_type in entity_models
+        else None
+    )
+    cleaned = "".join(character for character in name if character.isalnum())
+    entity_abbr = (
+        getattr(entity, "abbreviation", None) or cleaned[:4] or entity_type[:4]
+    ).upper()
+    project = session.get(Project, shortage.project_id)
+    identifiers = build_entity_identifiers(
+        definitions,
+        project=str(project.name or "") if project else "",
+        name=name,
+        seq=instance_count + 1,
+        pn_seq=1,
+        level=entity_type,
+        entity_abbr=entity_abbr,
+        vendor="",
+    )
+    suggested_part = (
+        (inventory.part_number if inventory is not None else None)
+        or shortage.part_number
+        or identifiers["part_number"]
+    )
+    suggested_serial = _next_serial_from_existing(
+        existing_serials, identifiers["serial_number"]
+    )
+    return suggested_part, suggested_serial
+
+
+def shortage_to_dict(
+    shortage: InventoryShortage, *, session: Optional[Session] = None
+) -> dict[str, Any]:
+    if session is not None:
+        suggested_part_number, suggested_serial_number = (
+            _suggested_inventory_identifiers(session, shortage)
+        )
+    else:
+        suggested_part_number, suggested_serial_number = shortage.part_number, None
     return {
         "id": shortage.id,
         "project_id": shortage.project_id,
@@ -85,6 +203,8 @@ def shortage_to_dict(shortage: InventoryShortage) -> dict[str, Any]:
         "target_entity_id": shortage.target_entity_id,
         "inventory_id": shortage.inventory_id,
         "part_number": shortage.part_number,
+        "suggested_part_number": suggested_part_number,
+        "suggested_serial_number": suggested_serial_number,
         "qty_short": shortage.qty_short,
         "qty_original": shortage.qty_original,
         "lru_name": shortage.lru_name,
@@ -462,18 +582,26 @@ def receive_shortage_stock(
     if requested_type not in {"system", "subsystem", "module", "unit", "component"}:
         raise InventoryShortageError("Shortage has an unsupported inventory type")
 
+    suggested_part_number, suggested_serial_number = _suggested_inventory_identifiers(
+        session, shortage
+    )
     inventory = (
         session.get(Inventory, shortage.inventory_id)
         if shortage.inventory_id is not None
         else None
     )
-    resolved_part_number = (part_number or shortage.part_number or "").strip() or None
+    resolved_part_number = (
+        (part_number or shortage.part_number or suggested_part_number or "").strip()
+        or None
+    )
     serialized = not is_component_inventory(requested_type)
     serials = [
         str(serial).strip()
         for serial in (serial_numbers or [])
         if str(serial).strip()
     ]
+    if serialized and not serials and suggested_serial_number:
+        serials = [suggested_serial_number]
     if serialized:
         if quantity != 1:
             raise InventoryShortageError(

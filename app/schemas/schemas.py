@@ -1473,6 +1473,8 @@ class InventoryShortageRead(SQLModel):
     target_entity_id: int
     inventory_id: Optional[int] = None
     part_number: Optional[str] = None
+    suggested_part_number: Optional[str] = None
+    suggested_serial_number: Optional[str] = None
     qty_short: int
     qty_original: int
     lru_name: Optional[str] = None

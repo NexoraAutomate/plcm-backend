@@ -468,7 +468,9 @@ def create_reservation(
     except InventoryShortageCreated as exc:
         return schemas.ReserveOutcome(
             outcome="shortage",
-            shortage=schemas.InventoryShortageRead(**shortage_to_dict(exc.shortage)),
+            shortage=schemas.InventoryShortageRead(
+                **shortage_to_dict(exc.shortage, session=session)
+            ),
         )
     except InventoryReservationError as exc:
         raise _reservation_http_error(exc) from exc
@@ -495,7 +497,10 @@ def list_project_shortages(
         else None
     )
     rows = list_shortages(session, project_id=project_id, statuses=statuses)
-    return [schemas.InventoryShortageRead(**shortage_to_dict(r)) for r in rows]
+    return [
+        schemas.InventoryShortageRead(**shortage_to_dict(r, session=session))
+        for r in rows
+    ]
 
 
 @router.post(
@@ -519,7 +524,9 @@ def cancel_project_shortage(
         row = cancel_shortage(
             session, shortage_id, actor=current_user, project_id=project_id
         )
-        return schemas.InventoryShortageRead(**shortage_to_dict(row))
+        return schemas.InventoryShortageRead(
+            **shortage_to_dict(row, session=session)
+        )
     except InventoryShortageError as exc:
         detail = str(exc)
         code = (
