@@ -13,17 +13,22 @@ from app.domain.workflow_roles import WORKFLOW_ROLE_DB_NAMES, WorkflowRole
 from app.domain.workflow_status import ItemStatus
 from app.models.base import ShortageNoticeType, ShortageStatus
 from app.models.tables import (
+    Component,
     Flight,
     Inventory,
     InventoryInstance,
     InventoryReservation,
     InventoryShortage,
     InventoryShortageNotice,
+    Module,
     Project,
     Role,
     Sdls,
+    Subsystem,
+    System,
     User,
     UserRole,
+    Unit,
 )
 from app.services.inventory_reservation_service import (
     InventoryReservationError,
@@ -33,7 +38,12 @@ from app.services.inventory_reservation_service import (
     reservation_to_dict,
     reserve_inventory,
 )
-from app.services.inventory_service import is_component_inventory, normalize_part_number
+from app.services.inventory_service import (
+    create_inventory_instance,
+    find_inventory_catalog_group,
+    is_component_inventory,
+    normalize_part_number,
+)
 
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.services.workflow_audit_service import write_workflow_audit
@@ -281,6 +291,7 @@ def record_shortage_for_reserve(
     actor: User,
     inventory: Optional[Inventory] = None,
     qty_short: int = 1,
+    commit: bool = True,
 ) -> InventoryShortage:
     existing = find_open_shortage_for_node(
         session,
@@ -338,9 +349,210 @@ def record_shortage_for_reserve(
             "status": shortage.status,
         },
     )
-    session.commit()
-    session.refresh(shortage)
+    if commit:
+        session.commit()
+        session.refresh(shortage)
+    else:
+        session.flush()
     return shortage
+
+
+def ensure_shortages_for_project(
+    session: Session,
+    project: Project,
+    *,
+    actor: User,
+) -> int:
+    """Create active shortage rows for missing TURNKEY stock after generation."""
+    from app.services.inventory_reservation_service import (
+        _resolve_flight_sdls_for_entity,
+        build_reservation_plan,
+    )
+
+    entity_models = {
+        "system": System,
+        "subsystem": Subsystem,
+        "module": Module,
+        "unit": Unit,
+        "component": Component,
+    }
+    plan = build_reservation_plan(session, int(project.id))
+    created = 0
+    for row in plan.get("items", []):
+        if row.get("status") != "short":
+            continue
+        entity_type = str(row["target_entity_type"]).lower()
+        model = entity_models.get(entity_type)
+        if model is None:
+            continue
+        entity = session.get(model, int(row["target_entity_id"]))
+        flight = (
+            session.get(Flight, int(row["flight_id"]))
+            if row.get("flight_id")
+            else None
+        )
+        sdls = (
+            session.get(Sdls, int(row["sdls_id"]))
+            if row.get("sdls_id")
+            else None
+        )
+        if entity is not None and (flight is None or sdls is None):
+            try:
+                flight, sdls, _ = _resolve_flight_sdls_for_entity(
+                    session,
+                    entity_type,
+                    entity,
+                )
+            except InventoryReservationError:
+                flight = None
+                sdls = None
+        if entity is None or flight is None or sdls is None:
+            continue
+        if find_open_shortage_for_node(
+            session,
+            project_id=int(project.id),
+            target_entity_type=entity_type,
+            target_entity_id=int(row["target_entity_id"]),
+        ):
+            continue
+        inventory = (
+            session.get(Inventory, int(row["inventory_id"]))
+            if row.get("inventory_id")
+            else None
+        )
+        record_shortage_for_reserve(
+            session,
+            project=project,
+            flight=flight,
+            sdls=sdls,
+            entity=entity,
+            entity_type=entity_type,
+            entity_id=int(row["target_entity_id"]),
+            actor=actor,
+            inventory=inventory,
+            commit=False,
+        )
+        created += 1
+    return created
+
+
+def receive_shortage_stock(
+    session: Session,
+    shortage_id: int,
+    *,
+    actor: User,
+    quantity: int,
+    part_number: Optional[str] = None,
+    serial_numbers: Optional[list[str]] = None,
+    location: Optional[str] = None,
+) -> tuple[Inventory, list[dict[str, Any]]]:
+    """Receive stock from the shortage list and immediately run FCFS fulfillment."""
+    shortage = session.get(InventoryShortage, shortage_id)
+    if shortage is None:
+        raise InventoryShortageError("Shortage not found")
+    if shortage.status not in ACTIVE_SHORTAGE_STATUSES:
+        raise InventoryShortageError("Shortage is not open")
+    if quantity < 1:
+        raise InventoryShortageError("Quantity must be at least 1")
+
+    requested_type = (shortage.target_entity_type or "").strip().lower()
+    requested_name = (shortage.lru_name or "").strip()
+    if not requested_name:
+        raise InventoryShortageError("Shortage has no inventory item name")
+    if requested_type not in {"system", "subsystem", "module", "unit", "component"}:
+        raise InventoryShortageError("Shortage has an unsupported inventory type")
+
+    inventory = (
+        session.get(Inventory, shortage.inventory_id)
+        if shortage.inventory_id is not None
+        else None
+    )
+    resolved_part_number = (part_number or shortage.part_number or "").strip() or None
+    serialized = not is_component_inventory(requested_type)
+    serials = [
+        str(serial).strip()
+        for serial in (serial_numbers or [])
+        if str(serial).strip()
+    ]
+    if serialized:
+        if quantity != 1:
+            raise InventoryShortageError(
+                "Serialized shortages accept one unit at a time"
+            )
+        if not resolved_part_number and not (inventory and inventory.part_number):
+            raise InventoryShortageError("Part number is required for serialized stock")
+        if len(serials) != 1:
+            raise InventoryShortageError("One serial number is required")
+        if not (location or "").strip():
+            raise InventoryShortageError("Location is required for serialized stock")
+
+    if inventory is None:
+        inventory = find_inventory_catalog_group(
+            session,
+            name=requested_name,
+            inventory_type=requested_type,
+            part_number=resolved_part_number,
+        )
+    if inventory is None:
+        inventory = Inventory(
+            name=requested_name,
+            inventory_type=requested_type,
+            quantity=0,
+            part_number=resolved_part_number,
+            configuration_item=resolved_part_number or requested_name,
+            holder_user_id=int(actor.id),
+        )
+        session.add(inventory)
+        session.flush()
+    elif inventory.inventory_type != requested_type:
+        raise InventoryShortageError("Inventory type does not match shortage")
+
+    fulfillments: list[dict[str, Any]] = []
+    if not serialized:
+        inventory.quantity = int(inventory.quantity or 0) + quantity
+        inventory.updated_at = _now()
+        if resolved_part_number and not inventory.part_number:
+            inventory.part_number = resolved_part_number
+        session.add(inventory)
+        shortage.inventory_id = inventory.id
+        if not shortage.part_number and inventory.part_number:
+            shortage.part_number = inventory.part_number
+        session.add(shortage)
+        session.commit()
+        session.refresh(inventory)
+        fulfillments = match_and_auto_reserve_on_receipt(
+            session, inventory, actor=actor, qty=quantity
+        )
+    else:
+        if not resolved_part_number and not inventory.part_number:
+            raise InventoryShortageError("Part number is required for serialized stock")
+        if not inventory.part_number:
+            inventory.part_number = resolved_part_number
+        shortage.inventory_id = inventory.id
+        if not shortage.part_number and inventory.part_number:
+            shortage.part_number = inventory.part_number
+        session.add_all(
+            [
+                inventory,
+                shortage,
+            ]
+        )
+        instance = create_inventory_instance(
+            session,
+            inventory,
+            serial_number=serials[0],
+            original_serial_number=serials[0],
+            location=location.strip(),
+            holder_user_id=int(actor.id),
+        )
+        session.commit()
+        session.refresh(inventory)
+        fulfillments = match_and_auto_reserve_on_receipt(
+            session, inventory, actor=actor, instance=instance
+        )
+
+    session.refresh(inventory)
+    return inventory, fulfillments
 
 
 def list_shortages(

@@ -312,6 +312,14 @@ def generate_project_hierarchy(
                 counts=counts,
             )
 
+    from app.services.inventory_shortage_service import ensure_shortages_for_project
+
+    shortages_created = ensure_shortages_for_project(
+        session,
+        project,
+        actor=actor,
+    )
+
     # Status: APPROVED → HIERARCHY_GENERATED → READY_FOR_INVENTORY
     current = ProjectWorkflowStatus.APPROVED.value
     try:
@@ -369,4 +377,5 @@ def generate_project_hierarchy(
         "config_name": config.name,
         "product_type": project.product_type or "",
         "counts": counts,
+        "shortages_created": shortages_created,
     }

@@ -601,6 +601,7 @@ class HierarchyGenerationResult(SQLModel):
     config_name: Optional[str] = None
     product_type: Optional[str] = None
     counts: HierarchyGenerationCounts
+    shortages_created: int = 0
     project: Optional["ProjectRead"] = None
 
 
@@ -936,6 +937,14 @@ class InventoryInstanceUpdate(SQLModel):
 
 class InventoryCreate(InventoryBase):
     pass
+
+
+class InventoryShortageReceiveRequest(SQLModel):
+    quantity: int = Field(default=1, ge=1)
+    part_number: Optional[str] = None
+    serial_numbers: List[str] = Field(default_factory=list)
+    location: Optional[str] = None
+
 
 class InventoryRead(InventoryBase):
     id: int

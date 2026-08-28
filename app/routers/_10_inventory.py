@@ -2,7 +2,7 @@ from typing import List, Optional
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select, func, col
 from app.database import get_session
@@ -1046,6 +1046,48 @@ def list_inventory_shortages(
         assigned_hm_id=hm_id,
     )
     return [schemas.InventoryShortageRead(**shortage_to_dict(r)) for r in rows]
+
+
+@router.post(
+    "/inventory/shortages/{shortage_id}/receive/",
+    response_model=schemas.InventoryRead,
+    tags=["inventory"],
+)
+def receive_inventory_shortage(
+    shortage_id: int,
+    body: schemas.InventoryShortageReceiveRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.receive")),
+):
+    from app.services.inventory_shortage_service import (
+        InventoryShortageError,
+        receive_shortage_stock,
+    )
+
+    _require_can_receive_stock(current_user)
+    try:
+        inventory, fulfillments = receive_shortage_stock(
+            session,
+            shortage_id,
+            actor=current_user,
+            quantity=body.quantity,
+            part_number=body.part_number,
+            serial_numbers=body.serial_numbers,
+            location=body.location,
+        )
+    except InventoryShortageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return _with_fcfs(
+        _inventory_to_read(
+            session,
+            inventory,
+            include_instances=not is_component_inventory(inventory.inventory_type),
+        ),
+        fulfillments,
+    )
 
 
 @router.get(
