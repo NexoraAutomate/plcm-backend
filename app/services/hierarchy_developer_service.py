@@ -21,6 +21,8 @@ from app.models.tables import (
     Unit,
     User,
 )
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.services.workflow_audit_service import write_workflow_audit
 from app.services.inventory_reservation_service import RESERVABLE_ENTITY_TYPES
 
 ASSIGNABLE_ENTITY_TYPES = RESERVABLE_ENTITY_TYPES
@@ -207,6 +209,16 @@ def assign_developer(
         entity.assigned_developer_id = None
         session.add(entity)
         _cancel_pending_requests(session, entity_type, entity_id)
+        write_workflow_audit(
+            session,
+            action=WorkflowAuditAction.UNASSIGNED,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor=actor,
+            project_id=project_id,
+            old_value={"assigned_developer_id": previous_id},
+            new_value={"assigned_developer_id": None},
+        )
         session.commit()
         session.refresh(entity)
         return entity
@@ -222,6 +234,19 @@ def assign_developer(
     if previous_id and int(previous_id) != int(developer_user_id):
         _cancel_pending_requests(session, entity_type, entity_id)
 
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.ASSIGNED,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor=actor,
+        project_id=project_id,
+        old_value={"assigned_developer_id": previous_id},
+        new_value={
+            "assigned_developer_id": int(developer_user_id),
+            "assigned_developer_name": developer.full_name or developer.username,
+        },
+    )
     session.commit()
     session.refresh(entity)
     return entity

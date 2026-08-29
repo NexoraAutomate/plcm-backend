@@ -20,12 +20,16 @@ def update_entity_status(session: Session, entity:any, entity_name: Optional[str
     if not updated_entity:
         return None
 
+    previous_status_id = updated_entity.status_id
     updated_entity.status_id = entity.status_id
 
     session.add(updated_entity)
     session.flush()
 
-    if entity.status_id is not None:
+    if (
+        entity.status_id is not None
+        and previous_status_id != entity.status_id
+    ):
         create_status_history(
             session=session,
             history_data=schemas.EntityStatusHistoryCreate(

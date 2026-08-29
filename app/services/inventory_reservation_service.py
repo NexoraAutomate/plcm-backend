@@ -1239,6 +1239,7 @@ def extend_reservation(
         raise InventoryReservationError("Reservation not found")
     if reservation.status != InventoryReservationStatus.ACTIVE.value:
         raise InventoryReservationError("Reservation is not active")
+    previous_expires_at = reservation.expires_at
     reservation.extension_count = int(reservation.extension_count or 0) + 1
     reservation.last_reminder_at = None
     reserved_at = _aware(reservation.reserved_at)
@@ -1248,6 +1249,22 @@ def extend_reservation(
     )
     reservation.updated_at = _now()
     session.add(reservation)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.RESERVATION_EXTENDED,
+        entity_type="inventory_reservation",
+        entity_id=int(reservation.id),
+        actor=actor,
+        project_id=int(project_id),
+        old_value={
+            "expires_at": previous_expires_at,
+            "extension_count": reservation.extension_count - 1,
+        },
+        new_value={
+            "expires_at": reservation.expires_at,
+            "extension_count": reservation.extension_count,
+        },
+    )
     session.commit()
     session.refresh(reservation)
     return reservation

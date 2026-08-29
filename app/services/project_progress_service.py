@@ -16,6 +16,8 @@ from app.domain.project_progress import (
 )
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.config.entities import ENTITY_CONFIG
 from app.models.base import InventoryReservationStatus, IssuanceStatus, ReworkCaseStatus
 from app.models.tables import (
     AssembledInventory,
@@ -40,6 +42,8 @@ from app.services.project_workflow_service import (
     get_project_status_id,
     project_status_name,
 )
+from app.services.update_entity import update_entity_status
+from app.services.workflow_audit_service import ensure_system_user, write_workflow_audit
 
 Coverage = dict[tuple[str, int], dict[str, Any]]
 
@@ -512,6 +516,25 @@ def _apply_completion_gate(
         session, ProjectWorkflowStatus.COMPLETED.value
     )
     session.add(project)
+    system_user = ensure_system_user(session)
+    update_entity_status(
+        session=session,
+        entity=project,
+        entity_name=ENTITY_CONFIG["project"]["display_name"],
+        changed_by_user=int(system_user.id),
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.STATUS_CHANGED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=None,
+        system=True,
+        project_id=int(project.id),
+        old_value={"status": current},
+        new_value={"status": ProjectWorkflowStatus.COMPLETED.value},
+        remarks="Project automatically completed after all nodes were verified",
+    )
     snapshot["project_status"] = ProjectWorkflowStatus.COMPLETED.value
 
 

@@ -284,6 +284,27 @@ class WorkflowAuditEventRead(SQLModel):
         orm_mode = True
 
 
+class EntityLifecycleHistoryRead(SQLModel):
+    """Unified history row for a hardware node's status and workflow lifecycle."""
+
+    id: str
+    occurred_at: datetime
+    actor_user_id: Optional[int] = None
+    actor_username: Optional[str] = None
+    actor_role: str = "SYSTEM"
+    action: str
+    action_label: Optional[str] = None
+    entity_type: str
+    entity_id: str
+    project_id: Optional[int] = None
+    old_value: Optional[dict] = None
+    new_value: Optional[dict] = None
+    remarks: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
 class WorkflowAuditActionCatalogItem(SQLModel):
     code: str
     label: str

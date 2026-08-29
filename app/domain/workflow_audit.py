@@ -8,7 +8,14 @@ SYSTEM_USERNAME = "system"
 
 
 class WorkflowAuditAction:
+    CREATED = "CREATED"
+    ASSIGNED = "ASSIGNED"
+    UNASSIGNED = "UNASSIGNED"
+    HM_ASSIGNED = "HM_ASSIGNED"
+    STATUS_CHANGED = "STATUS_CHANGED"
+    COMPLETE_REPORTED = "COMPLETE_REPORTED"
     RESERVED = "RESERVED"
+    RESERVATION_EXTENDED = "RESERVATION_EXTENDED"
     RELEASED = "RELEASED"
     ISSUED = "ISSUED"
     INSTALLATION_IN_PROGRESS = "INSTALLATION_IN_PROGRESS"
@@ -43,7 +50,14 @@ WORKFLOW_AUDIT_ACTIONS: tuple[str, ...] = tuple(
 )
 
 WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
+    WorkflowAuditAction.CREATED: "Created",
+    WorkflowAuditAction.ASSIGNED: "Developer Assigned",
+    WorkflowAuditAction.UNASSIGNED: "Developer Unassigned",
+    WorkflowAuditAction.HM_ASSIGNED: "Hierarchy Manager Assigned",
+    WorkflowAuditAction.STATUS_CHANGED: "Status Changed",
+    WorkflowAuditAction.COMPLETE_REPORTED: "Installation Complete Reported",
     WorkflowAuditAction.RESERVED: "Reserved",
+    WorkflowAuditAction.RESERVATION_EXTENDED: "Reservation Extended",
     WorkflowAuditAction.RELEASED: "Released",
     WorkflowAuditAction.ISSUED: "Issued",
     WorkflowAuditAction.INSTALLATION_IN_PROGRESS: "Installation in Progress",

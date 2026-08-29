@@ -62,13 +62,28 @@ def _actor_role(user: User) -> WorkflowRole:
     return WorkflowRole.HM  # permission decorator already gated hierarchy.generate
 
 
-def _register_entity(session: Session, entity: Any, key: str, actor_id: int) -> None:
+def _register_entity(
+    session: Session,
+    entity: Any,
+    key: str,
+    actor_id: int,
+    project_id: int,
+) -> None:
     display = ENTITY_CONFIG[key]["display_name"]
     New_entity(
         session=session,
         entity=entity,
         entity_name=display,
         changed_by_user=actor_id,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.CREATED,
+        entity_type=key,
+        entity_id=int(entity.id),
+        actor=session.get(User, actor_id),
+        project_id=project_id,
+        new_value={"name": entity.name, "source": "hierarchy_generation"},
     )
 
 
@@ -122,7 +137,7 @@ def _clone_template_under_sdls(
             )
             session.add(entity)
             session.flush()
-            _register_entity(session, entity, "system", actor_id)
+            _register_entity(session, entity, "system", actor_id, int(project.id))
             created[int(node.id)] = entity
             counts["systems"] += 1
             continue
@@ -142,7 +157,7 @@ def _clone_template_under_sdls(
             )
             session.add(entity)
             session.flush()
-            _register_entity(session, entity, "subsystem", actor_id)
+            _register_entity(session, entity, "subsystem", actor_id, int(project.id))
             created[int(node.id)] = entity
             counts["subsystems"] += 1
         elif level == HierarchyConfigLevel.MODULE.value:
@@ -154,7 +169,7 @@ def _clone_template_under_sdls(
             )
             session.add(entity)
             session.flush()
-            _register_entity(session, entity, "module", actor_id)
+            _register_entity(session, entity, "module", actor_id, int(project.id))
             created[int(node.id)] = entity
             counts["modules"] += 1
         elif level == HierarchyConfigLevel.UNIT.value:
@@ -166,7 +181,7 @@ def _clone_template_under_sdls(
             )
             session.add(entity)
             session.flush()
-            _register_entity(session, entity, "unit", actor_id)
+            _register_entity(session, entity, "unit", actor_id, int(project.id))
             created[int(node.id)] = entity
             counts["units"] += 1
         elif level == HierarchyConfigLevel.COMPONENT.value:
@@ -178,7 +193,7 @@ def _clone_template_under_sdls(
             )
             session.add(entity)
             session.flush()
-            _register_entity(session, entity, "component", actor_id)
+            _register_entity(session, entity, "component", actor_id, int(project.id))
             created[int(node.id)] = entity
             counts["components"] += 1
         else:
@@ -285,7 +300,7 @@ def generate_project_hierarchy(
         )
         session.add(flight)
         session.flush()
-        _register_entity(session, flight, "flight", actor_id)
+        _register_entity(session, flight, "flight", actor_id, int(project.id))
         counts["flights"] += 1
 
         for s_idx in range(1, sdls_per_flight + 1):
@@ -300,7 +315,7 @@ def generate_project_hierarchy(
             )
             session.add(sdls)
             session.flush()
-            _register_entity(session, sdls, "sdls", actor_id)
+            _register_entity(session, sdls, "sdls", actor_id, int(project.id))
             counts["sdls"] += 1
 
             _clone_template_under_sdls(

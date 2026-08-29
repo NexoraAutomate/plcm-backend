@@ -316,10 +316,24 @@ def assign_hm(
             "Assigned user must have Hierarchy Manager (or Admin) role"
         )
 
+    previous_hm_id = project.assigned_hm_id
     project.assigned_hm_id = hm_user_id
     project.owner_id = hm_user_id
     project.updated_at = _now()
     session.add(project)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.HM_ASSIGNED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"assigned_hm_id": previous_hm_id},
+        new_value={
+            "assigned_hm_id": int(hm_user_id),
+            "assigned_hm_name": hm_user.full_name or hm_user.username,
+        },
+    )
     session.commit()
     session.refresh(project)
     return project
