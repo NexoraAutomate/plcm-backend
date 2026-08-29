@@ -3,9 +3,11 @@
 ## Security model
 
 The backend creates an opaque, random label ID and signs it with `AUTH_SECRET_KEY`.
-The QR and Code 128 payload has the form `PLCM1.<label-id>.<signature>` and contains
-no inventory, user, or location data. Every generation, print, replacement,
-deactivation, and scan operation validates the assignment and signature server-side.
+QR payloads have the form `PLCM1.<label-id>.<signature>`. Code 128 barcodes use
+the shorter signed form `PLCB.<base36-label-database-id>.<short-signature>`,
+which is suitable for millions of labels and contains no inventory, user, or
+location data. Every generation, print, replacement, deactivation, and scan
+operation validates the assignment and signature server-side.
 
 Changing a payload, inventing a label ID, using an unassigned label, or scanning a
 deactivated/replaced label is rejected. Label IDs and active assignments are protected
@@ -18,10 +20,12 @@ and optional activation or investigation by an administrator.
 ## IM workflow
 
 1. Open Inventory and select the label action for an item or a serialized unit.
-2. Choose QR, barcode, or both and generate the label. Bulk generation is available
-   from a serialized inventory group and creates one label per serial number.
-3. Use Print for the first print. Reprint requires a reason such as damaged,
-   wasted, or unreadable and never creates another inventory item.
+2. The administrator selects QR or barcode and configures code/sticker dimensions
+   in Settings → Definitions. Labels are generated automatically when stock is
+   added and can be completed in bulk from Inventory.
+3. Save a single label or all labels as an A4 multi-cell PDF. Each cell includes
+   the product name, part number, and serial number so the IM can match it before
+   applying the sticker. Reprints require a reason and never create another label.
 4. Use History to review first-print/reprint events, quantities, users, timestamps,
    and scan events.
 

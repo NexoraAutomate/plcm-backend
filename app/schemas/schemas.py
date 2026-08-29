@@ -204,6 +204,14 @@ class AppDefinitionsRead(SQLModel):
     serial_template_unit: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
     part_template_component: str = "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}"
     serial_template_component: str = "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}"
+    inventory_label_code_type: str = "qr"
+    inventory_qr_size_in: float = 0.65
+    inventory_barcode_width_in: float = 2.0
+    inventory_barcode_height_in: float = 0.5
+    inventory_qr_sticker_width_in: float = 1.25
+    inventory_qr_sticker_height_in: float = 1.25
+    inventory_barcode_sticker_width_in: float = 2.25
+    inventory_barcode_sticker_height_in: float = 0.9
     updated_at: Optional[datetime] = None
 
     class Config:
@@ -243,6 +251,14 @@ class AppDefinitionsUpdate(SQLModel):
     serial_template_unit: Optional[str] = None
     part_template_component: Optional[str] = None
     serial_template_component: Optional[str] = None
+    inventory_label_code_type: Optional[str] = None
+    inventory_qr_size_in: Optional[float] = None
+    inventory_barcode_width_in: Optional[float] = None
+    inventory_barcode_height_in: Optional[float] = None
+    inventory_qr_sticker_width_in: Optional[float] = None
+    inventory_qr_sticker_height_in: Optional[float] = None
+    inventory_barcode_sticker_width_in: Optional[float] = None
+    inventory_barcode_sticker_height_in: Optional[float] = None
 
 
 class AuditLogRead(SQLModel):
@@ -967,10 +983,15 @@ class InventoryLabelGenerateRequest(SQLModel):
     label_type: str = Field(default="qr", pattern="^(qr|barcode|both)$")
 
 
+class InventoryLabelGenerateAllRequest(SQLModel):
+    label_type: str = Field(default="both", pattern="^(qr|barcode|both)$")
+
+
 class InventoryLabelRead(SQLModel):
     id: int
     label_id: str
     signed_payload: str
+    barcode_payload: str
     inventory_id: int
     inventory_instance_id: Optional[int] = None
     serial_number: Optional[str] = None

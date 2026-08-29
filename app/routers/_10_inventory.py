@@ -35,6 +35,7 @@ from app.services.inventory_service import (
     replace_inventory_child_links,
     delete_inventory_item,
 )
+from app.services.inventory_label_service import ensure_inventory_labels
 from app.services.inventory_import_export import (
     build_export_csv,
     build_export_payload,
@@ -419,6 +420,8 @@ def create_inventory(
                 actor=current_user,
                 qty=add_qty,
             )
+            ensure_inventory_labels(session, existing, actor=current_user)
+            session.commit()
             return _with_fcfs(_inventory_to_read(session, existing), fulfillments)
 
         data["quantity"] = add_qty
@@ -432,6 +435,8 @@ def create_inventory(
             actor=current_user,
             qty=int(db_inventory.quantity or 0),
         )
+        ensure_inventory_labels(session, db_inventory, actor=current_user)
+        session.commit()
         return _with_fcfs(_inventory_to_read(session, db_inventory), fulfillments)
 
     part_number = _resolve_part_number(data)
@@ -489,6 +494,8 @@ def create_inventory(
         actor=current_user,
         instance=db_instance,
     )
+    ensure_inventory_labels(session, db_inventory, actor=current_user)
+    session.commit()
     return _with_fcfs(
         _inventory_to_read(session, db_inventory, include_instances=True),
         fulfillments,
@@ -1083,6 +1090,8 @@ def receive_inventory_shortage(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    ensure_inventory_labels(session, inventory, actor=current_user)
+    session.commit()
     return _with_fcfs(
         _inventory_to_read(
             session,
@@ -1644,6 +1653,8 @@ def create_inventory_instance_endpoint(
         actor=current_user,
         instance=db_instance,
     )
+    ensure_inventory_labels(session, inventory, actor=current_user)
+    session.commit()
     read = _enrich_instance_read(session, db_instance)
     payload = read.model_dump()
     payload["fcfs_fulfillments"] = fulfillments

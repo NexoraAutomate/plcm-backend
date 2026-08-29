@@ -29,10 +29,13 @@ from app.models.tables import (
     User,
 )
 from app.services.inventory_issuance_service import user_can_access_inventory
+from app.services.app_definitions_service import inventory_label_code_type
+from app.utils.datetimes import to_api_utc
 from app.services.workflow_audit_service import write_workflow_audit
 
 
 LABEL_PREFIX = "PLCM1"
+BARCODE_PREFIX = "PLCB"
 LABEL_SIGNATURE_VERSION = "v1"
 ACTIVE = InventoryLabelStatus.ACTIVE.value
 
@@ -43,6 +46,12 @@ class InventoryLabelError(ValueError):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _is_expired(value: Optional[datetime]) -> bool:
+    """Compare DB timestamps safely when the driver returns naive datetimes."""
+    expiry = to_api_utc(value)
+    return expiry is not None and expiry <= _now()
 
 
 def _sign(label_id: str) -> str:
@@ -58,12 +67,57 @@ def signed_payload(label_id: str) -> str:
     return f"{LABEL_PREFIX}.{label_id}.{_sign(label_id)}"
 
 
+def _base36(value: int) -> str:
+    if value < 0:
+        raise ValueError("Base-36 values cannot be negative")
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if value == 0:
+        return "0"
+    digits: list[str] = []
+    while value:
+        value, remainder = divmod(value, 36)
+        digits.append(alphabet[remainder])
+    return "".join(reversed(digits))
+
+
+def _from_base36(value: str) -> int:
+    return int(value, 36)
+
+
+def _barcode_sign(value: str) -> str:
+    digest = hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        f"{LABEL_SIGNATURE_VERSION}:barcode:{value}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest[:8]).decode("ascii").rstrip("=")
+
+
+def barcode_payload(label_id: str, numeric_id: Optional[int]) -> str:
+    """Return a short signed barcode payload suitable for high-volume labels."""
+    if numeric_id is None:
+        return signed_payload(label_id)
+    compact_id = _base36(int(numeric_id))
+    return f"{BARCODE_PREFIX}.{compact_id}.{_barcode_sign(compact_id)}"
+
+
 def parse_signed_payload(payload: str) -> tuple[str, bool]:
     parts = (payload or "").strip().split(".")
     if len(parts) != 3 or parts[0] != LABEL_PREFIX or not parts[1] or not parts[2]:
         return "", False
     expected = _sign(parts[1])
     return parts[1], hmac.compare_digest(parts[2], expected)
+
+
+def parse_barcode_payload(payload: str) -> tuple[Optional[int], bool]:
+    parts = (payload or "").strip().split(".")
+    if len(parts) != 3 or parts[0] != BARCODE_PREFIX or not parts[1] or not parts[2]:
+        return None, False
+    try:
+        numeric_id = _from_base36(parts[1])
+    except ValueError:
+        return None, False
+    return numeric_id, hmac.compare_digest(parts[2], _barcode_sign(parts[1]))
 
 
 def _scan_fingerprint(payload: str) -> str:
@@ -135,6 +189,7 @@ def label_to_dict(session: Session, label: InventoryLabel) -> dict[str, Any]:
         "id": int(label.id),
         "label_id": label.label_id,
         "signed_payload": signed_payload(label.label_id),
+        "barcode_payload": barcode_payload(label.label_id, label.id),
         "inventory_id": label.inventory_id,
         "inventory_instance_id": label.inventory_instance_id,
         "serial_number": label.serial_number,
@@ -167,7 +222,7 @@ def generate_labels(
         inventory = session.get(Inventory, inventory_id)
         if not inventory:
             raise InventoryLabelError(f"Inventory {inventory_id} was not found")
-        if inventory.shelf_life_expires_at and inventory.shelf_life_expires_at <= _now():
+        if _is_expired(inventory.shelf_life_expires_at):
             raise InventoryLabelError("Expired inventory cannot receive a new label")
         instance, serial = _serial_for_target(
             session,
@@ -225,6 +280,59 @@ def generate_labels(
         )
         labels.append(label)
     return labels
+
+
+def ensure_inventory_labels(
+    session: Session,
+    inventory: Inventory,
+    *,
+    actor: User,
+    label_type: Optional[str] = None,
+) -> list[InventoryLabel]:
+    """Create the durable label once for every current stock unit.
+
+    Serialized inventory receives one label per instance. Components have one
+    catalog-level label because their quantity is not represented by serial
+    instances. ``generate_labels`` is intentionally idempotent for active
+    assignments, so receiving the same catalog group again never creates a
+    second label for an existing serial number.
+    """
+    if inventory.id is None:
+        return []
+    label_type = label_type or inventory_label_code_type(session)
+
+    if inventory.inventory_type == "component":
+        if int(inventory.quantity or 0) <= 0:
+            return []
+        targets: list[dict[str, Any]] = [
+            {
+                "inventory_id": int(inventory.id),
+            }
+        ]
+    else:
+        instances = session.exec(
+            select(InventoryInstance)
+            .where(InventoryInstance.inventory_id == int(inventory.id))
+            .order_by(InventoryInstance.id)
+        ).all()
+        targets = [
+            {
+                "inventory_id": int(inventory.id),
+                "inventory_instance_id": instance.id,
+                "serial_number": instance.serial_number,
+            }
+            for instance in instances
+            if instance.id is not None
+        ]
+
+    if not targets:
+        return []
+    return generate_labels(
+        session,
+        targets=targets,
+        label_type=label_type,
+        actor=actor,
+    )
 
 
 def print_labels(
@@ -381,7 +489,17 @@ def resolve_scan(
     location: Optional[str],
     source: str,
 ) -> dict[str, Any]:
-    label_id, signature_valid = parse_signed_payload(payload)
+    compact_id, compact_signature_valid = parse_barcode_payload(payload)
+    is_compact_barcode = compact_id is not None or payload.strip().startswith(f"{BARCODE_PREFIX}.")
+    if is_compact_barcode:
+        signature_valid = compact_signature_valid
+        label_id = ""
+        label = session.get(InventoryLabel, compact_id) if signature_valid else None
+        if label:
+            label_id = label.label_id
+    else:
+        label_id, signature_valid = parse_signed_payload(payload)
+        label = None
     if not signature_valid:
         _record_scan(
             session,
@@ -409,9 +527,10 @@ def resolve_scan(
             "message": "This label code is invalid or has been altered.",
         }
 
-    label = session.exec(
-        select(InventoryLabel).where(InventoryLabel.label_id == label_id)
-    ).first()
+    if label is None:
+        label = session.exec(
+            select(InventoryLabel).where(InventoryLabel.label_id == label_id)
+        ).first()
     if not label:
         _record_scan(
             session,
@@ -518,7 +637,7 @@ def resolve_scan(
             "status": label.status,
             "message": f"This label is {label.status} and cannot be used.",
         }
-    if inventory.shelf_life_expires_at and inventory.shelf_life_expires_at <= _now():
+    if _is_expired(inventory.shelf_life_expires_at):
         _record_scan(
             session,
             label_id=label_id,

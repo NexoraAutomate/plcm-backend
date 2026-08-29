@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import math
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -44,6 +45,14 @@ DEFAULT_APP_DEFINITIONS = {
     "serial_template_unit": "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}",
     "part_template_component": "PN-{levelAbbr}-{entityAbbr}-{year}-{vendor}-{seq:5}",
     "serial_template_component": "SN-{levelAbbr}-{entityAbbr}-{year}-{pnSeq:5}-{seq:5}",
+    "inventory_label_code_type": "qr",
+    "inventory_qr_size_in": 0.65,
+    "inventory_barcode_width_in": 2.0,
+    "inventory_barcode_height_in": 0.5,
+    "inventory_qr_sticker_width_in": 1.25,
+    "inventory_qr_sticker_height_in": 1.25,
+    "inventory_barcode_sticker_width_in": 2.25,
+    "inventory_barcode_sticker_height_in": 0.9,
 }
 
 ENTITY_LEVELS = ("project", "system", "subsystem", "module", "unit", "component")
@@ -87,6 +96,17 @@ ABBREV_FIELDS = (
     "abbrev_module",
     "abbrev_unit",
     "abbrev_component",
+)
+
+LABEL_SETTING_FIELDS = (
+    "inventory_label_code_type",
+    "inventory_qr_size_in",
+    "inventory_barcode_width_in",
+    "inventory_barcode_height_in",
+    "inventory_qr_sticker_width_in",
+    "inventory_qr_sticker_height_in",
+    "inventory_barcode_sticker_width_in",
+    "inventory_barcode_sticker_height_in",
 )
 
 _PADDED_TOKEN = re.compile(
@@ -152,6 +172,25 @@ def level_template(definitions: AppDefinitions, kind: str, level: str) -> str:
     if kind == "part":
         return definitions.part_number_template or DEFAULT_APP_DEFINITIONS["part_number_template"]
     return definitions.serial_number_template or DEFAULT_APP_DEFINITIONS["serial_number_template"]
+
+
+def inventory_label_code_type(session: Session) -> str:
+    """Return the administrator-selected code format for inventory labels."""
+    settings = get_or_create_app_definitions(session)
+    return (
+        settings.inventory_label_code_type
+        if settings.inventory_label_code_type in {"qr", "barcode"}
+        else "qr"
+    )
+
+
+def inventory_label_print_settings(session: Session) -> dict[str, float | str]:
+    """Return the administrator-selected label format and physical dimensions."""
+    settings = get_or_create_app_definitions(session)
+    return {
+        key: getattr(settings, key, DEFAULT_APP_DEFINITIONS[key])
+        for key in LABEL_SETTING_FIELDS
+    }
 
 
 def _format_num(value: int, width: Optional[int]) -> str:
@@ -312,6 +351,16 @@ def _validate_abbrev(value: str, field: str) -> str:
     return cleaned
 
 
+def _validate_inches(value: Any, field: str) -> float:
+    try:
+        cleaned = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a number") from exc
+    if not math.isfinite(cleaned) or cleaned < 0.1 or cleaned > 20:
+        raise ValueError(f"{field} must be between 0.1 and 20 inches")
+    return round(cleaned, 3)
+
+
 def update_app_definitions(
     session: Session,
     updates: dict,
@@ -321,6 +370,10 @@ def update_app_definitions(
 ) -> AppDefinitions:
     settings = get_or_create_app_definitions(session)
     changed: list[tuple[str, object, object]] = []
+    candidate = {
+        key: getattr(settings, key, DEFAULT_APP_DEFINITIONS[key])
+        for key in LABEL_SETTING_FIELDS
+    }
 
     for key, value in updates.items():
         if not hasattr(settings, key) or value is None:
@@ -331,14 +384,42 @@ def update_app_definitions(
             value = _validate_label(str(value), key)
         elif key in ABBREV_FIELDS:
             value = _validate_abbrev(str(value), key)
+        elif key == "inventory_label_code_type":
+            value = str(value).strip().lower()
+            if value not in {"qr", "barcode"}:
+                raise ValueError("inventory_label_code_type must be qr or barcode")
+        elif key in LABEL_SETTING_FIELDS:
+            value = _validate_inches(value, key)
         else:
             continue
+        candidate[key] = value
 
         previous = getattr(settings, key)
         if previous == value:
             continue
         setattr(settings, key, value)
         changed.append((key, previous, value))
+
+    if candidate["inventory_qr_size_in"] > min(
+        candidate["inventory_qr_sticker_width_in"],
+        candidate["inventory_qr_sticker_height_in"],
+    ):
+        raise ValueError("QR code size must fit inside the QR sticker dimensions")
+    if candidate["inventory_qr_sticker_height_in"] < candidate["inventory_qr_size_in"] + 0.4:
+        raise ValueError("QR sticker height must leave room for product identification")
+    if candidate["inventory_barcode_width_in"] > candidate["inventory_barcode_sticker_width_in"]:
+        raise ValueError("Barcode width must fit inside the barcode sticker width")
+    if candidate["inventory_barcode_height_in"] > candidate["inventory_barcode_sticker_height_in"]:
+        raise ValueError("Barcode height must fit inside the barcode sticker height")
+    if candidate["inventory_barcode_sticker_height_in"] < candidate["inventory_barcode_height_in"] + 0.4:
+        raise ValueError("Barcode sticker height must leave room for product identification")
+    if (
+        candidate["inventory_qr_sticker_width_in"] > 8.27
+        or candidate["inventory_qr_sticker_height_in"] > 11.69
+        or candidate["inventory_barcode_sticker_width_in"] > 8.27
+        or candidate["inventory_barcode_sticker_height_in"] > 11.69
+    ):
+        raise ValueError("Sticker dimensions must fit within an A4 page")
 
     if not changed:
         return settings

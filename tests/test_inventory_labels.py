@@ -1,7 +1,12 @@
 """Unit coverage for opaque signed inventory label payloads."""
 
 from app.domain.workflow_permissions import WORKFLOW_PERMISSION_NAMES
-from app.services.inventory_label_service import parse_signed_payload, signed_payload
+from app.services.inventory_label_service import (
+    barcode_payload,
+    parse_barcode_payload,
+    parse_signed_payload,
+    signed_payload,
+)
 
 
 def test_signed_payload_round_trip():
@@ -22,6 +27,16 @@ def test_signed_payload_rejects_tampering():
         "not-a-label",
         False,
     )
+
+
+def test_compact_barcode_payload_round_trip():
+    payload = barcode_payload("unused-label-id", 1_000_000)
+
+    numeric_id, valid = parse_barcode_payload(payload)
+
+    assert numeric_id == 1_000_000
+    assert valid is True
+    assert len(payload) < len(signed_payload("unused-label-id"))
 
 
 def test_label_permissions_are_registered_for_workflow_roles():

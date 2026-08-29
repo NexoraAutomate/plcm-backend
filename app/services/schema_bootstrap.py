@@ -601,6 +601,14 @@ def ensure_user_management_schema() -> None:
             ("serial_template_unit", "VARCHAR"),
             ("part_template_component", "VARCHAR"),
             ("serial_template_component", "VARCHAR"),
+            ("inventory_label_code_type", "VARCHAR(16) DEFAULT 'qr' NOT NULL"),
+            ("inventory_qr_size_in", "DOUBLE PRECISION DEFAULT 0.65 NOT NULL"),
+            ("inventory_barcode_width_in", "DOUBLE PRECISION DEFAULT 2.0 NOT NULL"),
+            ("inventory_barcode_height_in", "DOUBLE PRECISION DEFAULT 0.5 NOT NULL"),
+            ("inventory_qr_sticker_width_in", "DOUBLE PRECISION DEFAULT 1.25 NOT NULL"),
+            ("inventory_qr_sticker_height_in", "DOUBLE PRECISION DEFAULT 1.25 NOT NULL"),
+            ("inventory_barcode_sticker_width_in", "DOUBLE PRECISION DEFAULT 2.25 NOT NULL"),
+            ("inventory_barcode_sticker_height_in", "DOUBLE PRECISION DEFAULT 0.9 NOT NULL"),
         ],
     )
 

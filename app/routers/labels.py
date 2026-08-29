@@ -12,6 +12,7 @@ from app.auth import check_permission, is_inventory_manager
 from app.database import get_session
 from app.models.base import InventoryLabelStatus
 from app.models.tables import (
+    Inventory,
     InventoryLabel,
     InventoryLabelPrintEvent,
     User,
@@ -23,12 +24,14 @@ from app.services.inventory_label_service import (
     InventoryLabelError,
     deactivate_label,
     generate_labels,
+    ensure_inventory_labels,
     label_to_dict,
     list_history,
     print_labels,
     replace_label,
     resolve_scan,
 )
+from app.services.app_definitions_service import inventory_label_code_type
 from app.services.workflow_audit_service import write_workflow_audit
 
 
@@ -68,9 +71,45 @@ def generate_inventory_labels(
         labels = generate_labels(
             session,
             targets=[target.model_dump() for target in body.targets],
-            label_type=body.label_type,
+            label_type=inventory_label_code_type(session),
             actor=current_user,
         )
+        session.commit()
+        return [label_to_dict(session, label) for label in labels]
+    except (InventoryLabelError, IntegrityError) as exc:
+        _commit_error(session, exc)
+
+
+@router.post(
+    "/generate-all",
+    response_model=list[schemas.InventoryLabelRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_all_inventory_labels(
+    body: schemas.InventoryLabelGenerateAllRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Ensure one durable label exists for every current inventory stock unit."""
+    _require_label_permission(current_user, "inventory.label.generate")
+    if not is_inventory_manager(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only inventory managers can generate labels for all inventory",
+        )
+    try:
+        labels: list[InventoryLabel] = []
+        selected_type = inventory_label_code_type(session)
+        inventories = session.exec(select(Inventory).order_by(Inventory.id)).all()
+        for inventory in inventories:
+            labels.extend(
+                ensure_inventory_labels(
+                    session,
+                    inventory,
+                    actor=current_user,
+                    label_type=selected_type,
+                )
+            )
         session.commit()
         return [label_to_dict(session, label) for label in labels]
     except (InventoryLabelError, IntegrityError) as exc:
@@ -116,7 +155,7 @@ def print_inventory_labels(
         events = print_labels(
             session,
             label_ids=body.label_ids,
-            label_format=body.label_format,
+            label_format=inventory_label_code_type(session),
             quantity=body.quantity,
             reason=body.reason,
             actor=current_user,
@@ -234,7 +273,7 @@ def replace_inventory_label(
             label_id,
             actor=current_user,
             reason=body.reason,
-            label_type=body.label_type,
+            label_type=inventory_label_code_type(session),
         )
         session.commit()
         return [label_to_dict(session, old), label_to_dict(session, replacement)]
