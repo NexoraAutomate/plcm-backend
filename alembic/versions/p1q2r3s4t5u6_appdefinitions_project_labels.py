@@ -1,7 +1,7 @@
 """Add label_project, label_projects, abbrev_project to AppDefinitions
 
 Revision ID: p1q2r3s4t5u6
-Revises: a1b2c3d4e5f6
+Revises: o0d1e2f3a4b5
 Create Date: 2026-08-18
 
 """

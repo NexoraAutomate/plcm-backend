@@ -278,6 +278,56 @@ class InventoryInstance(InventoryInstanceBase, table=True):
     )
 
 
+class InventoryLabel(InventoryLabelBase, table=True):
+    __table_args__ = (
+        sa.Index(
+            "uq_inventorylabel_active_instance",
+            "inventory_instance_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'active'"),
+        ),
+        sa.Index(
+            "uq_inventorylabel_active_serial",
+            "inventory_id",
+            "serial_number",
+            unique=True,
+            postgresql_where=sa.text(
+                "status = 'active' AND inventory_instance_id IS NULL AND serial_number IS NOT NULL"
+            ),
+        ),
+        sa.Index(
+            "uq_inventorylabel_active_inventory",
+            "inventory_id",
+            unique=True,
+            postgresql_where=sa.text(
+                "status = 'active' AND inventory_instance_id IS NULL AND serial_number IS NULL"
+            ),
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    inventory: Optional[Inventory] = Relationship()
+    inventory_instance: Optional[InventoryInstance] = Relationship()
+    print_events: List["InventoryLabelPrintEvent"] = Relationship(
+        back_populates="label",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    scan_events: List["InventoryLabelScanEvent"] = Relationship(
+        back_populates="label",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class InventoryLabelPrintEvent(InventoryLabelPrintEventBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    label: Optional[InventoryLabel] = Relationship(back_populates="print_events")
+
+
+class InventoryLabelScanEvent(InventoryLabelScanEventBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    label: Optional[InventoryLabel] = Relationship(back_populates="scan_events")
+
+
 class InventoryReservation(InventoryReservationBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project: Optional["Project"] = Relationship()

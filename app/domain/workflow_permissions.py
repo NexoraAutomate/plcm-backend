@@ -20,6 +20,10 @@ WORKFLOW_PERMISSION_DEFS: list[dict[str, str]] = [
     {"name": "inventory.release", "description": "Release unused reservations (Spec 04–06)"},
     {"name": "inventory.receive", "description": "Receive stock / shortage fulfillment (Spec 05)"},
     {"name": "inventory.issue", "description": "Issue inventory to developer with signature (Spec 07)"},
+    {"name": "inventory.label.generate", "description": "Generate inventory QR/barcode labels"},
+    {"name": "inventory.label.print", "description": "Print and reprint inventory labels"},
+    {"name": "inventory.label.scan", "description": "Scan and resolve inventory labels"},
+    {"name": "inventory.label.manage", "description": "Deactivate, replace, or investigate labels"},
     {"name": "hierarchy.assign_developer", "description": "Assign developer to hierarchy work (Spec 07)"},
     {"name": "item.request", "description": "Developer requests reserved item (Spec 07)"},
     {"name": "item.install_test", "description": "Install and test issued item (Spec 08)"},
@@ -57,11 +61,16 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
     WorkflowRole.IM: [
         "inventory.receive",
         "inventory.issue",
+        "inventory.label.generate",
+        "inventory.label.print",
+        "inventory.label.scan",
+        "inventory.label.manage",
         "item.inspect",
         "audit.read",
     ],
     WorkflowRole.DEV: [
         "item.request",
         "item.install_test",
+        "inventory.label.scan",
     ],
 }

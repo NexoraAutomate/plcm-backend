@@ -41,6 +41,14 @@ class WorkflowAuditAction:
     AUTO_RESERVE = "AUTO_RESERVE"
     AUTO_RELEASE_EXPIRY = "AUTO_RELEASE_EXPIRY"
     ASSEMBLED_INVENTORY = "ASSEMBLED_INVENTORY"
+    LABEL_GENERATED = "LABEL_GENERATED"
+    LABEL_PRINTED = "LABEL_PRINTED"
+    LABEL_REPRINTED = "LABEL_REPRINTED"
+    LABEL_SCANNED = "LABEL_SCANNED"
+    LABEL_SUSPICIOUS_SCAN = "LABEL_SUSPICIOUS_SCAN"
+    LABEL_INVESTIGATION_STARTED = "LABEL_INVESTIGATION_STARTED"
+    LABEL_DEACTIVATED = "LABEL_DEACTIVATED"
+    LABEL_REPLACED = "LABEL_REPLACED"
 
 
 WORKFLOW_AUDIT_ACTIONS: tuple[str, ...] = tuple(
@@ -83,6 +91,14 @@ WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
     WorkflowAuditAction.AUTO_RESERVE: "Auto-Reserve",
     WorkflowAuditAction.AUTO_RELEASE_EXPIRY: "Auto-Release (Expiry)",
     WorkflowAuditAction.ASSEMBLED_INVENTORY: "Assembled Inventory",
+    WorkflowAuditAction.LABEL_GENERATED: "Label Generated",
+    WorkflowAuditAction.LABEL_PRINTED: "Label Printed",
+    WorkflowAuditAction.LABEL_REPRINTED: "Label Reprinted",
+    WorkflowAuditAction.LABEL_SCANNED: "Label Scanned",
+    WorkflowAuditAction.LABEL_SUSPICIOUS_SCAN: "Suspicious Label Scan",
+    WorkflowAuditAction.LABEL_INVESTIGATION_STARTED: "Label Investigation Started",
+    WorkflowAuditAction.LABEL_DEACTIVATED: "Label Deactivated",
+    WorkflowAuditAction.LABEL_REPLACED: "Label Replaced",
 }
 
 WORKFLOW_AUDIT_ROLE_LABELS: dict[str, str] = {

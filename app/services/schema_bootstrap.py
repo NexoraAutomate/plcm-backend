@@ -370,6 +370,58 @@ END;
 $$ LANGUAGE plpgsql;
 """
 
+INVENTORY_LABEL_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventorylabel (
+    id SERIAL PRIMARY KEY,
+    label_id VARCHAR(64) NOT NULL UNIQUE,
+    inventory_id INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+    inventory_instance_id INTEGER REFERENCES inventoryinstance(id) ON DELETE CASCADE,
+    serial_number VARCHAR(128),
+    label_type VARCHAR(16) NOT NULL DEFAULT 'qr',
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    signature_version VARCHAR(16) NOT NULL DEFAULT 'v1',
+    print_count INTEGER NOT NULL DEFAULT 0,
+    first_printed_at TIMESTAMP WITH TIME ZONE,
+    last_printed_at TIMESTAMP WITH TIME ZONE,
+    activated_at TIMESTAMP WITH TIME ZONE,
+    activated_by_id INTEGER REFERENCES "user"(id),
+    deactivated_at TIMESTAMP WITH TIME ZONE,
+    deactivated_by_id INTEGER REFERENCES "user"(id),
+    replacement_label_id VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+)
+"""
+
+INVENTORY_LABEL_PRINT_EVENT_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventorylabelprintevent (
+    id SERIAL PRIMARY KEY,
+    label_id VARCHAR(64) NOT NULL REFERENCES inventorylabel(label_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES "user"(id),
+    printed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    reason VARCHAR,
+    label_type VARCHAR(16) NOT NULL,
+    label_format VARCHAR(32) NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    is_first_print BOOLEAN NOT NULL DEFAULT FALSE
+)
+"""
+
+INVENTORY_LABEL_SCAN_EVENT_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS inventorylabelscanevent (
+    id SERIAL PRIMARY KEY,
+    label_id VARCHAR(64) REFERENCES inventorylabel(label_id) ON DELETE SET NULL,
+    user_id INTEGER REFERENCES "user"(id),
+    scanned_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    location VARCHAR(255),
+    source VARCHAR(32) NOT NULL DEFAULT 'web',
+    valid BOOLEAN NOT NULL DEFAULT FALSE,
+    suspicious BOOLEAN NOT NULL DEFAULT FALSE,
+    reason VARCHAR,
+    payload_fingerprint VARCHAR(128)
+)
+"""
+
 INVENTORY_ITEM_REQUEST_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS inventoryitemrequest (
     id SERIAL PRIMARY KEY,
@@ -461,6 +513,73 @@ def ensure_user_management_schema() -> None:
         "hierarchy",
         [("abbreviation", "VARCHAR")],
     )
+    with engine.begin() as conn:
+        conn.execute(text(INVENTORY_LABEL_TABLE_DDL))
+        conn.execute(text(INVENTORY_LABEL_PRINT_EVENT_TABLE_DDL))
+        conn.execute(text(INVENTORY_LABEL_SCAN_EVENT_TABLE_DDL))
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventorylabel_inventory_id
+                ON inventorylabel (inventory_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventorylabel_inventory_instance_id
+                ON inventorylabel (inventory_instance_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_inventorylabel_active_instance
+                ON inventorylabel (inventory_instance_id)
+                WHERE status = 'active'
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_inventorylabel_active_serial
+                ON inventorylabel (inventory_id, serial_number)
+                WHERE status = 'active'
+                  AND inventory_instance_id IS NULL
+                  AND serial_number IS NOT NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_inventorylabel_active_inventory
+                ON inventorylabel (inventory_id)
+                WHERE status = 'active'
+                  AND inventory_instance_id IS NULL
+                  AND serial_number IS NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventorylabelprintevent_label_id
+                ON inventorylabelprintevent (label_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inventorylabelscanevent_label_id
+                ON inventorylabelscanevent (label_id)
+                """
+            )
+        )
     _add_columns_if_missing(
         "appdefinitions",
         [

@@ -956,6 +956,89 @@ class InventoryInstanceUpdate(SQLModel):
     original_serial_number: Optional[str] = None
 
 
+class InventoryLabelTarget(SQLModel):
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    serial_number: Optional[str] = None
+
+
+class InventoryLabelGenerateRequest(SQLModel):
+    targets: List[InventoryLabelTarget] = Field(default_factory=list, min_length=1)
+    label_type: str = Field(default="qr", pattern="^(qr|barcode|both)$")
+
+
+class InventoryLabelRead(SQLModel):
+    id: int
+    label_id: str
+    signed_payload: str
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    inventory_name: Optional[str] = None
+    part_number: Optional[str] = None
+    label_type: str
+    status: str
+    print_count: int
+    first_printed_at: Optional[datetime] = None
+    last_printed_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InventoryLabelPrintRequest(SQLModel):
+    label_ids: List[str] = Field(default_factory=list, min_length=1)
+    label_format: str = Field(default="standard", min_length=1, max_length=32)
+    quantity: int = Field(default=1, ge=1, le=1000)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class InventoryLabelPrintEventRead(SQLModel):
+    id: int
+    label_id: str
+    user_id: int
+    printed_at: datetime
+    reason: Optional[str] = None
+    label_type: str
+    label_format: str
+    quantity: int
+    is_first_print: bool
+
+
+class InventoryLabelHistoryRead(SQLModel):
+    label: InventoryLabelRead
+    print_events: List[InventoryLabelPrintEventRead] = Field(default_factory=list)
+    scan_events: List[dict] = Field(default_factory=list)
+
+
+class InventoryLabelScanRequest(SQLModel):
+    payload: str = Field(min_length=1, max_length=2048)
+    location: Optional[str] = Field(default=None, max_length=255)
+    source: str = Field(default="web", max_length=32)
+
+
+class InventoryLabelActionRequest(SQLModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class InventoryLabelReplaceRequest(InventoryLabelActionRequest):
+    label_type: str = Field(default="qr", pattern="^(qr|barcode|both)$")
+
+
+class InventoryLabelScanResponse(SQLModel):
+    valid: bool
+    status: str
+    message: str
+    warnings: List[str] = Field(default_factory=list)
+    label: Optional[InventoryLabelRead] = None
+    inventory: Optional[dict] = None
+    stock_history: List[dict] = Field(default_factory=list)
+    build_history: List[dict] = Field(default_factory=list)
+    maintenance_history: List[dict] = Field(default_factory=list)
+    ownership_location_history: List[dict] = Field(default_factory=list)
+    hierarchy: Optional[dict] = None
+    print_history: List[InventoryLabelPrintEventRead] = Field(default_factory=list)
+
+
 class InventoryCreate(InventoryBase):
     pass
 

@@ -449,6 +449,70 @@ class InventoryInstanceBase(InventoryInstanceCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class InventoryLabelStatus(str, Enum):
+    ACTIVE = "active"
+    DEACTIVATED = "deactivated"
+    REPLACED = "replaced"
+    INVESTIGATION = "investigation"
+
+
+class InventoryLabelCommon(SQLModel):
+    """Opaque, server-validated label assigned to an inventory unit."""
+
+    label_id: str = Field(index=True, unique=True, max_length=64)
+    inventory_id: int = Field(foreign_key="inventory.id", index=True)
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    serial_number: Optional[str] = Field(default=None, index=True, max_length=128)
+    label_type: str = Field(default="qr", max_length=16)
+    status: str = Field(
+        default=InventoryLabelStatus.ACTIVE.value, index=True, max_length=32
+    )
+    signature_version: str = Field(default="v1", max_length=16)
+    print_count: int = Field(default=0, ge=0)
+    first_printed_at: Optional[datetime] = None
+    last_printed_at: Optional[datetime] = None
+    activated_at: Optional[datetime] = None
+    activated_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    deactivated_at: Optional[datetime] = None
+    deactivated_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    replacement_label_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class InventoryLabelBase(InventoryLabelCommon):
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InventoryLabelPrintEventBase(SQLModel):
+    label_id: str = Field(foreign_key="inventorylabel.label_id", index=True, max_length=64)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    printed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    reason: Optional[str] = None
+    label_type: str = Field(max_length=16)
+    label_format: str = Field(max_length=32)
+    quantity: int = Field(default=1, ge=1)
+    is_first_print: bool = False
+
+
+class InventoryLabelScanEventBase(SQLModel):
+    label_id: Optional[str] = Field(
+        default=None,
+        foreign_key="inventorylabel.label_id",
+        index=True,
+        max_length=64,
+    )
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    scanned_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    location: Optional[str] = Field(default=None, max_length=255)
+    source: str = Field(default="web", max_length=32)
+    valid: bool = False
+    suspicious: bool = False
+    reason: Optional[str] = None
+    payload_fingerprint: Optional[str] = Field(default=None, max_length=128)
+
+
 class InventoryReservationStatus(str, Enum):
     ACTIVE = "active"
     RELEASED = "released"
