@@ -197,6 +197,9 @@ class ProjectCommon(SQLModel):
     product_type: Optional[str] = Field(default=None, max_length=64)
     flight_count: Optional[int] = Field(default=None, ge=1)
     sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+    sdls_counts_by_flight: Optional[list[int]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
     assigned_hm_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     approved_by_id: Optional[int] = Field(default=None, foreign_key="user.id")

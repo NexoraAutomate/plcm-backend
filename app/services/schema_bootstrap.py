@@ -30,6 +30,7 @@ PROJECT_COLUMN_DDL = [
     ("product_type", "VARCHAR(64)"),
     ("flight_count", "INTEGER"),
     ("sdls_per_flight", "INTEGER"),
+    ("sdls_counts_by_flight", "JSON"),
     ("assigned_hm_id", "INTEGER"),
     ("created_by_id", "INTEGER"),
     ("approved_by_id", "INTEGER"),

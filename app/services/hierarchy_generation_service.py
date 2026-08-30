@@ -255,9 +255,11 @@ def generate_project_hierarchy(
         raise ProjectWorkflowError(
             "Project has no hierarchy configuration; cannot generate"
         )
-    if not project.flight_count or not project.sdls_per_flight:
+    if not project.flight_count or (
+        not project.sdls_per_flight and not project.sdls_counts_by_flight
+    ):
         raise ProjectWorkflowError(
-            "Project flight_count and sdls_per_flight are required"
+            "Project flight_count and SDLS counts are required"
         )
 
     config = session.get(HierarchyConfiguration, project.hierarchy_config_id)
@@ -276,7 +278,16 @@ def generate_project_hierarchy(
         )
 
     flight_count = int(project.flight_count)
-    sdls_per_flight = int(project.sdls_per_flight)
+    sdls_counts_by_flight = list(
+        project.sdls_counts_by_flight
+        or [int(project.sdls_per_flight)] * flight_count
+    )
+    if len(sdls_counts_by_flight) != flight_count or any(
+        count < 1 for count in sdls_counts_by_flight
+    ):
+        raise ProjectWorkflowError(
+            "Project SDLS counts must contain one positive value for each flight"
+        )
     actor_id = int(actor.id)
     role = _actor_role(actor)
 
@@ -303,7 +314,8 @@ def generate_project_hierarchy(
         _register_entity(session, flight, "flight", actor_id, int(project.id))
         counts["flights"] += 1
 
-        for s_idx in range(1, sdls_per_flight + 1):
+        sdls_count = int(sdls_counts_by_flight[f_idx - 1])
+        for s_idx in range(1, sdls_count + 1):
             sdls_name = f"SDLS-{s_idx}"
             sdls = Sdls(
                 name=sdls_name,

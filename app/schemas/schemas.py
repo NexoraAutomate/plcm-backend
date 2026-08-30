@@ -480,6 +480,7 @@ class ProjectRead(ProjectBase):
     product_type: Optional[str] = None
     flight_count: Optional[int] = None
     sdls_per_flight: Optional[int] = None
+    sdls_counts_by_flight: Optional[List[int]] = None
     assigned_hm_id: Optional[int] = None
     created_by_id: Optional[int] = None
     approved_by_id: Optional[int] = None
@@ -504,6 +505,7 @@ class ProjectUpdate(SQLModel):
     product_type: Optional[str] = None
     flight_count: Optional[int] = None
     sdls_per_flight: Optional[int] = None
+    sdls_counts_by_flight: Optional[List[int]] = None
     assigned_hm_id: Optional[int] = None
 
 
@@ -518,7 +520,8 @@ class ProjectDraftCreate(SQLModel):
     hierarchy_config_id: int
     product_type: str
     flight_count: int = Field(ge=1)
-    sdls_per_flight: int = Field(ge=1)
+    sdls_per_flight: Optional[int] = Field(default=None, ge=1)
+    sdls_counts_by_flight: Optional[List[int]] = None
 
 
 class ProjectAssignHmRequest(SQLModel):

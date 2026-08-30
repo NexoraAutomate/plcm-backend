@@ -207,15 +207,42 @@ def create_draft_project(
 
     try:
         flight_count = int(payload.get("flight_count"))
-        sdls_per_flight = int(payload.get("sdls_per_flight"))
     except (TypeError, ValueError) as exc:
         raise ProjectWorkflowError(
-            "flight_count and sdls_per_flight must be positive integers"
+            "flight_count must be a positive integer"
         ) from exc
-    if flight_count < 1 or sdls_per_flight < 1:
+    if flight_count < 1:
+        raise ProjectWorkflowError("flight_count must be >= 1")
+
+    raw_sdls_counts = payload.get("sdls_counts_by_flight")
+    if raw_sdls_counts is None:
+        try:
+            legacy_sdls_per_flight = int(payload.get("sdls_per_flight"))
+        except (TypeError, ValueError) as exc:
+            raise ProjectWorkflowError(
+                "sdls_per_flight or sdls_counts_by_flight is required"
+            ) from exc
+        sdls_counts_by_flight = [legacy_sdls_per_flight] * flight_count
+    elif isinstance(raw_sdls_counts, (list, tuple)):
+        try:
+            sdls_counts_by_flight = [int(count) for count in raw_sdls_counts]
+        except (TypeError, ValueError) as exc:
+            raise ProjectWorkflowError(
+                "sdls_counts_by_flight must contain positive integers"
+            ) from exc
+    else:
+        raise ProjectWorkflowError("sdls_counts_by_flight must be a list")
+
+    if len(sdls_counts_by_flight) != flight_count:
         raise ProjectWorkflowError(
-            "flight_count and sdls_per_flight must be >= 1"
+            "sdls_counts_by_flight must contain one value for each flight"
         )
+    if any(count < 1 for count in sdls_counts_by_flight):
+        raise ProjectWorkflowError(
+            "sdls_counts_by_flight values must be >= 1"
+        )
+    # Retain the legacy scalar as the maximum count for older consumers.
+    sdls_per_flight = max(sdls_counts_by_flight)
 
     config = _require_available_config(session, int(config_id), product_type)
     draft_status_id = get_project_status_id(
@@ -253,6 +280,7 @@ def create_draft_project(
         product_type=product_type,
         flight_count=flight_count,
         sdls_per_flight=sdls_per_flight,
+        sdls_counts_by_flight=sdls_counts_by_flight,
         assigned_hm_id=assigned_hm_id,
         created_by_id=actor.id,
         created_at=_now(),
@@ -446,6 +474,7 @@ STRUCTURAL_FIELDS = frozenset(
         "product_type",
         "flight_count",
         "sdls_per_flight",
+        "sdls_counts_by_flight",
     }
 )
 
