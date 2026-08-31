@@ -302,6 +302,7 @@ def issue_item_request(
             signature_type=signature_type,
             signature_payload=signature_payload,
             item_request_id=int(row.id) if row.id else None,
+            request_reservation_id=int(row.reservation_id),
         )
     except HTTPException as exc:
         raise ItemRequestError(exc.detail if isinstance(exc.detail, str) else str(exc.detail)) from exc

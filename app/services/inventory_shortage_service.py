@@ -837,6 +837,18 @@ def match_and_auto_reserve_on_receipt(
         remaining = 1
     else:
         remaining = max(0, int(qty))
+        if remaining > 0 and is_component_inventory(inventory.inventory_type):
+            current = item_status_name(session, inventory.status_id)
+            if current not in {
+                ItemStatus.AVAILABLE.value,
+                ItemStatus.RESERVED.value,
+            }:
+                inventory.status_id = get_item_status_id(
+                    session, ItemStatus.AVAILABLE.value
+                )
+                inventory.updated_at = _now()
+                session.add(inventory)
+                session.flush()
     if remaining <= 0:
         return []
 

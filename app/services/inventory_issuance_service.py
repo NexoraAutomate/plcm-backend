@@ -594,6 +594,7 @@ def issue_inventory_unit(
     signature_type: Optional[str] = None,
     signature_payload: Optional[str] = None,
     item_request_id: Optional[int] = None,
+    request_reservation_id: Optional[int] = None,
     rework: bool = False,
     rework_project_id: Optional[int] = None,
     rework_flight_id: Optional[int] = None,
@@ -618,13 +619,58 @@ def issue_inventory_unit(
 
     from app.services.inventory_reservation_service import item_status_name
 
+    request_reservation = None
+    if request_reservation_id is not None:
+        from app.models.base import InventoryReservationStatus
+        from app.models.tables import InventoryReservation
+
+        request_reservation = session.get(
+            InventoryReservation, request_reservation_id
+        )
+        if request_reservation is None:
+            raise HTTPException(status_code=404, detail="Reservation not found")
+        if request_reservation.status != InventoryReservationStatus.ACTIVE.value:
+            raise HTTPException(status_code=400, detail="Reservation is not active")
+        if request_reservation.inventory_id != inventory.id:
+            raise HTTPException(
+                status_code=400,
+                detail="Reservation does not match the selected inventory",
+            )
+        requested_type = (target_entity_type or "").strip().lower() or None
+        if (
+            requested_type
+            and (
+                request_reservation.target_entity_type != requested_type
+                or request_reservation.target_entity_id != target_entity_id
+            )
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Reservation does not match the requested hierarchy",
+            )
+
     if is_component_inventory(inventory.inventory_type):
+        component_reservation = request_reservation
+        if (
+            component_reservation is not None
+            and component_reservation.inventory_instance_id is not None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Serialized reservation cannot be used for component inventory",
+            )
         if instance_id is not None:
             raise HTTPException(
                 status_code=400,
                 detail="Component inventory does not use instances",
             )
         avail = available_quantity(session, inventory)
+        # Component reservations are aggregate quantity holds rather than
+        # serial-specific holds. An item request is authorized to consume its
+        # own hold, so that one reserved unit must be added back to the
+        # unreserved availability check.
+        if component_reservation is not None:
+            avail += 1
         if quantity > avail:
             raise HTTPException(
                 status_code=400,
@@ -632,6 +678,18 @@ def issue_inventory_unit(
             )
         current = item_status_name(session, inventory.status_id) or ItemStatus.AVAILABLE.value
         _advance_to_issued(session, inventory=inventory, instance=None, current=current)
+        if component_reservation is not None:
+            from app.services.inventory_reservation_service import consume_reservation
+
+            reservation_id = int(component_reservation.id)
+            project_id = int(component_reservation.project_id)
+            flight_id = int(component_reservation.flight_id)
+            sdls_id = int(component_reservation.sdls_id)
+            consume_reservation(
+                session,
+                component_reservation,
+                actor=session.get(User, issued_by_user_id),
+            )
     else:
         if quantity != 1:
             raise HTTPException(

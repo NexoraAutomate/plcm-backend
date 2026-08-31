@@ -22,6 +22,7 @@ from app.models.tables import (
     InventoryItemRequest,
     InventoryReservation,
     InventoryReworkCase,
+    Hierarchy,
     Project,
     Role,
     Status,
@@ -32,6 +33,8 @@ from app.services.hierarchy_config_service import (
     create_configuration,
     delete_configuration,
 )
+from app.services.entity_list_service import find_entity_list_entry
+from app.services.hierarchy_service import get_next_hierarchy_id, sync_hierarchy_id_sequence
 from app.services.hierarchy_developer_service import (
     HierarchyDeveloperError,
     assign_developer,
@@ -307,6 +310,88 @@ def test_assign_request_issue_with_signature(
     assert issuance is not None
     assert issuance.signature_type == "DIGITAL"
     assert issuance.item_lifecycle_status == ItemStatus.ISSUED.value
+
+    _cleanup(session, project, cfg, inv)
+
+
+def test_component_request_can_issue_one_of_fully_reserved_units(
+    session: Session, admin_user: User, developer_user: User
+):
+    """A request may consume its own component hold even when all stock is held."""
+    sys_name = f"Comp-{uuid.uuid4().hex[:6]}"
+    for name, hierarchy_type in ((sys_name, "system"), ("RF", "subsystem")):
+        if not find_entity_list_entry(
+            session, name=name, hierarchy_type=hierarchy_type
+        ):
+            session.add(
+                Hierarchy(
+                    id=get_next_hierarchy_id(session),
+                    name=name,
+                    hierarchy_type=hierarchy_type,
+                    abbreviation=name[:4].upper(),
+                )
+            )
+    session.commit()
+    sync_hierarchy_id_sequence(session)
+    project, cfg = _ready_project(session, admin_user, system_name=sys_name)
+    target, other_target = session.exec(
+        select(System).where(System.project_id == project.id)
+    ).all()[:2]
+    reserved_id = _item_status_id(session, ItemStatus.RESERVED.value)
+    inv = Inventory(
+        name=f"FPGA Card-{uuid.uuid4().hex[:6]}",
+        inventory_type="component",
+        part_number="PN-FPGA-001",
+        quantity=3,
+        status_id=reserved_id,
+    )
+    session.add(inv)
+    session.flush()
+
+    now = datetime.now(timezone.utc)
+    for entity_id in (int(target.id), int(other_target.id), 999999):
+        session.add(
+            InventoryReservation(
+                project_id=int(project.id),
+                flight_id=int(target.sdls.flight_id),
+                sdls_id=int(target.sdls_id),
+                target_entity_type="system",
+                target_entity_id=entity_id,
+                inventory_id=int(inv.id),
+                reserved_by_user_id=int(admin_user.id),
+                reserved_at=now,
+                expires_at=now + timedelta(days=30),
+                part_number=inv.part_number,
+                status=InventoryReservationStatus.ACTIVE.value,
+            )
+        )
+    session.commit()
+
+    assign_developer(
+        session, "system", int(target.id), int(developer_user.id), actor=admin_user
+    )
+    req = create_item_request(
+        session, entity_type="system", entity_id=int(target.id), actor=developer_user
+    )
+
+    issued = issue_item_request(
+        session,
+        int(req.id),
+        actor=admin_user,
+        signature_type="DIGITAL",
+        signature_payload="data:image/png;base64,aaa",
+    )
+
+    assert issued.status == ItemRequestStatus.ISSUED.value
+    session.refresh(inv)
+    assert inv.quantity == 3
+    assert session.get(InventoryReservation, req.reservation_id).status == (
+        InventoryReservationStatus.CONSUMED.value
+    )
+    issuance = session.get(InventoryIssuance, issued.issued_issuance_id)
+    assert issuance.quantity == 1
+    assert issuance.reservation_id == req.reservation_id
+    assert issuance.project_id == project.id
 
     _cleanup(session, project, cfg, inv)
 
