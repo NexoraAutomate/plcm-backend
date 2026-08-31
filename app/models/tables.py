@@ -267,6 +267,15 @@ class Inventory(InventoryBase, table=True):
 
 
 class InventoryInstance(InventoryInstanceBase, table=True):
+    __table_args__ = (
+        sa.Index(
+            "uq_inventoryinstance_inventory_serial_ci",
+            "inventory_id",
+            sa.text("LOWER(serial_number)"),
+            unique=True,
+            postgresql_where=sa.text("serial_number IS NOT NULL"),
+        ),
+    )
     id: Optional[int] = Field(default=None, primary_key=True)
     inventory_id: int = Field(foreign_key="inventory.id", index=True, ondelete="CASCADE")
     inventory: Optional[Inventory] = Relationship(back_populates="instances")

@@ -23,7 +23,7 @@ def session():
         yield session
 
 
-def test_find_inventory_catalog_group_matches_name_and_type(session: Session):
+def test_find_inventory_catalog_group_matches_name_type_and_part_number(session: Session):
     inv = Inventory(
         name="LRU",
         inventory_type="module",
@@ -37,7 +37,7 @@ def test_find_inventory_catalog_group_matches_name_and_type(session: Session):
         session,
         name="LRU",
         inventory_type="module",
-        part_number="PN-LRU-DIFFERENT",
+        part_number="PN-LRU-001",
     )
     assert hit is not None
     assert hit.id == inv.id
@@ -47,7 +47,7 @@ def test_find_inventory_catalog_group_matches_name_and_type(session: Session):
     session.commit()
 
 
-def test_additional_serial_adds_instance_to_same_group(session: Session):
+def test_additional_unit_adds_instance_to_same_part_group(session: Session):
     name = f"Unit-{uuid.uuid4().hex[:6]}"
     group = Inventory(
         name=name,
@@ -69,7 +69,7 @@ def test_additional_serial_adds_instance_to_same_group(session: Session):
         session,
         name=name,
         inventory_type="unit",
-        part_number="PN-UNIT-002",
+        part_number="PN-UNIT-001",
     )
     assert existing is not None
     assert existing.id == group.id
@@ -108,13 +108,12 @@ def test_additional_serial_adds_instance_to_same_group(session: Session):
     session.commit()
 
 
-def test_component_quantity_can_merge_on_same_catalog_group(session: Session):
+def test_component_quantity_creates_separate_units_in_same_catalog_group(session: Session):
     name = f"Comp-{uuid.uuid4().hex[:6]}"
     group = Inventory(
         name=name,
         inventory_type="component",
         part_number="PN-COMP-001",
-        quantity=3,
         location="Bin 1",
     )
     session.add(group)
@@ -125,17 +124,29 @@ def test_component_quantity_can_merge_on_same_catalog_group(session: Session):
         session,
         name=name,
         inventory_type="component",
-        part_number="PN-COMP-002",
+        part_number="PN-COMP-001",
     )
     assert existing is not None
     assert existing.id == group.id
 
-    existing.quantity = int(existing.quantity or 0) + 5
-    session.add(existing)
+    for index in range(8):
+        create_inventory_instance(
+            session,
+            existing,
+            serial_number=f"FPGA-{index + 1:03d}",
+            location="Bin 1",
+        )
     session.commit()
     session.refresh(existing)
 
     assert existing.quantity == 8
+    assert len(
+        session.exec(
+            select(InventoryInstance).where(
+                InventoryInstance.inventory_id == existing.id
+            )
+        ).all()
+    ) == 8
     rows = session.exec(
         select(Inventory).where(
             Inventory.inventory_type == "component",
@@ -144,5 +155,24 @@ def test_component_quantity_can_merge_on_same_catalog_group(session: Session):
     ).all()
     assert len(rows) == 1
 
+    session.delete(group)
+    session.commit()
+
+
+def test_component_unit_without_serial_gets_generated_identity(session: Session):
+    group = Inventory(
+        name=f"Generated-{uuid.uuid4().hex[:6]}",
+        inventory_type="component",
+        part_number=f"PN-GENERATED-{uuid.uuid4().hex[:6]}",
+    )
+    session.add(group)
+    session.flush()
+
+    instance = create_inventory_instance(session, group, location="Warehouse")
+    assert instance.serial_number
+    assert instance.original_serial_number == instance.serial_number
+    session.commit()
+
+    session.delete(instance)
     session.delete(group)
     session.commit()

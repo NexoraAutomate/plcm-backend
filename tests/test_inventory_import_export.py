@@ -77,7 +77,7 @@ def test_json_nested_instances_keep_parent_child_relationship():
     assert group.serials[1].location == "WH-B/Bin-01"
 
 
-def test_component_rows_do_not_create_serial_children():
+def test_component_rows_preserve_bulk_units_for_instance_creation():
     text = (
         "name,inventory_type,part_number,quantity,location\n"
         "Az Motor,component,PN-0059,8,WH-A/Rack-07\n"

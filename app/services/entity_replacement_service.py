@@ -240,9 +240,6 @@ def _inventory_identity(
             if instance.original_serial_number and not serial_number:
                 serial_number = instance.original_serial_number
 
-    if inventory.inventory_type == "component":
-        serial_number = serial_number or inventory.serial_number
-
     return part_number or inventory.name, serial_number, configuration_item
 
 

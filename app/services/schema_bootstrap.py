@@ -515,6 +515,16 @@ def ensure_user_management_schema() -> None:
         [("abbreviation", "VARCHAR")],
     )
     with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_inventoryinstance_inventory_serial_ci
+                ON inventoryinstance (inventory_id, LOWER(serial_number))
+                WHERE serial_number IS NOT NULL
+                """
+            )
+        )
         conn.execute(text(INVENTORY_LABEL_TABLE_DDL))
         conn.execute(text(INVENTORY_LABEL_PRINT_EVENT_TABLE_DDL))
         conn.execute(text(INVENTORY_LABEL_SCAN_EVENT_TABLE_DDL))

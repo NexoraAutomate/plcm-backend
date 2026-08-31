@@ -671,7 +671,10 @@ DEFAULT_ROLES = [
             "view_projects",
             "create_projects",
             "edit_projects",
+            "view_customers",
+            "create_customers",
             "view_orders",
+            "create_orders",
             "view_users",
             # Generated / fielded hierarchy must be readable (Spec 03 shells).
             "view_systems",

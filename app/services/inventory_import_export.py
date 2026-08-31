@@ -1,8 +1,7 @@
 """Inventory CSV / JSON import and export.
 
-Serialized types (system, subsystem, module, unit) are stored as one catalog
-row per part number, with serial numbers as InventoryInstance children.
-Components remain bulk-quantity catalog rows.
+All inventory types are stored as one catalog row per part number, with
+individual physical units represented as InventoryInstance children.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from app.services.inventory_service import (
     create_inventory_instance,
     find_inventory_group,
     find_inventory_instance_by_serial,
-    is_component_inventory,
     normalize_part_number,
     sync_inventory_quantity,
 )
@@ -160,9 +158,7 @@ def _group_location(inventory: Inventory, instances: list[InventoryInstance]) ->
 def inventory_to_export_dict(inventory: Inventory, instances: list[InventoryInstance]) -> dict[str, Any]:
     serials = [instance_serial(inst) for inst in instances if instance_serial(inst)]
     location = _group_location(inventory, instances)
-    quantity = inventory.quantity
-    if not is_component_inventory(inventory.inventory_type):
-        quantity = len(instances)
+    quantity = len(instances)
     return {
         "id": inventory.id,
         "name": inventory.name,
@@ -336,20 +332,16 @@ def _upsert_group(
         if shelf_life_expires_at and not group.shelf_life_expires_at:
             group.shelf_life_expires_at = shelf_life_expires_at
     group.source_rows.append(row_num)
-    if is_component_inventory(inventory_type):
-        group.quantity += quantity or 0
-    else:
-        _append_serials(
-            group,
-            serials,
-            row_num=row_num,
-            location=location or group.location,
-            configuration_item=configuration_item or group.configuration_item,
-            original_serial=original_serial_number,
-            shelf=shelf_life_expires_at,
-        )
-        if not serials and quantity > 0:
-            group.quantity = max(group.quantity, quantity)
+    group.quantity += quantity or 0
+    _append_serials(
+        group,
+        serials,
+        row_num=row_num,
+        location=location or group.location,
+        configuration_item=configuration_item or group.configuration_item,
+        original_serial=original_serial_number,
+        shelf=shelf_life_expires_at,
+    )
     return group
 
 
@@ -532,46 +524,8 @@ def validate_groups(
         except EntityListError as exc:
             errors.append({"row": row_num, "errors": [str(exc)]})
 
-        if not is_component_inventory(group.inventory_type):
-            if not normalize_part_number(group.part_number):
-                errors.append(
-                    {
-                        "row": row_num,
-                        "errors": ["'part_number' is required for non-component inventory"],
-                    }
-                )
-            if not group.serials:
-                errors.append(
-                    {
-                        "row": row_num,
-                        "errors": [
-                            "serial numbers are required for non-component inventory "
-                            "(use serial_number, serial_numbers, or instances[])"
-                        ],
-                    }
-                )
-            missing_location = [
-                serial.serial_number
-                for serial in group.serials
-                if not (serial.location or group.location or "").strip()
-            ]
-            if missing_location:
-                errors.append(
-                    {
-                        "row": row_num,
-                        "errors": [
-                            "location is required for serialized units "
-                            f"({', '.join(missing_location[:5])})"
-                        ],
-                    }
-                )
-        else:
-            if group.quantity <= 0 and not group.serials:
-                # Allow quantity 0 only if explicitly provided; otherwise treat missing as 0.
-                pass
-            if group.serials and group.quantity <= 0:
-                group.quantity = len(group.serials)
-            group.serials = []
+        if group.serials and group.quantity <= 0:
+            group.quantity = len(group.serials)
     return errors
 
 
@@ -580,7 +534,6 @@ def apply_import_groups(session: Session, groups: list[ImportGroup]) -> dict[str
     updated_groups = 0
     instances_created = 0
     serials_skipped = 0
-    component_qty_added = 0
     rows: list[dict] = []
 
     now = datetime.now(timezone.utc)
@@ -611,69 +564,62 @@ def apply_import_groups(session: Session, groups: list[ImportGroup]) -> dict[str
                 session.add(inventory)
             updated_groups += 1
         else:
-            if is_component_inventory(group.inventory_type):
-                inventory = Inventory(
-                    name=group.name,
-                    inventory_type=group.inventory_type,
-                    part_number=group.part_number,
-                    original_part_number=group.original_part_number or group.part_number,
-                    quantity=0,
-                    description=group.description,
-                    oem_name=group.oem_name,
-                    configuration_item=group.configuration_item or group.part_number or group.name,
-                    sku=group.sku,
-                    location=group.location,
-                    shelf_life_expires_at=group.shelf_life_expires_at,
-                    added_date=now,
-                    updated_at=now,
-                )
-            else:
-                inventory = Inventory(
-                    name=group.name,
-                    inventory_type=group.inventory_type,
-                    part_number=group.part_number,
-                    quantity=0,
-                    description=group.description,
-                    oem_name=group.oem_name,
-                    configuration_item=group.configuration_item or group.part_number,
-                    sku=group.sku,
-                    added_date=now,
-                    updated_at=now,
-                )
+            inventory = Inventory(
+                name=group.name,
+                inventory_type=group.inventory_type,
+                part_number=group.part_number,
+                quantity=0,
+                description=group.description,
+                oem_name=group.oem_name,
+                configuration_item=group.configuration_item
+                or group.part_number
+                or group.name,
+                sku=group.sku,
+                added_date=now,
+                updated_at=now,
+            )
             session.add(inventory)
             session.flush()
             created_groups += 1
 
-        if is_component_inventory(group.inventory_type):
-            add_qty = group.quantity
-            if add_qty > 0:
-                inventory.quantity = int(inventory.quantity or 0) + add_qty
-                inventory.updated_at = now
-                session.add(inventory)
-                component_qty_added += add_qty
-        else:
-            default_location = (group.location or "").strip() or "Unknown"
-            for serial in group.serials:
-                found = find_inventory_instance_by_serial(
-                    session, inventory.id, serial.serial_number
+        default_location = (group.location or "").strip() or "Warehouse"
+        requested_units = list(group.serials)
+        if not requested_units:
+            requested_units = [None] * max(0, group.quantity)
+        elif group.quantity > len(requested_units):
+            requested_units.extend([None] * (group.quantity - len(requested_units)))
+        for serial in requested_units:
+            serial_number = serial.serial_number if serial is not None else None
+            if serial_number and find_inventory_instance_by_serial(
+                session, inventory.id, serial_number
+            ):
+                serials_skipped += 1
+                continue
+            create_inventory_instance(
+                session,
+                inventory,
+                serial_number=serial_number,
+                original_serial_number=(
+                    serial.original_serial_number if serial is not None else None
+                ),
+                original_part_number=group.original_part_number or group.part_number,
+                location=(
+                    serial.location if serial is not None else None
                 )
-                if found:
-                    serials_skipped += 1
-                    continue
-                create_inventory_instance(
-                    session,
-                    inventory,
-                    serial_number=serial.serial_number,
-                    original_serial_number=serial.original_serial_number or serial.serial_number,
-                    original_part_number=group.original_part_number or group.part_number,
-                    location=(serial.location or default_location).strip(),
-                    configuration_item=serial.configuration_item
-                    or group.configuration_item
-                    or group.part_number,
-                    shelf_life_expires_at=serial.shelf_life_expires_at or group.shelf_life_expires_at,
+                or default_location,
+                configuration_item=(
+                    serial.configuration_item if serial is not None else None
                 )
-                instances_created += 1
-            sync_inventory_quantity(session, inventory)
+                or group.configuration_item
+                or group.part_number
+                or group.name,
+                shelf_life_expires_at=(
+                    serial.shelf_life_expires_at if serial is not None else None
+                )
+                or group.shelf_life_expires_at,
+            )
+            instances_created += 1
+        sync_inventory_quantity(session, inventory)
 
         rows.append(
             {
@@ -690,7 +636,7 @@ def apply_import_groups(session: Session, groups: list[ImportGroup]) -> dict[str
         "groups_updated": updated_groups,
         "instances_created": instances_created,
         "serials_skipped": serials_skipped,
-        "component_quantity_added": component_qty_added,
+        "component_quantity_added": 0,
         "rows": rows,
     }
 
@@ -717,17 +663,14 @@ def import_inventory_payload(
             detail={"message": "Import contains validation errors", "errors": errors},
         )
 
-    instance_count = sum(len(group.serials) for group in groups)
-    component_qty = sum(
-        group.quantity for group in groups if is_component_inventory(group.inventory_type)
-    )
+    instance_count = sum(max(len(group.serials), group.quantity) for group in groups)
     if dry_run:
         return {
             "dry_run": True,
             "valid_rows": len(groups),
             "groups": len(groups),
             "instances": instance_count,
-            "component_quantity": component_qty,
+            "component_quantity": 0,
             "errors": [],
         }
 

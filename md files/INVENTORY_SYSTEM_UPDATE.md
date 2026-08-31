@@ -4,6 +4,11 @@
 
 The inventory system has been updated to support inventory tracking for **all entity types** (system, subsystem, module, unit, component) instead of being limited to components only.
 
+Each catalog row represents a part-number group. Every physical item in that
+group, including components, is stored as an `InventoryInstance`. A received
+quantity of 52 therefore produces 52 independently selectable units; when a
+serial number is not supplied, the API generates a unique unit identity.
+
 ## Database Schema Changes
 
 ### Inventory Table Structure

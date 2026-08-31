@@ -44,7 +44,7 @@ from app.services.inventory_issuance_service import (
 )
 from app.services.inventory_service import (
     find_inventory_group,
-    is_component_inventory,
+    materialize_legacy_inventory_instances,
 )
 from app.services.project_workflow_service import project_status_name
 from app.domain.workflow_audit import WorkflowAuditAction
@@ -425,7 +425,7 @@ def resolve_inventory_for_entity(
             select(Inventory).where(
                 Inventory.inventory_type == entity_type.strip().lower(),
                 col(Inventory.name).ilike(str(name).strip()),
-            )
+            ).order_by(Inventory.id.desc())
         ).first()
     if not group:
         raise InventoryReservationError(
@@ -442,9 +442,6 @@ def pick_free_instance(
     serial_number: Optional[str] = None,
     instance_id: Optional[int] = None,
 ) -> Optional[InventoryInstance]:
-    if is_component_inventory(inventory.inventory_type):
-        return None
-
     if instance_id is not None:
         inst = session.get(InventoryInstance, instance_id)
         if not inst or inst.inventory_id != inventory.id:
@@ -457,13 +454,7 @@ def pick_free_instance(
             raise InventoryReservationError("Serial number does not match instance")
         return inst
 
-    instances = list(
-        session.exec(
-            select(InventoryInstance).where(
-                InventoryInstance.inventory_id == inventory.id
-            )
-        ).all()
-    )
+    instances = materialize_legacy_inventory_instances(session, inventory)
     if serial_number:
         sn = serial_number.strip().lower()
         match = next(
@@ -760,29 +751,6 @@ def check_availability(
         session, entity_type=et, entity=entity, part_number=part_number
     )
 
-    if is_component_inventory(inventory.inventory_type):
-        from app.services.inventory_issuance_service import reserved_quantity
-
-        free = max(
-            0,
-            int(inventory.quantity or 0)
-            - reserved_quantity(session, int(inventory.id))
-            - project_reserved_quantity(session, int(inventory.id)),
-        )
-        return {
-            "available": free >= 1,
-            "free_quantity": free,
-            "inventory_id": inventory.id,
-            "inventory_name": inventory.name,
-            "part_number": inventory.part_number,
-            "flight_id": flight.id,
-            "sdls_id": sdls.id,
-            "system_id": system.id,
-            "inventory_source": source,
-            "assemble": False,
-            "reason": None if free >= 1 else "No available quantity in stock",
-        }
-
     free_instances = [
         i
         for i in session.exec(
@@ -955,80 +923,44 @@ def reserve_inventory(
     instance_id = payload.get("inventory_instance_id")
     instance: Optional[InventoryInstance] = None
 
-    if is_component_inventory(inventory.inventory_type):
-        avail = check_availability(
+    instance = pick_free_instance(
+        session,
+        inventory,
+        serial_number=serial_number,
+        instance_id=int(instance_id) if instance_id is not None else None,
+    )
+    if instance is None:
+        _raise_or_record_shortage(
             session,
-            project_id=project_id,
-            target_entity_type=et,
-            target_entity_id=eid,
-            part_number=inventory.part_number,
+            create_shortage=create_shortage_if_unavailable,
+            project=project,
+            flight=flight,
+            sdls=sdls,
+            entity=entity,
+            entity_type=et,
+            entity_id=eid,
+            actor=actor,
+            inventory=inventory,
+            message="No available inventory unit to reserve",
         )
-        if not avail["available"]:
-            _raise_or_record_shortage(
-                session,
-                create_shortage=create_shortage_if_unavailable,
-                project=project,
-                flight=flight,
-                sdls=sdls,
-                entity=entity,
-                entity_type=et,
-                entity_id=eid,
-                actor=actor,
-                inventory=inventory,
-                message=avail.get("reason") or "Stock not available",
-            )
-    else:
-        instance = pick_free_instance(
-            session,
-            inventory,
-            serial_number=serial_number,
-            instance_id=int(instance_id) if instance_id is not None else None,
+    # Double-check no other project holds this instance
+    if active_reservation_for_instance(session, int(instance.id)):
+        raise InventoryReservationError(
+            "Unit is already reserved by another project"
         )
-        if instance is None:
-            _raise_or_record_shortage(
-                session,
-                create_shortage=create_shortage_if_unavailable,
-                project=project,
-                flight=flight,
-                sdls=sdls,
-                entity=entity,
-                entity_type=et,
-                entity_id=eid,
-                actor=actor,
-                inventory=inventory,
-                message="No available inventory unit to reserve",
-            )
-        # Double-check no other project holds this instance
-        if active_reservation_for_instance(session, int(instance.id)):
-            raise InventoryReservationError(
-                "Unit is already reserved by another project"
-            )
 
     # Status transition AVAILABLE → RESERVED (treat missing as AVAILABLE)
     available_id = get_item_status_id(session, ItemStatus.AVAILABLE.value)
     reserved_id = get_item_status_id(session, ItemStatus.RESERVED.value)
 
-    if instance is not None:
-        current = item_status_name(session, instance.status_id) or ItemStatus.AVAILABLE.value
-        try:
-            assert_transition("item", current, ItemStatus.RESERVED.value)
-        except ValueError as exc:
-            raise InventoryReservationError(str(exc)) from exc
-        instance.status_id = reserved_id
-        instance.updated_at = _now()
-        session.add(instance)
-    else:
-        current = item_status_name(session, inventory.status_id) or ItemStatus.AVAILABLE.value
-        try:
-            assert_transition("item", current, ItemStatus.RESERVED.value)
-        except ValueError as exc:
-            # Component qty groups may already be AVAILABLE with partial reserves
-            if current != ItemStatus.AVAILABLE.value and current != ItemStatus.RESERVED.value:
-                raise InventoryReservationError(str(exc)) from exc
-        if current == ItemStatus.AVAILABLE.value or inventory.status_id is None:
-            inventory.status_id = reserved_id
-            inventory.updated_at = _now()
-            session.add(inventory)
+    current = item_status_name(session, instance.status_id) or ItemStatus.AVAILABLE.value
+    try:
+        assert_transition("item", current, ItemStatus.RESERVED.value)
+    except ValueError as exc:
+        raise InventoryReservationError(str(exc)) from exc
+    instance.status_id = reserved_id
+    instance.updated_at = _now()
+    session.add(instance)
 
     expires_at = payload.get("expires_at")
     if expires_at is None:
@@ -1043,14 +975,14 @@ def reserve_inventory(
         target_entity_type=et,
         target_entity_id=eid,
         inventory_id=int(inventory.id),
-        inventory_instance_id=int(instance.id) if instance else None,
+        inventory_instance_id=int(instance.id),
         reserved_by_user_id=int(actor.id),
         reserved_at=_now(),
         expires_at=expires_at,
         extension_count=0,
         part_number=inventory.part_number
         or getattr(entity, "part_number", None),
-        serial_number=(instance.serial_number if instance else serial_number),
+        serial_number=instance.serial_number,
         status=InventoryReservationStatus.ACTIVE.value,
         notes=payload.get("notes"),
         created_at=_now(),

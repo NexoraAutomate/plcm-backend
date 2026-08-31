@@ -131,6 +131,17 @@ class TestWorkflowPermissionSeed:
                 f"{WORKFLOW_ROLE_DB_NAMES[role]} missing view_orders"
             )
 
+    def test_project_director_can_create_customers_and_orders(self):
+        """Project Director can access and create customers and orders."""
+        pd_permissions = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD])
+        required_permissions = {
+            "view_customers",
+            "create_customers",
+            "view_orders",
+            "create_orders",
+        }
+        assert required_permissions <= pd_permissions
+
     def test_inventory_manager_can_view_entity_list(self):
         """Add-inventory category dropdown reads Settings → Entity List via /hierarchies/."""
         im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])

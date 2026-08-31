@@ -30,10 +30,10 @@ from app.models.tables import (
     User,
 )
 from app.services.inventory_service import (
-    is_component_inventory,
     consume_inventory_unit,
     restore_inventory_unit,
     find_inventory_group,
+    materialize_legacy_inventory_instances,
     sync_inventory_quantity,
 )
 from app.domain.workflow_audit import WorkflowAuditAction
@@ -649,130 +649,93 @@ def issue_inventory_unit(
                 detail="Reservation does not match the requested hierarchy",
             )
 
-    if is_component_inventory(inventory.inventory_type):
-        component_reservation = request_reservation
-        if (
-            component_reservation is not None
-            and component_reservation.inventory_instance_id is not None
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="Serialized reservation cannot be used for component inventory",
-            )
-        if instance_id is not None:
-            raise HTTPException(
-                status_code=400,
-                detail="Component inventory does not use instances",
-            )
-        avail = available_quantity(session, inventory)
-        # Component reservations are aggregate quantity holds rather than
-        # serial-specific holds. An item request is authorized to consume its
-        # own hold, so that one reserved unit must be added back to the
-        # unreserved availability check.
-        if component_reservation is not None:
-            avail += 1
-        if quantity > avail:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Only {avail} unit(s) available to issue (reserved stock excluded)",
-            )
-        current = item_status_name(session, inventory.status_id) or ItemStatus.AVAILABLE.value
-        _advance_to_issued(session, inventory=inventory, instance=None, current=current)
-        if component_reservation is not None:
-            from app.services.inventory_reservation_service import consume_reservation
-
-            reservation_id = int(component_reservation.id)
-            project_id = int(component_reservation.project_id)
-            flight_id = int(component_reservation.flight_id)
-            sdls_id = int(component_reservation.sdls_id)
-            consume_reservation(
-                session,
-                component_reservation,
-                actor=session.get(User, issued_by_user_id),
-            )
-    else:
-        if quantity != 1:
-            raise HTTPException(
-                status_code=400,
-                detail="Serialized inventory must be issued one unit at a time",
-            )
-        if instance_id is None:
-            raise HTTPException(status_code=400, detail="instance_id is required for serialized stock")
-        instance = session.get(InventoryInstance, instance_id)
-        if not instance or instance.inventory_id != inventory.id:
-            raise HTTPException(status_code=404, detail="Inventory instance not found")
-        existing = open_issuance_for_instance(session, instance.id)
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail="This serial is already issued/reserved",
-            )
-        from app.services.inventory_reservation_service import (
-            active_reservation_for_instance,
-            consume_reservation,
+    if quantity != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Inventory must be issued one unit at a time",
         )
+    if instance_id is None and request_reservation is not None:
+        legacy_instances = materialize_legacy_inventory_instances(session, inventory)
+        legacy_instance = legacy_instances[0] if legacy_instances else None
+        if legacy_instance is not None:
+            instance_id = legacy_instance.id
+    if instance_id is None:
+        raise HTTPException(status_code=400, detail="instance_id is required for inventory units")
+    instance = session.get(InventoryInstance, instance_id)
+    if not instance or instance.inventory_id != inventory.id:
+        raise HTTPException(status_code=404, detail="Inventory instance not found")
+    existing = open_issuance_for_instance(session, instance.id)
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="This serial is already issued/reserved",
+        )
+    from app.services.inventory_reservation_service import (
+        active_reservation_for_instance,
+        consume_reservation,
+    )
 
-        project_hold = active_reservation_for_instance(session, int(instance.id))
-        requested_type = (target_entity_type or "").strip().lower() or None
-        requested_id = target_entity_id
-        if rework:
-            if item_status_name(session, instance.status_id) == ItemStatus.SCRAPPED.value:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Scrap disposition cannot re-issue that serial",
-                )
-            if project_hold:
-                reservation_id = int(project_hold.id) if project_hold.id else None
-                project_id = int(project_hold.project_id)
-                flight_id = int(project_hold.flight_id)
-                sdls_id = int(project_hold.sdls_id)
-                target_entity_type = project_hold.target_entity_type
-                target_entity_id = project_hold.target_entity_id
-            else:
-                project_id = rework_project_id
-                flight_id = rework_flight_id
-                sdls_id = rework_sdls_id
-                if not project_id:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Rework re-issue requires project allocation",
-                    )
-        elif project_hold:
-            if not item_request_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Developer must request this reserved item before it can be issued",
-                )
-            hold_type = (project_hold.target_entity_type or "").strip().lower()
-            hold_id = int(project_hold.target_entity_id)
-            if requested_type and requested_id is not None:
-                if hold_type != requested_type or hold_id != int(requested_id):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Item is reserved to a different project/hierarchy",
-                    )
-            target_entity_type = project_hold.target_entity_type
-            target_entity_id = project_hold.target_entity_id
+    project_hold = active_reservation_for_instance(session, int(instance.id))
+    if project_hold is None and request_reservation is not None:
+        project_hold = request_reservation
+    requested_type = (target_entity_type or "").strip().lower() or None
+    requested_id = target_entity_id
+    if rework:
+        if item_status_name(session, instance.status_id) == ItemStatus.SCRAPPED.value:
+            raise HTTPException(
+                status_code=400,
+                detail="Scrap disposition cannot re-issue that serial",
+            )
+        if project_hold:
             reservation_id = int(project_hold.id) if project_hold.id else None
             project_id = int(project_hold.project_id)
             flight_id = int(project_hold.flight_id)
             sdls_id = int(project_hold.sdls_id)
-        elif requested_type and requested_id is not None:
+            target_entity_type = project_hold.target_entity_type
+            target_entity_id = project_hold.target_entity_id
+        else:
+            project_id = rework_project_id
+            flight_id = rework_flight_id
+            sdls_id = rework_sdls_id
+            if not project_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Rework re-issue requires project allocation",
+                )
+    elif project_hold:
+        if not item_request_id:
             raise HTTPException(
                 status_code=400,
-                detail="Issue is only allowed for stock reserved to this hierarchy",
+                detail="Developer must request this reserved item before it can be issued",
             )
-        current = (
-            item_status_name(session, instance.status_id) or ItemStatus.AVAILABLE.value
+        hold_type = (project_hold.target_entity_type or "").strip().lower()
+        hold_id = int(project_hold.target_entity_id)
+        if requested_type and requested_id is not None:
+            if hold_type != requested_type or hold_id != int(requested_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Item is reserved to a different project/hierarchy",
+                )
+        target_entity_type = project_hold.target_entity_type
+        target_entity_id = project_hold.target_entity_id
+        reservation_id = int(project_hold.id) if project_hold.id else None
+        project_id = int(project_hold.project_id)
+        flight_id = int(project_hold.flight_id)
+        sdls_id = int(project_hold.sdls_id)
+    elif requested_type and requested_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Issue is only allowed for stock reserved to this hierarchy",
         )
-        _advance_to_issued(
-            session, inventory=inventory, instance=instance, current=current
-        )
-        if project_hold:
-            actor = session.get(User, issued_by_user_id)
-            consume_reservation(session, project_hold, actor=actor)
-        resolved_instance_id = instance.id
-        serial_number = instance.serial_number
+    current = (
+        item_status_name(session, instance.status_id) or ItemStatus.AVAILABLE.value
+    )
+    _advance_to_issued(session, inventory=inventory, instance=instance, current=current)
+    if project_hold:
+        actor = session.get(User, issued_by_user_id)
+        consume_reservation(session, project_hold, actor=actor)
+    resolved_instance_id = instance.id
+    serial_number = instance.serial_number
 
     issuance = InventoryIssuance(
         inventory_id=inventory.id,
@@ -1202,8 +1165,7 @@ def resolve_issuance_for_consume(
                 detail=f"Issuance is not open (status: {issuance.status})",
             )
         if (
-            not is_component_inventory(inventory.inventory_type)
-            and instance_id is not None
+            instance_id is not None
             and issuance.inventory_instance_id is not None
             and issuance.inventory_instance_id != instance_id
         ):
@@ -1213,46 +1175,31 @@ def resolve_issuance_for_consume(
             )
         return issuance
 
-    if not is_component_inventory(inventory.inventory_type):
-        # Pick instance that would be consumed to check reservation
-        check_instance_id = instance_id
-        if check_instance_id is None:
-            first = session.exec(
-                select(InventoryInstance)
-                .where(InventoryInstance.inventory_id == inventory.id)
-                .order_by(InventoryInstance.id)
-            ).first()
-            check_instance_id = first.id if first else None
-        if check_instance_id is not None:
-            pending = open_issuance_for_instance(
-                session, check_instance_id, statuses=(RETURN_PENDING_STATUS,)
-            )
-            if pending is not None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "This serial has a return pending admin approval and cannot "
-                        "be installed until the return is accepted or rejected."
-                    ),
-                )
-            open_row = installable_issuance_for_instance(session, check_instance_id)
-            if open_row:
-                # Auto-match open issuance for this serial
-                return open_row
-        return None
-
-    # Components: allow consume of unreserved qty only when no issuance_id
-    avail = available_quantity(session, inventory)
-    if avail < 1:
-        if reserved_quantity(session, inventory.id) > 0:
+    # Pick the unit that would be consumed to check reservation.
+    check_instance_id = instance_id
+    if check_instance_id is None:
+        first = session.exec(
+            select(InventoryInstance)
+            .where(InventoryInstance.inventory_id == inventory.id)
+            .order_by(InventoryInstance.id)
+        ).first()
+        check_instance_id = first.id if first else None
+    if check_instance_id is not None:
+        pending = open_issuance_for_instance(
+            session, check_instance_id, statuses=(RETURN_PENDING_STATUS,)
+        )
+        if pending is not None:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "All remaining stock is reserved/issued. Provide issuance_id to install, "
-                    "or return an issuance first."
+                    "This serial has a return pending admin approval and cannot "
+                    "be installed until the return is accepted or rejected."
                 ),
             )
-        raise HTTPException(status_code=400, detail="Inventory item is out of stock")
+        open_row = installable_issuance_for_instance(session, check_instance_id)
+        if open_row:
+            # Auto-match open issuance for this serial
+            return open_row
     return None
 
 
@@ -1343,23 +1290,6 @@ def consume_with_issuance(
         issuance.inventory_instance_id = None
         session.add(issuance)
         session.flush()
-
-    # For component issuances with qty > 1, decrease by issuance quantity
-    if issuance and is_component_inventory(inventory.inventory_type):
-        qty = issuance.quantity or 1
-        if (inventory.quantity or 0) < qty:
-            raise HTTPException(status_code=400, detail="Inventory item is out of stock")
-        consumed = None
-        for _ in range(qty):
-            consume_inventory_unit(session, inventory, instance_id=None, allow_reserved=True)
-        mark_issuance_installed(
-            session,
-            issuance,
-            installed_by_id=installed_by_id,
-            installed_entity_type=installed_entity_type,
-            installed_entity_id=installed_entity_id,
-        )
-        return consumed, issuance
 
     consumed = consume_inventory_unit(
         session,
@@ -1455,20 +1385,17 @@ def _restore_entity_as_stock(
         configuration_item=getattr(entity_row, "configuration_item", None),
     )
     restored: Optional[InventoryInstance] = None
-    if is_component_inventory(inventory.inventory_type):
-        restore_inventory_unit(session, inventory, serial_number=serial_number)
-    else:
-        restored = restore_inventory_unit(session, inventory, serial_number=serial_number)
-        if restored is not None:
-            restored.original_part_number = part_number
-            restored.original_serial_number = serial_number
-            restored.configuration_item = (
-                getattr(entity_row, "configuration_item", None) or part_number
-            )
-            restored.installation_date = None
-            restored.installed_by_id = None
-            session.add(restored)
-            sync_inventory_quantity(session, inventory)
+    restored = restore_inventory_unit(session, inventory, serial_number=serial_number)
+    if restored is not None:
+        restored.original_part_number = part_number
+        restored.original_serial_number = serial_number or restored.serial_number
+        restored.configuration_item = (
+            getattr(entity_row, "configuration_item", None) or part_number
+        )
+        restored.installation_date = None
+        restored.installed_by_id = None
+        session.add(restored)
+        sync_inventory_quantity(session, inventory)
     return inventory, restored
 
 
@@ -1597,23 +1524,13 @@ def revert_entity_to_inventory(
             or getattr(child_row, "serial_number", None)
             or getattr(child_row, "original_serial_number", None)
         )
-        # Link as composed child (already restored into stock; mark consumed into parent)
-        # First remove the free instance/qty we just restored so composition matches warehouse rules:
-        # create link with stock_consumed and consume the restored unit.
-        if is_component_inventory(child_inv.inventory_type):
-            if (child_inv.quantity or 0) > 0:
-                child_inv.quantity = max(0, (child_inv.quantity or 0) - 1)
-                session.add(child_inv)
-            child_instance_id = None
-        else:
-            if child_inst and child_inst.id:
-                child_instance_id = child_inst.id
-                # Delete free instance — composition holds the serial snapshot
-                session.delete(child_inst)
-                session.flush()
-                sync_inventory_quantity(session, child_inv)
-            else:
-                child_instance_id = None
+        # Link as composed child (already restored into stock; mark consumed into parent).
+        child_instance_id = child_inst.id if child_inst and child_inst.id else None
+        if child_inst is not None:
+            # Delete free instance — composition holds the serial snapshot.
+            session.delete(child_inst)
+            session.flush()
+            sync_inventory_quantity(session, child_inv)
 
         link = InventoryChildLink(
             parent_inventory_id=inventory.id,

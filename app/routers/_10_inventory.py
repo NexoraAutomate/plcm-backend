@@ -25,10 +25,11 @@ from app.services.entity_list_service import (
     validate_inventory_entity_name,
 )
 from app.services.inventory_service import (
-    is_component_inventory,
+    generate_inventory_instance_serial,
     find_inventory_group,
     find_inventory_catalog_group,
     create_inventory_instance,
+    retire_inventory_instance_labels,
     sync_inventory_quantity,
     normalize_part_number,
     list_inventory_child_links,
@@ -125,13 +126,11 @@ def _scoped_inventory_filter(session: Session, current_user: User):
 
 
 def _normalize_inventory_quantity(inventory_type: str, quantity: int | None) -> int:
-    if is_component_inventory(inventory_type):
-        if quantity is None:
-            return 0
-        if quantity < 0:
-            raise HTTPException(status_code=400, detail="Quantity cannot be negative")
-        return quantity
-    return 0
+    if quantity is None:
+        return 1
+    if quantity < 0:
+        raise HTTPException(status_code=400, detail="Quantity cannot be negative")
+    return quantity
 
 
 def _instance_to_read(
@@ -141,7 +140,13 @@ def _instance_to_read(
     project_hold_map: dict[int, dict] | None = None,
     status_name: str | None = None,
 ) -> schemas.InventoryInstanceRead:
-    data = instance.model_dump()
+    # SQLAlchemy expires table-model attributes after commit.  Reading through
+    # getattr refreshes those attributes; model_dump() alone only sees the
+    # partially populated __dict__ and can omit required fields.
+    data = {
+        field_name: getattr(instance, field_name)
+        for field_name in InventoryInstance.model_fields
+    }
     open_id = None
     open_status = None
     if reserved_map and instance.id is not None:
@@ -199,36 +204,19 @@ def _inventory_to_read(
     include_instances: bool = False,
     issued_to_user_id: Optional[int] = None,
 ) -> schemas.InventoryRead:
-    data = inventory.model_dump()
+    # SQLAlchemy expires table-model attributes after commit.  Reading through
+    # getattr refreshes those attributes; model_dump() alone only sees the
+    # partially populated __dict__ and can omit required fields.
+    data = {
+        field_name: getattr(inventory, field_name)
+        for field_name in Inventory.model_fields
+    }
     reserved = reserved_quantity(session, inventory.id)
     avail = available_quantity(session, inventory)
     data["reserved_quantity"] = reserved
     data["available_quantity"] = avail
     data["total_used"] = installed_used_quantity(session, int(inventory.id))
-    if is_component_inventory(inventory.inventory_type):
-        data["instances"] = None
-        if issued_to_user_id is not None:
-            # Installer: held qty includes return_pending; available = installable only
-            installable_qty = session.exec(
-                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
-                    InventoryIssuance.inventory_id == inventory.id,
-                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status == "issued",
-                )
-            ).one()
-            pending_qty = session.exec(
-                select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
-                    InventoryIssuance.inventory_id == inventory.id,
-                    InventoryIssuance.issued_to_user_id == issued_to_user_id,
-                    InventoryIssuance.status == "return_pending",
-                )
-            ).one()
-            installable_qty = int(installable_qty or 0)
-            pending_qty = int(pending_qty or 0)
-            data["quantity"] = installable_qty + pending_qty
-            data["reserved_quantity"] = pending_qty
-            data["available_quantity"] = installable_qty
-    elif include_instances:
+    if include_instances:
         instances = session.exec(
             select(InventoryInstance)
             .where(InventoryInstance.inventory_id == inventory.id)
@@ -390,75 +378,30 @@ def create_inventory(
     except EntityListError as exc:
         _raise_entity_list_error(exc)
 
-    if is_component_inventory(inventory_type):
-        part_number = _resolve_part_number(data)
-        if part_number:
-            data["part_number"] = part_number
-        if not data.get("configuration_item"):
-            data["configuration_item"] = part_number or data.get("name")
-        add_qty = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
-        existing = find_inventory_catalog_group(
-            session,
-            name=data["name"],
-            inventory_type=inventory_type,
-            part_number=part_number,
-        )
-        if existing:
-            existing.quantity = int(existing.quantity or 0) + add_qty
-            if data.get("description") and not existing.description:
-                existing.description = data["description"]
-            if data.get("oem_name") and not existing.oem_name:
-                existing.oem_name = data["oem_name"]
-            if data.get("location") and not existing.location:
-                existing.location = data["location"]
-            session.add(existing)
-            session.commit()
-            session.refresh(existing)
-            fulfillments = _run_receipt_fcfs(
-                session,
-                existing,
-                actor=current_user,
-                qty=add_qty,
-            )
-            ensure_inventory_labels(session, existing, actor=current_user)
-            session.commit()
-            return _with_fcfs(_inventory_to_read(session, existing), fulfillments)
-
-        data["quantity"] = add_qty
-        db_inventory = Inventory(**data)
-        session.add(db_inventory)
-        session.commit()
-        session.refresh(db_inventory)
-        fulfillments = _run_receipt_fcfs(
-            session,
-            db_inventory,
-            actor=current_user,
-            qty=int(db_inventory.quantity or 0),
-        )
-        ensure_inventory_labels(session, db_inventory, actor=current_user)
-        session.commit()
-        return _with_fcfs(_inventory_to_read(session, db_inventory), fulfillments)
-
     part_number = _resolve_part_number(data)
-    if not normalize_part_number(part_number):
+    if not normalize_part_number(part_number) and inventory_type != "component":
         raise HTTPException(
             status_code=400,
             detail="Part number is required for non-component inventory",
         )
-    data["part_number"] = part_number
+    if part_number:
+        data["part_number"] = part_number
     if not data.get("configuration_item"):
-        data["configuration_item"] = part_number
-    if not (data.get("location") or "").strip():
-        raise HTTPException(status_code=400, detail="Location is required for inventory instances")
-
+        data["configuration_item"] = part_number or data.get("name")
+    quantity = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
+    if quantity < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1")
     instance_fields = _extract_instance_fields(data)
     if not instance_fields.get("configuration_item"):
-        instance_fields["configuration_item"] = part_number
+        instance_fields["configuration_item"] = part_number or data.get("name")
+    if not (instance_fields.get("location") or "").strip():
+        instance_fields["location"] = "Warehouse"
+    requested_serial = (instance_fields.get("serial_number") or "").strip()
+    requested_original_serial = (instance_fields.get("original_serial_number") or "").strip()
     data["quantity"] = 0
     data["serial_number"] = None
     data["holder_user_id"] = None
     data["location"] = None
-    data["added_date"] = None
     data["shelf_life_expires_at"] = None
     data["picture_url"] = None
     data["installation_date"] = None
@@ -484,16 +427,40 @@ def create_inventory(
         session.add(db_inventory)
         session.flush()
 
-    db_instance = create_inventory_instance(session, db_inventory, **instance_fields)
+    created_instances: list[InventoryInstance] = []
+    for index in range(quantity):
+        unit_fields = dict(instance_fields)
+        if requested_serial:
+            unit_fields["serial_number"] = (
+                requested_serial
+                if quantity == 1
+                else f"{requested_serial}-{index + 1:04d}"
+            )
+        else:
+            unit_fields["serial_number"] = generate_inventory_instance_serial(
+                session, db_inventory
+            )
+        if requested_original_serial:
+            unit_fields["original_serial_number"] = (
+                requested_original_serial
+                if quantity == 1
+                else f"{requested_original_serial}-{index + 1:04d}"
+            )
+        db_instance = create_inventory_instance(session, db_inventory, **unit_fields)
+        created_instances.append(db_instance)
     session.commit()
     session.refresh(db_inventory)
-    session.refresh(db_instance)
-    fulfillments = _run_receipt_fcfs(
-        session,
-        db_inventory,
-        actor=current_user,
-        instance=db_instance,
-    )
+    fulfillments: list[dict] = []
+    for db_instance in created_instances:
+        session.refresh(db_instance)
+        fulfillments.extend(
+            _run_receipt_fcfs(
+                session,
+                db_inventory,
+                actor=current_user,
+                instance=db_instance,
+            )
+        )
     ensure_inventory_labels(session, db_inventory, actor=current_user)
     session.commit()
     return _with_fcfs(
@@ -561,7 +528,7 @@ def list_inventory_ids(
 
 
 # ---------------------------------------------------------------------------
-# CSV / JSON export / import  (one catalog row per part number; serials as children)
+# CSV / JSON export / import (one catalog row per part number; units as children)
 # ---------------------------------------------------------------------------
 
 def _filtered_inventory_items(
@@ -1096,7 +1063,7 @@ def receive_inventory_shortage(
         _inventory_to_read(
             session,
             inventory,
-            include_instances=not is_component_inventory(inventory.inventory_type),
+            include_instances=True,
         ),
         fulfillments,
     )
@@ -1322,31 +1289,23 @@ def update_inventory(
     if not db_inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
 
-    previous_qty = int(db_inventory.quantity or 0)
     update_data = inventory.model_dump(exclude_unset=True)
     inventory_type = update_data.get("inventory_type", db_inventory.inventory_type)
-
-    if is_component_inventory(inventory_type):
-        if "quantity" in update_data or "inventory_type" in update_data:
-            quantity = update_data.get("quantity", db_inventory.quantity)
-            update_data["quantity"] = _normalize_inventory_quantity(inventory_type, quantity)
-    else:
-        for field in (
-            "quantity",
-            "serial_number",
-            "configuration_item",
-            "status_id",
-            "holder_user_id",
-            "location",
-            "added_date",
-            "shelf_life_expires_at",
-            "picture_url",
-            "installation_date",
-            "installed_by_id",
-            "original_part_number",
-            "original_serial_number",
-        ):
-            update_data.pop(field, None)
+    requested_quantity = update_data.pop("quantity", None)
+    for field in (
+        "serial_number",
+        "status_id",
+        "holder_user_id",
+        "location",
+        "added_date",
+        "shelf_life_expires_at",
+        "picture_url",
+        "installation_date",
+        "installed_by_id",
+        "original_part_number",
+        "original_serial_number",
+    ):
+        update_data.pop(field, None)
 
     if "manufacturer_part_number" in update_data:
         update_data["part_number"] = update_data.pop("manufacturer_part_number")
@@ -1357,15 +1316,56 @@ def update_inventory(
     session.commit()
     session.refresh(db_inventory)
     fulfillments: list[dict] = []
-    if is_component_inventory(db_inventory.inventory_type):
-        delta = int(db_inventory.quantity or 0) - previous_qty
-        if delta > 0:
-            fulfillments = _run_receipt_fcfs(
-                session,
-                db_inventory,
-                actor=current_user,
-                qty=delta,
+    if requested_quantity is not None:
+        target_quantity = _normalize_inventory_quantity(
+            inventory_type, requested_quantity
+        )
+        instances = list(
+            session.exec(
+                select(InventoryInstance)
+                .where(InventoryInstance.inventory_id == db_inventory.id)
+                .order_by(InventoryInstance.id)
+            ).all()
+        )
+        current_quantity = len(instances)
+        if target_quantity > current_quantity:
+            for _ in range(target_quantity - current_quantity):
+                created = create_inventory_instance(
+                    session,
+                    db_inventory,
+                    configuration_item=db_inventory.configuration_item
+                    or db_inventory.part_number
+                    or db_inventory.name,
+                    location=db_inventory.location or "Warehouse",
+                )
+                fulfillments.extend(
+                    _run_receipt_fcfs(
+                        session,
+                        db_inventory,
+                        actor=current_user,
+                        instance=created,
+                    )
+                )
+        elif target_quantity < current_quantity:
+            from app.services.inventory_reservation_service import (
+                is_instance_free_for_project_reserve,
             )
+
+            removable = [
+                instance
+                for instance in reversed(instances)
+                if is_instance_free_for_project_reserve(session, instance)
+            ]
+            if len(removable) < current_quantity - target_quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot reduce quantity below reserved or issued units",
+                )
+            for instance in removable[: current_quantity - target_quantity]:
+                session.delete(instance)
+        sync_inventory_quantity(session, db_inventory)
+        ensure_inventory_labels(session, db_inventory, actor=current_user)
+        session.commit()
     return _with_fcfs(
         _inventory_to_read(session, db_inventory, include_instances=True),
         fulfillments,
@@ -1574,8 +1574,6 @@ def list_inventory_instances(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    if is_component_inventory(inventory.inventory_type):
-        raise HTTPException(status_code=400, detail="Component inventory does not use instances")
     if not user_can_access_inventory(
         session, current_user, inventory_id, is_manager=is_inventory_manager(current_user)
     ):
@@ -1636,12 +1634,10 @@ def create_inventory_instance_endpoint(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
-    if is_component_inventory(inventory.inventory_type):
-        raise HTTPException(status_code=400, detail="Component inventory does not use instances")
 
     data = instance.model_dump()
     if not (data.get("location") or "").strip():
-        raise HTTPException(status_code=400, detail="Location is required for inventory instances")
+        data["location"] = "Warehouse"
 
     db_instance = create_inventory_instance(session, inventory, **data)
     session.commit()
@@ -1676,6 +1672,26 @@ def update_inventory_instance(
     if not db_instance:
         raise HTTPException(status_code=404, detail="Inventory instance not found")
     update_data = instance.model_dump(exclude_unset=True)
+    if "serial_number" in update_data:
+        serial_number = (update_data.get("serial_number") or "").strip()
+        if not serial_number:
+            inventory = session.get(Inventory, db_instance.inventory_id)
+            if not inventory:
+                raise HTTPException(status_code=404, detail="Inventory not found")
+            serial_number = generate_inventory_instance_serial(session, inventory)
+        duplicate = session.exec(
+            select(InventoryInstance).where(
+                InventoryInstance.inventory_id == db_instance.inventory_id,
+                InventoryInstance.id != db_instance.id,
+                func.lower(InventoryInstance.serial_number) == serial_number.lower(),
+            )
+        ).first()
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Inventory unit '{serial_number}' already exists in this group",
+            )
+        update_data["serial_number"] = serial_number
     for k, v in update_data.items():
         setattr(db_instance, k, v)
     session.add(db_instance)
@@ -1696,6 +1712,8 @@ def delete_inventory_instance(
     inventory = session.get(Inventory, db_instance.inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
+    if db_instance.id is not None:
+        retire_inventory_instance_labels(session, int(db_instance.id))
     session.delete(db_instance)
     session.flush()
     remaining = sync_inventory_quantity(session, inventory)

@@ -7,11 +7,12 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select, func
 
-from app.models.tables import Inventory, InventoryInstance, InventoryChildLink
-
-
-def is_component_inventory(inventory_type: str) -> bool:
-    return inventory_type == "component"
+from app.models.tables import (
+    Inventory,
+    InventoryInstance,
+    InventoryChildLink,
+    InventoryLabel,
+)
 
 
 def normalize_part_number(part_number: Optional[str]) -> str:
@@ -55,14 +56,12 @@ def find_inventory_catalog_group(
     receipts add instances to the existing group rather than creating a new row.
     """
     if part_number:
-        exact = find_inventory_group(
+        return find_inventory_group(
             session,
             name=name,
             inventory_type=inventory_type,
             part_number=part_number,
         )
-        if exact:
-            return exact
 
     rows = list(
         session.exec(
@@ -74,19 +73,10 @@ def find_inventory_catalog_group(
     )
     if not rows:
         return None
-    if len(rows) == 1:
-        return rows[0]
-    if part_number:
-        normalized_part = normalize_part_number(part_number)
-        for row in rows:
-            if normalize_part_number(row.part_number) == normalized_part:
-                return row
-    return None
+    return rows[0] if len(rows) == 1 else None
 
 
 def sync_inventory_quantity(session: Session, inventory: Inventory) -> int:
-    if is_component_inventory(inventory.inventory_type):
-        return inventory.quantity
     count = session.exec(
         select(func.count())
         .select_from(InventoryInstance)
@@ -96,6 +86,30 @@ def sync_inventory_quantity(session: Session, inventory: Inventory) -> int:
     inventory.updated_at = datetime.now(timezone.utc)
     session.add(inventory)
     return count
+
+
+def generate_inventory_instance_serial(
+    session: Session,
+    inventory: Inventory,
+    *,
+    base: Optional[str] = None,
+) -> str:
+    """Generate a stable unit identity for stock received without a serial."""
+    prefix = (base or inventory.part_number or inventory.name or "UNIT").strip()
+    prefix = re.sub(r"[^A-Za-z0-9]+", "-", prefix).strip("-").upper() or "UNIT"
+    inventory_id = inventory.id or 0
+    index = 1
+    while True:
+        candidate = f"{prefix}-{inventory_id}-{index:04d}"
+        exists = session.exec(
+            select(InventoryInstance).where(
+                InventoryInstance.inventory_id == inventory_id,
+                func.lower(InventoryInstance.serial_number) == candidate.lower(),
+            )
+        ).first()
+        if exists is None:
+            return candidate
+        index += 1
 
 
 def create_inventory_instance(
@@ -115,9 +129,25 @@ def create_inventory_instance(
     original_part_number: Optional[str] = None,
     original_serial_number: Optional[str] = None,
 ) -> InventoryInstance:
+    if inventory.id is None:
+        raise HTTPException(status_code=400, detail="Inventory group must be saved first")
+    normalized_serial = (serial_number or "").strip() or generate_inventory_instance_serial(
+        session, inventory
+    )
+    duplicate = session.exec(
+        select(InventoryInstance).where(
+            InventoryInstance.inventory_id == inventory.id,
+            func.lower(InventoryInstance.serial_number) == normalized_serial.lower(),
+        )
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Inventory unit '{normalized_serial}' already exists in this group",
+        )
     instance = InventoryInstance(
         inventory_id=inventory.id,
-        serial_number=serial_number,
+        serial_number=normalized_serial,
         configuration_item=configuration_item,
         status_id=status_id,
         holder_user_id=holder_user_id,
@@ -128,7 +158,7 @@ def create_inventory_instance(
         installation_date=installation_date,
         installed_by_id=installed_by_id,
         original_part_number=original_part_number,
-        original_serial_number=original_serial_number,
+        original_serial_number=original_serial_number or normalized_serial,
     )
     session.add(instance)
     session.flush()
@@ -159,6 +189,67 @@ def find_inventory_instance_by_serial(
     return None
 
 
+def retire_inventory_instance_labels(
+    session: Session,
+    instance_id: int,
+) -> None:
+    """Detach labels before a consumed/deleted unit is removed."""
+    labels = session.exec(
+        select(InventoryLabel).where(InventoryLabel.inventory_instance_id == instance_id)
+    ).all()
+    for label in labels:
+        label.inventory_instance_id = None
+        label.status = "deactivated"
+        session.add(label)
+    session.flush()
+
+
+def materialize_legacy_inventory_instances(
+    session: Session,
+    inventory: Inventory,
+) -> list[InventoryInstance]:
+    """Convert an old parent-level stock row just before a unit workflow uses it."""
+    existing = list(
+        session.exec(
+            select(InventoryInstance)
+            .where(InventoryInstance.inventory_id == inventory.id)
+            .order_by(InventoryInstance.id)
+        ).all()
+    )
+    if existing or inventory.id is None:
+        return existing
+
+    quantity = max(0, int(inventory.quantity or 0))
+    if quantity == 0 and (inventory.serial_number or "").strip():
+        quantity = 1
+    created: list[InventoryInstance] = []
+    for index in range(quantity):
+        serial = _legacy_instance_serial(
+            inventory.serial_number, index, int(inventory.id)
+        )
+        created.append(
+            create_inventory_instance(
+                session,
+                inventory,
+                serial_number=serial,
+                configuration_item=inventory.configuration_item
+                or inventory.part_number
+                or inventory.name,
+                location=(inventory.location or "").strip() or "Warehouse",
+                shelf_life_expires_at=inventory.shelf_life_expires_at,
+                picture_url=inventory.picture_url,
+                installation_date=inventory.installation_date,
+                installed_by_id=inventory.installed_by_id,
+                original_part_number=inventory.original_part_number
+                or inventory.part_number,
+                original_serial_number=serial,
+            )
+        )
+    _clear_parent_instance_fields(inventory)
+    sync_inventory_quantity(session, inventory)
+    return created
+
+
 def consume_inventory_unit(
     session: Session,
     inventory: Inventory,
@@ -167,25 +258,6 @@ def consume_inventory_unit(
     instance_serial: Optional[str] = None,
     allow_reserved: bool = False,
 ) -> Optional[InventoryInstance]:
-    if is_component_inventory(inventory.inventory_type):
-        if not allow_reserved:
-            from app.services.inventory_issuance_service import available_quantity
-
-            if available_quantity(session, inventory) < 1:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "No available (unreserved) stock. Provide issuance_id to install "
-                        "reserved units, or return an issuance first."
-                    ),
-                )
-        if inventory.quantity <= 0:
-            raise HTTPException(status_code=400, detail="Inventory item is out of stock")
-        inventory.quantity = max(0, inventory.quantity - 1)
-        inventory.updated_at = datetime.now(timezone.utc)
-        session.add(inventory)
-        return None
-
     if instance_id is not None:
         instance = session.get(InventoryInstance, instance_id)
         if not instance or instance.inventory_id != inventory.id:
@@ -219,6 +291,8 @@ def consume_inventory_unit(
                 ),
             )
 
+    if instance.id is not None:
+        retire_inventory_instance_labels(session, int(instance.id))
     session.delete(instance)
     session.flush()
     sync_inventory_quantity(session, inventory)
@@ -232,12 +306,6 @@ def restore_inventory_unit(
     serial_number: Optional[str] = None,
 ) -> Optional[InventoryInstance]:
     """Return previously composed child stock back to available inventory."""
-    if is_component_inventory(inventory.inventory_type):
-        inventory.quantity = (inventory.quantity or 0) + 1
-        inventory.updated_at = datetime.now(timezone.utc)
-        session.add(inventory)
-        return None
-
     normalized = (serial_number or "").strip() or None
     existing = find_inventory_instance_by_serial(session, inventory.id, normalized)
     if existing:
@@ -436,6 +504,8 @@ def delete_inventory_item(session: Session, inventory: Inventory) -> None:
         select(InventoryInstance).where(InventoryInstance.inventory_id == inventory_id)
     ).all()
     for instance in instances:
+        if instance.id is not None:
+            retire_inventory_instance_labels(session, int(instance.id))
         session.delete(instance)
     session.flush()
 
@@ -473,15 +543,13 @@ def _clear_parent_instance_fields(inventory: Inventory) -> None:
 
 def backfill_legacy_inventory_instances(session: Session) -> int:
     """
-    Create InventoryInstance rows for legacy non-component inventory that still
-    stores stock as parent.quantity / parent.serial_number without instances.
+    Create InventoryInstance rows for legacy inventory that still stores stock
+    as parent.quantity / parent.serial_number without instances.
 
     Returns the number of instances created. Idempotent when instances already exist.
     """
     created = 0
-    inventories = session.exec(
-        select(Inventory).where(Inventory.inventory_type != "component")
-    ).all()
+    inventories = session.exec(select(Inventory)).all()
 
     for inventory in inventories:
         existing_count = session.exec(
@@ -490,6 +558,10 @@ def backfill_legacy_inventory_instances(session: Session) -> int:
             .where(InventoryInstance.inventory_id == inventory.id)
         ).one()
         if existing_count > 0:
+            inventory.quantity = int(existing_count)
+            _clear_parent_instance_fields(inventory)
+            inventory.updated_at = datetime.now(timezone.utc)
+            session.add(inventory)
             continue
 
         quantity = max(0, int(inventory.quantity or 0))

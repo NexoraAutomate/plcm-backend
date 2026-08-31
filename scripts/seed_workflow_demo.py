@@ -37,7 +37,6 @@ from app.services.hierarchy_config_service import create_configuration  # noqa: 
 from app.services.inventory_service import (  # noqa: E402
     create_inventory_instance,
     find_inventory_group,
-    is_component_inventory,
     sync_inventory_quantity,
 )
 from app.services.schema_bootstrap import ensure_user_management_schema  # noqa: E402
@@ -164,36 +163,10 @@ def seed_inventory(session: Session, *, dry_run: bool) -> tuple[int, int, int]:
                 part_number=part_number,
             )
 
-            if is_component_inventory(inventory_type):
-                if group:
-                    instances_skipped += 1
-                    continue
-                if dry_run:
-                    groups_created += 1
-                    instances_created += max(quantity, 0)
-                    continue
-                inv = Inventory(
-                    name=name,
-                    inventory_type=inventory_type,
-                    part_number=part_number,
-                    quantity=max(quantity, 0),
-                    description=description,
-                    location=location,
-                    status_id=available_id,
-                    added_date=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(inv)
-                session.flush()
-                groups_created += 1
-                instances_created += max(quantity, 0)
-                continue
-
-            # Serialized non-component: one CSV row → one instance
             if group is None:
                 if dry_run:
                     groups_created += 1
-                    instances_created += 1
+                    instances_created += max(quantity, 1 if serial_number else 0)
                     continue
                 group = Inventory(
                     name=name,
@@ -209,36 +182,38 @@ def seed_inventory(session: Session, *, dry_run: bool) -> tuple[int, int, int]:
                 session.add(group)
                 session.flush()
                 groups_created += 1
+            elif not serial_number:
+                instances_skipped += 1
+                continue
 
             if group is not None and group.id is not None:
                 touched_group_ids.add(int(group.id))
 
-            if not serial_number:
-                instances_skipped += 1
-                continue
-
+            unit_count = max(quantity, 1 if serial_number else 0)
             existing = _existing_serials(session, int(group.id))
-            if serial_number.strip().lower() in existing:
-                instances_skipped += 1
-                continue
-
-            if dry_run:
+            for index in range(unit_count):
+                unit_serial = serial_number
+                if unit_serial and unit_count > 1:
+                    unit_serial = f"{unit_serial}-{index + 1:04d}"
+                if unit_serial and unit_serial.lower() in existing:
+                    instances_skipped += 1
+                    continue
+                if dry_run:
+                    instances_created += 1
+                    continue
+                create_inventory_instance(
+                    session,
+                    group,
+                    serial_number=unit_serial,
+                    status_id=available_id,
+                    location=location,
+                )
                 instances_created += 1
-                continue
-
-            create_inventory_instance(
-                session,
-                group,
-                serial_number=serial_number,
-                status_id=available_id,
-                location=location,
-            )
-            instances_created += 1
 
     if not dry_run:
         for gid in touched_group_ids:
             inv = session.get(Inventory, gid)
-            if inv and not is_component_inventory(inv.inventory_type or ""):
+            if inv:
                 sync_inventory_quantity(session, inv)
         session.commit()
 

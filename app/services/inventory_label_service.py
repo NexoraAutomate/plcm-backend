@@ -150,10 +150,8 @@ def _serial_for_target(
         ).first()
         if not instance:
             raise InventoryLabelError("Serial number was not found in this inventory item")
-    elif inventory.inventory_type != "component":
-        raise InventoryLabelError("A serialized inventory instance is required")
     else:
-        serial = (inventory.serial_number or "").strip() or None
+        raise InventoryLabelError("An inventory instance is required")
     return instance, serial
 
 
@@ -289,41 +287,25 @@ def ensure_inventory_labels(
     actor: User,
     label_type: Optional[str] = None,
 ) -> list[InventoryLabel]:
-    """Create the durable label once for every current stock unit.
-
-    Serialized inventory receives one label per instance. Components have one
-    catalog-level label because their quantity is not represented by serial
-    instances. ``generate_labels`` is intentionally idempotent for active
-    assignments, so receiving the same catalog group again never creates a
-    second label for an existing serial number.
-    """
+    """Create one durable label for every current stock unit."""
     if inventory.id is None:
         return []
     label_type = label_type or inventory_label_code_type(session)
 
-    if inventory.inventory_type == "component":
-        if int(inventory.quantity or 0) <= 0:
-            return []
-        targets: list[dict[str, Any]] = [
-            {
-                "inventory_id": int(inventory.id),
-            }
-        ]
-    else:
-        instances = session.exec(
-            select(InventoryInstance)
-            .where(InventoryInstance.inventory_id == int(inventory.id))
-            .order_by(InventoryInstance.id)
-        ).all()
-        targets = [
-            {
-                "inventory_id": int(inventory.id),
-                "inventory_instance_id": instance.id,
-                "serial_number": instance.serial_number,
-            }
-            for instance in instances
-            if instance.id is not None
-        ]
+    instances = session.exec(
+        select(InventoryInstance)
+        .where(InventoryInstance.inventory_id == int(inventory.id))
+        .order_by(InventoryInstance.id)
+    ).all()
+    targets = [
+        {
+            "inventory_id": int(inventory.id),
+            "inventory_instance_id": instance.id,
+            "serial_number": instance.serial_number,
+        }
+        for instance in instances
+        if instance.id is not None
+    ]
 
     if not targets:
         return []

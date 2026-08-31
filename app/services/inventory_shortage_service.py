@@ -47,7 +47,6 @@ from app.services.inventory_reservation_service import (
 from app.services.inventory_service import (
     create_inventory_instance,
     find_inventory_catalog_group,
-    is_component_inventory,
     normalize_part_number,
 )
 
@@ -594,25 +593,17 @@ def receive_shortage_stock(
         (part_number or shortage.part_number or suggested_part_number or "").strip()
         or None
     )
-    serialized = not is_component_inventory(requested_type)
     serials = [
         str(serial).strip()
         for serial in (serial_numbers or [])
         if str(serial).strip()
     ]
-    if serialized and not serials and suggested_serial_number:
+    if not serials and suggested_serial_number:
         serials = [suggested_serial_number]
-    if serialized:
-        if quantity != 1:
-            raise InventoryShortageError(
-                "Serialized shortages accept one unit at a time"
-            )
-        if not resolved_part_number and not (inventory and inventory.part_number):
-            raise InventoryShortageError("Part number is required for serialized stock")
-        if len(serials) != 1:
-            raise InventoryShortageError("One serial number is required")
-        if not (location or "").strip():
-            raise InventoryShortageError("Location is required for serialized stock")
+    if not resolved_part_number and not (inventory and inventory.part_number):
+        raise InventoryShortageError("Part number is required for inventory stock")
+    if not (location or "").strip():
+        location = "Warehouse"
 
     if inventory is None:
         inventory = find_inventory_catalog_group(
@@ -635,48 +626,33 @@ def receive_shortage_stock(
     elif inventory.inventory_type != requested_type:
         raise InventoryShortageError("Inventory type does not match shortage")
 
-    fulfillments: list[dict[str, Any]] = []
-    if not serialized:
-        inventory.quantity = int(inventory.quantity or 0) + quantity
-        inventory.updated_at = _now()
-        if resolved_part_number and not inventory.part_number:
-            inventory.part_number = resolved_part_number
-        session.add(inventory)
-        shortage.inventory_id = inventory.id
-        if not shortage.part_number and inventory.part_number:
-            shortage.part_number = inventory.part_number
-        session.add(shortage)
-        session.commit()
-        session.refresh(inventory)
-        fulfillments = match_and_auto_reserve_on_receipt(
-            session, inventory, actor=actor, qty=quantity
-        )
-    else:
-        if not resolved_part_number and not inventory.part_number:
-            raise InventoryShortageError("Part number is required for serialized stock")
-        if not inventory.part_number:
-            inventory.part_number = resolved_part_number
-        shortage.inventory_id = inventory.id
-        if not shortage.part_number and inventory.part_number:
-            shortage.part_number = inventory.part_number
-        session.add_all(
-            [
-                inventory,
-                shortage,
-            ]
-        )
+    if not inventory.part_number:
+        inventory.part_number = resolved_part_number
+    shortage.inventory_id = inventory.id
+    if not shortage.part_number and inventory.part_number:
+        shortage.part_number = inventory.part_number
+    session.add_all([inventory, shortage])
+    created_instances: list[InventoryInstance] = []
+    for index in range(quantity):
+        serial = serials[index] if index < len(serials) else None
+        if serial is None and len(serials) == 1 and quantity > 1:
+            serial = f"{serials[0]}-{index + 1:04d}"
         instance = create_inventory_instance(
             session,
             inventory,
-            serial_number=serials[0],
-            original_serial_number=serials[0],
+            serial_number=serial,
             location=location.strip(),
             holder_user_id=int(actor.id),
         )
-        session.commit()
-        session.refresh(inventory)
-        fulfillments = match_and_auto_reserve_on_receipt(
-            session, inventory, actor=actor, instance=instance
+        created_instances.append(instance)
+    session.commit()
+    session.refresh(inventory)
+    fulfillments: list[dict[str, Any]] = []
+    for instance in created_instances:
+        fulfillments.extend(
+            match_and_auto_reserve_on_receipt(
+                session, inventory, actor=actor, instance=instance
+            )
         )
 
     session.refresh(inventory)
@@ -837,18 +813,6 @@ def match_and_auto_reserve_on_receipt(
         remaining = 1
     else:
         remaining = max(0, int(qty))
-        if remaining > 0 and is_component_inventory(inventory.inventory_type):
-            current = item_status_name(session, inventory.status_id)
-            if current not in {
-                ItemStatus.AVAILABLE.value,
-                ItemStatus.RESERVED.value,
-            }:
-                inventory.status_id = get_item_status_id(
-                    session, ItemStatus.AVAILABLE.value
-                )
-                inventory.updated_at = _now()
-                session.add(inventory)
-                session.flush()
     if remaining <= 0:
         return []
 
