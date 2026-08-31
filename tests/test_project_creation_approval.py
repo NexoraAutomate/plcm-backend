@@ -16,12 +16,14 @@ from app.services.hierarchy_config_service import (
     delete_configuration,
     set_available,
 )
+from app.services import project_workflow_service
 from app.services.project_workflow_service import (
     ProjectWorkflowError,
     assert_can_generate_hierarchy,
     approve_project,
     assign_hm,
     create_draft_project,
+    create_draft_projects_by_flight,
 )
 from app.services.schema_bootstrap import ensure_user_management_schema
 from app.services.workflow_foundation_seed import ensure_workflow_statuses
@@ -88,6 +90,94 @@ def test_hm_creates_draft(session: Session, admin_user: User, config: HierarchyC
     assert project.assigned_hm_id == admin_user.id
     session.delete(project)
     session.commit()
+
+
+def test_bulk_drafts_split_flights(
+    session: Session, admin_user: User, config: HierarchyConfiguration
+):
+    projects = create_draft_projects_by_flight(
+        session,
+        {
+            "name": "ABC",
+            "hierarchy_config_id": config.id,
+            "product_type": "SSDLS-1",
+            "flight_count": 3,
+            "sdls_counts_by_flight": [1, 3, 2],
+        },
+        actor=admin_user,
+    )
+
+    assert [project.name for project in projects] == [
+        "ABC - Flight 1",
+        "ABC - Flight 2",
+        "ABC - Flight 3",
+    ]
+    assert [project.flight_count for project in projects] == [1, 1, 1]
+    assert [project.sdls_counts_by_flight for project in projects] == [[1], [3], [2]]
+    assert [project.sdls_per_flight for project in projects] == [1, 3, 2]
+
+    for project in projects:
+        session.delete(project)
+    session.commit()
+
+
+def test_bulk_drafts_reject_mismatched_scope_without_creating_projects(
+    session: Session, admin_user: User, config: HierarchyConfiguration
+):
+    with pytest.raises(ProjectWorkflowError, match="one value for each flight"):
+        create_draft_projects_by_flight(
+            session,
+            {
+                "name": "Invalid ABC",
+                "hierarchy_config_id": config.id,
+                "product_type": "SSDLS-1",
+                "flight_count": 3,
+                "sdls_counts_by_flight": [1, 3],
+            },
+            actor=admin_user,
+        )
+
+    assert not session.exec(
+        select(Project).where(Project.name == "Invalid ABC - Flight 1")
+    ).first()
+
+
+def test_bulk_drafts_roll_back_when_one_project_fails(
+    session: Session,
+    admin_user: User,
+    config: HierarchyConfiguration,
+    monkeypatch,
+):
+    original_create = project_workflow_service.create_draft_project
+    call_count = 0
+
+    def fail_on_second_create(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise ProjectWorkflowError("simulated project creation failure")
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(
+        project_workflow_service, "create_draft_project", fail_on_second_create
+    )
+
+    with pytest.raises(ProjectWorkflowError, match="simulated"):
+        project_workflow_service.create_draft_projects_by_flight(
+            session,
+            {
+                "name": "Rollback ABC",
+                "hierarchy_config_id": config.id,
+                "product_type": "SSDLS-1",
+                "flight_count": 3,
+                "sdls_counts_by_flight": [1, 3, 2],
+            },
+            actor=admin_user,
+        )
+
+    assert not session.exec(
+        select(Project).where(Project.name.like("Rollback ABC - Flight%"))
+    ).all()
 
 
 def test_create_requires_config(session: Session, admin_user: User):

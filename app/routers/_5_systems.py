@@ -19,6 +19,21 @@ entity_config = ENTITY_CONFIG.get("system")
 
 router = APIRouter()
 
+
+def _to_system_read(
+    system: System,
+    *,
+    include_subsystems: Optional[List[schemas.SubsystemRead]] = None,
+) -> schemas.SystemRead:
+    status_name = system.status.status_name if system.status else None
+    return schemas.SystemRead(
+        **system.model_dump(),
+        status_name=status_name,
+        sdls_number=system.sdls.sequence if system.sdls else None,
+        subsystems=include_subsystems,
+    )
+
+
 # ===================== SYSTEM ENDPOINTS =====================
 @router.post("/systems/", response_model=schemas.SystemRead, tags=["systems"])
 def create_system(system: schemas.SystemCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_systems"))):
@@ -43,12 +58,7 @@ def create_system(system: schemas.SystemCreate, session: Session = Depends(get_s
 
     session.commit()
     session.refresh(db_system)
-    status_name = db_system.status.status_name if db_system.status else None
-    return schemas.SystemRead(
-        **db_system.model_dump(),
-        status_name=status_name,
-        subsystems=db_system.subsystems
-    )
+    return _to_system_read(db_system, include_subsystems=db_system.subsystems)
 
 @router.get("/systems/", response_model=List[schemas.SystemRead], tags=["systems"])
 def list_systems(
@@ -66,12 +76,7 @@ def list_systems(
     current_user: User = Depends(require_permission("view_systems")),
 ):
     def to_read(system: System) -> schemas.SystemRead:
-        status_name = system.status.status_name if system.status else None
-        return schemas.SystemRead(
-            **system.model_dump(),
-            status_name=status_name,
-            subsystems=None,
-        )
+        return _to_system_read(system)
 
     return paginated_query(
         session,
@@ -97,11 +102,9 @@ def get_system(system_id: int, session: Session = Depends(get_session), current_
     system = session.get(System, system_id)
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
-    status_name = system.status.status_name if system.status else None
-    return schemas.SystemRead(
-        **system.model_dump(),
-        status_name=status_name,
-        subsystems=filter_current_installs(system.subsystems)
+    return _to_system_read(
+        system,
+        include_subsystems=filter_current_installs(system.subsystems),
     )
 
 @router.put("/systems/{system_id}/", response_model=schemas.SystemRead, tags=["systems"])
@@ -122,12 +125,7 @@ def update_system(system_id: int, system: schemas.SystemUpdate, session: Session
 
     session.commit()
     session.refresh(db_system)
-    status_name = db_system.status.status_name if db_system.status else None
-    return schemas.SystemRead(
-        **db_system.model_dump(),
-        status_name=status_name,
-        subsystems=db_system.subsystems
-    )
+    return _to_system_read(db_system, include_subsystems=db_system.subsystems)
 
 @router.delete("/systems/{system_id}/", tags=["systems"])
 def delete_system(system_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("delete_systems"))):

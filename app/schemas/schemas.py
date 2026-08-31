@@ -524,6 +524,11 @@ class ProjectDraftCreate(SQLModel):
     sdls_counts_by_flight: Optional[List[int]] = None
 
 
+class ProjectDraftBulkCreateResponse(SQLModel):
+    projects: List[ProjectRead]
+    count: int
+
+
 class ProjectAssignHmRequest(SQLModel):
     hm_user_id: int
 
@@ -763,6 +768,7 @@ class SystemRead(SystemBase):
     id: int
     project_id: int
     sdls_id: Optional[int] = None
+    sdls_number: Optional[int] = None
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     subsystems: Optional[List["SubsystemRead"]] = None

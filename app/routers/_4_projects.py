@@ -2,7 +2,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Response, status
 from sqlmodel import Session, select
 from app.database import get_session
-from app.models.tables import (Project, User)
+from app.models.tables import (Project, System, User)
 from app.schemas import schemas
 from app.services.create_entity import New_entity
 from app.services.update_entity import update_entity_status
@@ -16,6 +16,7 @@ from app.services.project_workflow_service import (
     assign_hm,
     approve_project,
     create_draft_project,
+    create_draft_projects_by_flight,
     guard_structural_update,
     project_list_visibility_where,
     user_can_view_project,
@@ -33,12 +34,26 @@ entity_config = ENTITY_CONFIG.get("project")
 router = APIRouter()
 
 
+def _to_system_read(system: System) -> schemas.SystemRead:
+    status_name = system.status.status_name if system.status else None
+    return schemas.SystemRead(
+        **system.model_dump(),
+        status_name=status_name,
+        sdls_number=system.sdls.sequence if system.sdls else None,
+        subsystems=None,
+    )
+
+
 def _to_project_read(project: Project, *, include_systems: bool = True) -> schemas.ProjectRead:
     status_name = project.status.status_name if project.status else None
     return schemas.ProjectRead(
         **project.model_dump(),
         status_name=status_name,
-        systems=filter_current_installs(project.systems) if include_systems else None,
+        systems=(
+            [_to_system_read(system) for system in filter_current_installs(project.systems)]
+            if include_systems
+            else None
+        ),
     )
 
 
@@ -78,6 +93,29 @@ def create_project_draft(
             session, payload.model_dump(), actor=current_user
         )
         return _to_project_read(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/draft/bulk/",
+    response_model=schemas.ProjectDraftBulkCreateResponse,
+    tags=["projects"],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_project_drafts_by_flight(
+    payload: schemas.ProjectDraftCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.create_draft")),
+):
+    try:
+        projects = create_draft_projects_by_flight(
+            session, payload.model_dump(), actor=current_user
+        )
+        return schemas.ProjectDraftBulkCreateResponse(
+            projects=[_to_project_read(project) for project in projects],
+            count=len(projects),
+        )
     except ProjectWorkflowError as exc:
         raise _workflow_http_error(exc) from exc
 
@@ -707,4 +745,4 @@ def delete_project(project_id: int, session: Session = Depends(get_session), cur
 @router.get("/projects/{project_id}/systems/", response_model=List[schemas.SystemRead], tags=["projects"])
 def list_project_systems(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
     project = _require_visible_project(session, project_id, current_user)
-    return filter_current_installs(project.systems)
+    return [_to_system_read(system) for system in filter_current_installs(project.systems)]

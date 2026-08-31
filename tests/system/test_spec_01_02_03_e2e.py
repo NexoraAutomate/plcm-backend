@@ -210,6 +210,56 @@ class TestSpec01System:
 
 
 class TestSpec02System:
+    def test_bulk_draft_creates_one_project_per_flight(self, client, admin_headers):
+        code = _unique("P2B")
+        cfg = client.post(
+            "/api/hierarchy-configurations/",
+            headers=admin_headers,
+            json={
+                "code": code,
+                "name": code,
+                "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                "nodes": [{"client_key": "s1", "level": "system", "name": "Comm"}],
+            },
+        ).json()
+
+        bulk = client.post(
+            "/api/projects/draft/bulk/",
+            headers=admin_headers,
+            json={
+                "name": "ABC",
+                "hierarchy_config_id": cfg["id"],
+                "product_type": "SSDLS-1",
+                "flight_count": 3,
+                "sdls_counts_by_flight": [1, 3, 2],
+            },
+        )
+        assert bulk.status_code == 201, bulk.text
+        projects = bulk.json()["projects"]
+        assert bulk.json()["count"] == 3
+        assert [project["name"] for project in projects] == [
+            "ABC - Flight 1",
+            "ABC - Flight 2",
+            "ABC - Flight 3",
+        ]
+        assert [project["flight_count"] for project in projects] == [1, 1, 1]
+        assert [project["sdls_counts_by_flight"] for project in projects] == [
+            [1],
+            [3],
+            [2],
+        ]
+
+        with Session(engine) as session:
+            for project in projects:
+                db_project = session.get(Project, project["id"])
+                if db_project:
+                    session.delete(db_project)
+            session.commit()
+        client.delete(
+            f"/api/hierarchy-configurations/{cfg['id']}?hard=true",
+            headers=admin_headers,
+        )
+
     def test_draft_approve_generate_gate(self, client, admin_headers):
         code = _unique("P2")
         cfg = client.post(

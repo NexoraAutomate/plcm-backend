@@ -316,6 +316,85 @@ def create_draft_project(
     return project
 
 
+def create_draft_projects_by_flight(
+    session: Session,
+    payload: dict[str, Any],
+    *,
+    actor: User,
+) -> list[Project]:
+    """Create one draft project for each requested flight.
+
+    The whole operation shares one database transaction. Each resulting
+    project owns exactly one flight, while its name retains the original
+    project name and the source flight number.
+    """
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ProjectWorkflowError("name is required")
+
+    try:
+        flight_count = int(payload.get("flight_count"))
+    except (TypeError, ValueError) as exc:
+        raise ProjectWorkflowError(
+            "flight_count must be a positive integer"
+        ) from exc
+    if flight_count < 1:
+        raise ProjectWorkflowError("flight_count must be >= 1")
+
+    raw_sdls_counts = payload.get("sdls_counts_by_flight")
+    if raw_sdls_counts is None:
+        try:
+            legacy_sdls_per_flight = int(payload.get("sdls_per_flight"))
+        except (TypeError, ValueError) as exc:
+            raise ProjectWorkflowError(
+                "sdls_per_flight or sdls_counts_by_flight is required"
+            ) from exc
+        sdls_counts_by_flight = [legacy_sdls_per_flight] * flight_count
+    elif isinstance(raw_sdls_counts, (list, tuple)):
+        try:
+            sdls_counts_by_flight = [int(count) for count in raw_sdls_counts]
+        except (TypeError, ValueError) as exc:
+            raise ProjectWorkflowError(
+                "sdls_counts_by_flight must contain positive integers"
+            ) from exc
+    else:
+        raise ProjectWorkflowError("sdls_counts_by_flight must be a list")
+
+    if len(sdls_counts_by_flight) != flight_count:
+        raise ProjectWorkflowError(
+            "sdls_counts_by_flight must contain one value for each flight"
+        )
+    if any(count < 1 for count in sdls_counts_by_flight):
+        raise ProjectWorkflowError("sdls_counts_by_flight values must be >= 1")
+
+    projects: list[Project] = []
+    try:
+        for flight_number, sdls_count in enumerate(sdls_counts_by_flight, start=1):
+            flight_payload = {
+                **payload,
+                "name": f"{name} - Flight {flight_number}",
+                "flight_count": 1,
+                "sdls_per_flight": sdls_count,
+                "sdls_counts_by_flight": [sdls_count],
+            }
+            projects.append(
+                create_draft_project(
+                    session,
+                    flight_payload,
+                    actor=actor,
+                    commit=False,
+                )
+            )
+
+        session.commit()
+        for project in projects:
+            session.refresh(project)
+        return projects
+    except Exception:
+        session.rollback()
+        raise
+
+
 def assign_hm(
     session: Session,
     project_id: int,
