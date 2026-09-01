@@ -37,6 +37,7 @@ PROJECT_COLUMN_DDL = [
     ("approved_at", "TIMESTAMP WITH TIME ZONE"),
     ("successor_project_id", "INTEGER"),
     ("predecessor_project_id", "INTEGER"),
+    ("is_existing_project", "BOOLEAN DEFAULT FALSE NOT NULL"),
 ]
 
 SYSTEM_COLUMN_DDL = [

@@ -487,6 +487,7 @@ class ProjectRead(ProjectBase):
     approved_at: Optional[datetime] = None
     successor_project_id: Optional[int] = None
     predecessor_project_id: Optional[int] = None
+    is_existing_project: bool = False
     systems: Optional[List["SystemRead"]] = None
     class Config:
         orm_mode = True
@@ -507,6 +508,7 @@ class ProjectUpdate(SQLModel):
     sdls_per_flight: Optional[int] = None
     sdls_counts_by_flight: Optional[List[int]] = None
     assigned_hm_id: Optional[int] = None
+    is_existing_project: Optional[bool] = None
 
 
 class ProjectDraftCreate(SQLModel):
@@ -522,6 +524,7 @@ class ProjectDraftCreate(SQLModel):
     flight_count: int = Field(ge=1)
     sdls_per_flight: Optional[int] = Field(default=None, ge=1)
     sdls_counts_by_flight: Optional[List[int]] = None
+    is_existing_project: bool = False
 
 
 class ProjectDraftBulkCreateResponse(SQLModel):

@@ -293,3 +293,59 @@ def test_non_admin_cannot_approve_domain(
     session.delete(project)
     session.delete(actor)
     session.commit()
+
+
+def test_existing_project_auto_approves_generates_and_assigns_hm(
+    session: Session, admin_user: User, config: HierarchyConfiguration
+):
+    from app.models.tables import Flight, System
+    from app.services.project_workflow_service import project_status_name
+
+    project = create_draft_project(
+        session,
+        {
+            "name": f"Existing-{uuid.uuid4().hex[:6]}",
+            "hierarchy_config_id": config.id,
+            "product_type": "SSDLS-1",
+            "flight_count": 1,
+            "sdls_per_flight": 1,
+            "is_existing_project": True,
+        },
+        actor=admin_user,
+    )
+    assert project.is_existing_project is True
+    assert project.assigned_hm_id == admin_user.id
+    assert project_status_name(project) == ProjectWorkflowStatus.READY_FOR_INVENTORY.value
+
+    flights = session.exec(select(Flight).where(Flight.project_id == project.id)).all()
+    assert len(flights) == 1
+    systems = session.exec(select(System).where(System.project_id == project.id)).all()
+    assert len(systems) >= 1
+
+    session.delete(project)
+    session.commit()
+
+
+def test_existing_project_bulk_create_bootstraps_before_commit(
+    session: Session, admin_user: User, config: HierarchyConfiguration
+):
+    from app.services.project_workflow_service import project_status_name
+
+    projects = create_draft_projects_by_flight(
+        session,
+        {
+            "name": f"ExistingBulk-{uuid.uuid4().hex[:6]}",
+            "hierarchy_config_id": config.id,
+            "product_type": "SSDLS-1",
+            "flight_count": 2,
+            "sdls_counts_by_flight": [1, 1],
+            "is_existing_project": True,
+        },
+        actor=admin_user,
+    )
+    assert len(projects) == 2
+    for project in projects:
+        assert project_status_name(project) == ProjectWorkflowStatus.READY_FOR_INVENTORY.value
+        assert project.assigned_hm_id == admin_user.id
+        session.delete(project)
+    session.commit()

@@ -78,6 +78,8 @@ def _actor_role(user: User) -> WorkflowRole:
         return WorkflowRole.ADMIN
     if has_workflow_role(_role_names(user), WorkflowRole.HM):
         return WorkflowRole.HM
+    if has_workflow_role(_role_names(user), WorkflowRole.PD):
+        return WorkflowRole.PD
     return WorkflowRole.HM  # permission decorator already gated hierarchy.generate
 
 
@@ -251,11 +253,13 @@ def generate_project_hierarchy(
     project_id: int,
     *,
     actor: User,
+    automated: bool = False,
 ) -> dict[str, Any]:
     project = session.get(Project, project_id)
     if not project:
         raise ProjectWorkflowError("Project not found")
 
+    session.expire(project, ["status"])
     assert_can_generate_hierarchy(project, session)
     if project.id is not None:
         from app.services.config_change_service import (
@@ -309,6 +313,7 @@ def generate_project_hierarchy(
         )
     actor_id = int(actor.id)
     role = _actor_role(actor)
+    transition_role = None if automated else role
 
     counts = {
         "flights": 0,
@@ -375,13 +380,13 @@ def generate_project_hierarchy(
             "project",
             current,
             ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
-            actor_role=role,
+            actor_role=transition_role,
         )
         assert_transition(
             "project",
             ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
             ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
-            actor_role=role,
+            actor_role=transition_role,
         )
     except ValueError as exc:
         raise ProjectWorkflowError(str(exc)) from exc

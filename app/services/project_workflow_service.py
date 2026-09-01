@@ -186,6 +186,144 @@ def _require_available_config(
     return config
 
 
+def _can_bootstrap_existing_project(actor: User) -> bool:
+    """Admin, PD, and HM may register existing-hardware projects."""
+    names = _role_names(actor)
+    return (
+        has_workflow_role(names, WorkflowRole.ADMIN)
+        or has_workflow_role(names, WorkflowRole.PD)
+        or has_workflow_role(names, WorkflowRole.HM)
+    )
+
+
+def _assign_actor_as_hm(
+    session: Session,
+    project: Project,
+    *,
+    actor: User,
+) -> None:
+    """Ensure the creator is the project's Hierarchy Manager for existing-hardware flows."""
+    actor_id = int(actor.id)
+    previous_hm_id = project.assigned_hm_id
+    project.assigned_hm_id = actor_id
+    project.owner_id = actor_id
+    project.updated_at = _now()
+    session.add(project)
+    session.flush()
+    if previous_hm_id != actor_id:
+        write_workflow_audit(
+            session,
+            action=WorkflowAuditAction.HM_ASSIGNED,
+            entity_type="project",
+            entity_id=int(project.id),
+            actor=actor,
+            project_id=int(project.id),
+            old_value={"assigned_hm_id": previous_hm_id},
+            new_value={
+                "assigned_hm_id": actor_id,
+                "assigned_hm_name": actor.full_name or actor.username,
+                "auto": True,
+            },
+        )
+
+
+def _sync_project_status(session: Session, project: Project, status_id: int) -> None:
+    """Keep status_id and the status relationship aligned for workflow checks."""
+    project.status_id = status_id
+    project.status = session.get(Status, status_id)
+
+
+def _approve_existing_project(
+    session: Session,
+    project: Project,
+    *,
+    actor: User,
+) -> None:
+    """Auto-approve existing-hardware projects so hierarchy shells can generate immediately."""
+    if not _can_bootstrap_existing_project(actor):
+        raise ProjectWorkflowError(
+            "Only Admin, Project Director, or Hierarchy Manager can create existing-hardware projects"
+        )
+
+    current = project_status_name(project) or ProjectWorkflowStatus.DRAFT.value
+    if current != ProjectWorkflowStatus.DRAFT.value:
+        return
+
+    try:
+        assert_transition(
+            "project",
+            current,
+            ProjectWorkflowStatus.APPROVED.value,
+            actor_role=None,
+        )
+    except ValueError as exc:
+        raise ProjectWorkflowError(str(exc)) from exc
+
+    if not project.hierarchy_config_id:
+        raise ProjectWorkflowError(
+            "Cannot approve a project without a hierarchy configuration"
+        )
+    if not project.product_type or not project.flight_count or not project.sdls_per_flight:
+        raise ProjectWorkflowError(
+            "Cannot approve a project with incomplete product scope"
+        )
+
+    if project.hierarchy_config_id:
+        config = session.get(HierarchyConfiguration, project.hierarchy_config_id)
+        if config:
+            project.hierarchy_config_version = int(config.version or 1)
+
+    approved_status_id = get_project_status_id(
+        session, ProjectWorkflowStatus.APPROVED.value
+    )
+    _sync_project_status(session, project, approved_status_id)
+    project.approved_by_id = actor.id
+    project.approved_at = _now()
+    project.updated_at = _now()
+    session.add(project)
+    session.flush()
+
+    entity_config = ENTITY_CONFIG.get("project")
+    update_entity_status(
+        session=session,
+        entity=project,
+        entity_name=entity_config["display_name"],
+        changed_by_user=actor.id,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.PROJECT_APPROVED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"status": current},
+        new_value={"status": ProjectWorkflowStatus.APPROVED.value, "auto": True},
+    )
+
+
+def bootstrap_existing_project_hierarchy(
+    session: Session,
+    project: Project,
+    *,
+    actor: User,
+) -> dict[str, Any] | None:
+    """Approve and generate empty hierarchy shells for monitoring existing hardware."""
+    if not project.is_existing_project:
+        return None
+    if project.id is None:
+        raise ProjectWorkflowError("Project must be saved before hierarchy bootstrap")
+
+    _assign_actor_as_hm(session, project, actor=actor)
+    _approve_existing_project(session, project, actor=actor)
+    session.refresh(project)
+    from app.services.hierarchy_generation_service import generate_project_hierarchy
+
+    return generate_project_hierarchy(
+        session, int(project.id), actor=actor, automated=True
+    )
+
+
 def create_draft_project(
     session: Session,
     payload: dict[str, Any],
@@ -250,7 +388,14 @@ def create_draft_project(
     )
 
     assigned_hm_id = payload.get("assigned_hm_id")
-    if assigned_hm_id is None:
+    is_existing = bool(payload.get("is_existing_project"))
+    if is_existing:
+        if not _can_bootstrap_existing_project(actor):
+            raise ProjectWorkflowError(
+                "Only Admin, Project Director, or Hierarchy Manager can create existing-hardware projects"
+            )
+        assigned_hm_id = actor.id
+    elif assigned_hm_id is None:
         assigned_hm_id = actor.id
     else:
         assigned_hm_id = int(assigned_hm_id)
@@ -282,6 +427,7 @@ def create_draft_project(
         sdls_per_flight=sdls_per_flight,
         sdls_counts_by_flight=sdls_counts_by_flight,
         assigned_hm_id=assigned_hm_id,
+        is_existing_project=is_existing,
         created_by_id=actor.id,
         created_at=_now(),
         updated_at=_now(),
@@ -311,6 +457,8 @@ def create_draft_project(
         },
     )
     if commit:
+        if is_existing:
+            bootstrap_existing_project_hierarchy(session, project, actor=actor)
         session.commit()
         session.refresh(project)
     return project
@@ -385,6 +533,10 @@ def create_draft_projects_by_flight(
                     commit=False,
                 )
             )
+
+        for project in projects:
+            if project.is_existing_project:
+                bootstrap_existing_project_hierarchy(session, project, actor=actor)
 
         session.commit()
         for project in projects:

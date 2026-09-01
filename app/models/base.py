@@ -210,6 +210,7 @@ class ProjectCommon(SQLModel):
     predecessor_project_id: Optional[int] = Field(
         default=None, foreign_key="project.id", index=True
     )
+    is_existing_project: bool = Field(default=False)
 
 class ProjectBase(ProjectCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
