@@ -30,6 +30,7 @@ from app.services.project_workflow_service import (
     ProjectWorkflowError,
     approve_project,
     create_draft_project,
+    create_draft_projects_by_flight,
 )
 from app.services.schema_bootstrap import ensure_user_management_schema
 from app.services.workflow_foundation_seed import ensure_workflow_statuses
@@ -254,3 +255,37 @@ def test_non_hm_without_permission_role_still_domain_ok_for_admin(
     )
     result = generate_project_hierarchy(session, approved.id, actor=admin_user)
     assert result["ok"] is True
+
+
+def test_split_flight_project_uses_name_suffix_for_flight_number(
+    session: Session, admin_user: User, rich_config: HierarchyConfiguration
+):
+    """Per-flight projects from bulk draft must not all generate as Flight-1."""
+    projects = create_draft_projects_by_flight(
+        session,
+        {
+            "name": "Shopper-II MAV",
+            "hierarchy_config_id": rich_config.id,
+            "product_type": "SSDLS-1",
+            "flight_count": 2,
+            "sdls_counts_by_flight": [1, 1],
+            "start_date": datetime.now(timezone.utc),
+        },
+        actor=admin_user,
+    )
+    flight_two = next(p for p in projects if p.name.endswith("Flight 2"))
+    approved = approve_project(session, flight_two.id, actor=admin_user)
+
+    generate_project_hierarchy(session, approved.id, actor=admin_user)
+
+    flights = session.exec(
+        select(Flight).where(Flight.project_id == approved.id)
+    ).all()
+    assert len(flights) == 1
+    assert flights[0].name == "Flight-2"
+    assert flights[0].sequence == 2
+    assert flights[0].code == "F02"
+
+    for project in projects:
+        session.delete(project)
+    session.commit()

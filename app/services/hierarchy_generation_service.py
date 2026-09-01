@@ -4,6 +4,7 @@ Spec 03 — generate Flight → SDLS → System…Component tree for APPROVED pr
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -44,6 +45,24 @@ LEVEL_ORDER = {
     HierarchyConfigLevel.UNIT.value: 3,
     HierarchyConfigLevel.COMPONENT.value: 4,
 }
+
+# Per-flight split projects use names like "ABC - Flight 2" with flight_count=1.
+_FLIGHT_NAME_SUFFIX_RE = re.compile(r" - Flight (\d+)\s*$", re.IGNORECASE)
+
+
+def _first_flight_index(project: Project) -> int:
+    """
+    Return the starting flight index for hierarchy generation.
+
+    Bulk draft creation (`create_draft_projects_by_flight`) stores one flight per
+    project with flight_count=1 and encodes the real flight number in the name.
+    """
+    if int(project.flight_count or 1) != 1:
+        return 1
+    match = _FLIGHT_NAME_SUFFIX_RE.search(str(project.name or "").strip())
+    if match:
+        return int(match.group(1))
+    return 1
 
 
 def _now() -> datetime:
@@ -301,7 +320,9 @@ def generate_project_hierarchy(
         "components": 0,
     }
 
-    for f_idx in range(1, flight_count + 1):
+    first_flight_idx = _first_flight_index(project)
+    for offset in range(flight_count):
+        f_idx = first_flight_idx + offset
         flight = Flight(
             name=f"Flight-{f_idx}",
             code=f"F{f_idx:02d}",
@@ -314,7 +335,7 @@ def generate_project_hierarchy(
         _register_entity(session, flight, "flight", actor_id, int(project.id))
         counts["flights"] += 1
 
-        sdls_count = int(sdls_counts_by_flight[f_idx - 1])
+        sdls_count = int(sdls_counts_by_flight[offset])
         for s_idx in range(1, sdls_count + 1):
             sdls_name = f"SDLS-{s_idx}"
             sdls = Sdls(
