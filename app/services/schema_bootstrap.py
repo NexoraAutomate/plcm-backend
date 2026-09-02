@@ -1052,3 +1052,26 @@ def ensure_user_management_schema() -> None:
                 """
             )
         )
+
+    with engine.begin() as conn:
+        for value in ("issuance_signature", "issuance_proforma"):
+            conn.execute(
+                text(
+                    f"""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1 FROM pg_type WHERE typname = 'attachmenttype'
+                        ) AND NOT EXISTS (
+                            SELECT 1
+                            FROM pg_enum e
+                            JOIN pg_type t ON e.enumtypid = t.oid
+                            WHERE t.typname = 'attachmenttype'
+                              AND e.enumlabel = '{value}'
+                        ) THEN
+                            ALTER TYPE attachmenttype ADD VALUE '{value}';
+                        END IF;
+                    END $$;
+                    """
+                )
+            )

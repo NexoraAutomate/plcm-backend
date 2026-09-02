@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response, UploadFile, File, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import (
@@ -14,6 +14,7 @@ from app.models.tables import (
     InventoryReturnNotice,
     InventoryInstallerNotice,
     User,
+    EntityAttachment,
 )
 from app.schemas import schemas
 from app.routers.auth import get_current_user, require_permission
@@ -502,6 +503,20 @@ def list_inventory(
 
 
 @router.get(
+    "/inventory/stats/summary",
+    response_model=schemas.InventoryStatsSummary,
+    tags=["inventory"],
+)
+def inventory_stats_summary(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory")),
+):
+    from app.services.inventory_stats_service import build_inventory_stats_summary
+
+    return schemas.InventoryStatsSummary(**build_inventory_stats_summary(session, current_user))
+
+
+@router.get(
     "/inventory/ids/",
     response_model=schemas.InventoryIdsRead,
     tags=["inventory"],
@@ -775,6 +790,193 @@ def get_inventory_issuance_history(
         schemas.InventoryIssuanceEventRead.model_validate(event)
         for event in events
     ]
+
+
+def _require_issuance_view(
+    session: Session,
+    issuance_id: int,
+    current_user: User,
+) -> InventoryIssuance:
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    if not is_inventory_manager(current_user) and row.issued_to_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not allowed to view this issuance")
+    return row
+
+
+def _issuance_signature_read(session: Session, row: InventoryIssuance) -> schemas.InventoryIssuanceSignatureRead:
+    from app.models.base import AttachmentType
+    from app.services.issuance_signature_service import (
+        get_issuance_attachment,
+        issuance_signature_summary,
+    )
+
+    summary = issuance_signature_summary(session, row)
+    signature_attachment = None
+    proforma_attachment = None
+    if summary.get("signature_attachment_id"):
+        signature_attachment = session.get(EntityAttachment, summary["signature_attachment_id"])
+    if summary.get("proforma_attachment_id"):
+        proforma_attachment = session.get(EntityAttachment, summary["proforma_attachment_id"])
+    if signature_attachment is None and summary.get("has_signature_attachment"):
+        signature_attachment = get_issuance_attachment(
+            session, int(row.id), AttachmentType.ISSUANCE_SIGNATURE
+        )
+    if proforma_attachment is None and summary.get("has_proforma_attachment"):
+        proforma_attachment = get_issuance_attachment(
+            session, int(row.id), AttachmentType.ISSUANCE_PROFORMA
+        )
+    return schemas.InventoryIssuanceSignatureRead(
+        signature_type=summary.get("signature_type"),
+        has_signature_attachment=bool(summary.get("has_signature_attachment")),
+        has_proforma_attachment=bool(summary.get("has_proforma_attachment")),
+        signature_attachment_id=signature_attachment.id if signature_attachment else None,
+        proforma_attachment_id=proforma_attachment.id if proforma_attachment else None,
+        signature_file_name=signature_attachment.file_name if signature_attachment else None,
+        proforma_file_name=proforma_attachment.file_name if proforma_attachment else None,
+        signature_mime_type=signature_attachment.mime_type if signature_attachment else None,
+        proforma_mime_type=proforma_attachment.mime_type if proforma_attachment else None,
+    )
+
+
+@router.get(
+    "/inventory/issuances/{issuance_id}/signature/",
+    response_model=schemas.InventoryIssuanceSignatureRead,
+    tags=["inventory"],
+)
+def get_inventory_issuance_signature(
+    issuance_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory_issuances")),
+):
+    row = _require_issuance_view(session, issuance_id, current_user)
+    return _issuance_signature_read(session, row)
+
+
+@router.get(
+    "/inventory/issuances/{issuance_id}/signature/{kind}/download/",
+    tags=["inventory"],
+)
+def download_inventory_issuance_signature(
+    issuance_id: int,
+    kind: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_inventory_issuances")),
+):
+    from pathlib import Path
+
+    from app.models.base import AttachmentType, SignatureType
+    from app.services.issuance_signature_service import get_issuance_attachment
+
+    row = _require_issuance_view(session, issuance_id, current_user)
+    normalized = kind.strip().lower()
+    if normalized == "digital":
+        attachment = get_issuance_attachment(
+            session, int(row.id), AttachmentType.ISSUANCE_SIGNATURE
+        )
+        if attachment is None:
+            payload = (row.signature_payload or "").strip()
+            if (row.signature_type or "").upper() == SignatureType.DIGITAL.value and payload.startswith("data:"):
+                import base64
+                import re
+
+                match = re.match(r"^data:([^;]+);base64,(.+)$", payload, re.DOTALL)
+                if match:
+                    mime = match.group(1).strip() or "image/png"
+                    content = base64.b64decode(match.group(2))
+                    return Response(
+                        content=content,
+                        media_type=mime,
+                        headers={
+                            "Content-Disposition": 'inline; filename="issuance-signature.png"'
+                        },
+                    )
+            raise HTTPException(status_code=404, detail="Digital signature not found")
+    elif normalized == "proforma":
+        attachment = get_issuance_attachment(
+            session, int(row.id), AttachmentType.ISSUANCE_PROFORMA
+        )
+        if attachment is None:
+            raise HTTPException(status_code=404, detail="Issuance proforma not found")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid signature kind")
+
+    file_path = Path(attachment.file_path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Signature file missing on disk")
+    disposition = "inline" if normalized == "digital" else "attachment"
+    return FileResponse(
+        path=file_path,
+        filename=attachment.file_name,
+        media_type=attachment.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{attachment.file_name}"'},
+    )
+
+
+@router.post(
+    "/inventory/issuances/{issuance_id}/proforma/",
+    response_model=schemas.InventoryIssuanceSignatureRead,
+    status_code=201,
+    tags=["inventory"],
+)
+async def upload_inventory_issuance_proforma(
+    issuance_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    import uuid
+    from pathlib import Path
+
+    from app.models.base import AttachmentType, SignatureType
+    from app.services.issuance_signature_service import (
+        ISSUANCE_OWNER_TYPE,
+        UPLOAD_ROOT,
+        get_issuance_attachment,
+    )
+
+    _require_can_issue(current_user)
+
+    row = session.get(InventoryIssuance, issuance_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Issuance not found")
+    if (row.signature_type or "").upper() != SignatureType.HARD_COPY.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Proforma upload is only allowed for hard-copy issuances",
+        )
+
+    existing = get_issuance_attachment(session, int(row.id), AttachmentType.ISSUANCE_PROFORMA)
+    if existing:
+        old_path = Path(existing.file_path)
+        if old_path.is_file():
+            old_path.unlink()
+        session.delete(existing)
+        session.flush()
+
+    ext = Path(file.filename or "proforma").suffix or ".pdf"
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    dest_dir = UPLOAD_ROOT / ISSUANCE_OWNER_TYPE / str(row.id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / stored_name
+    content = await file.read()
+    dest_path.write_bytes(content)
+
+    attachment = EntityAttachment(
+        owner_type=ISSUANCE_OWNER_TYPE,
+        owner_id=int(row.id),
+        file_name=file.filename or stored_name,
+        file_path=str(dest_path.as_posix()),
+        mime_type=file.content_type,
+        attachment_type=AttachmentType.ISSUANCE_PROFORMA,
+        description="Inventory Issuance Proforma (hard copy scan)",
+        uploaded_by_id=current_user.id,
+    )
+    session.add(attachment)
+    session.commit()
+    session.refresh(row)
+    return _issuance_signature_read(session, row)
 
 
 @router.post(

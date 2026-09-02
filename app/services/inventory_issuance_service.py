@@ -382,7 +382,36 @@ def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
     return to_api_utc(value)
 
 
+def issuance_display_status(row: InventoryIssuance) -> str:
+    """Human-readable latest status for list views."""
+    status = (row.status or IssuanceStatus.ISSUED.value).strip().lower()
+    if status in (
+        IssuanceStatus.RETURN_PENDING.value,
+        IssuanceStatus.RETURNED.value,
+        IssuanceStatus.REVERTED.value,
+        IssuanceStatus.INSTALLED.value,
+    ):
+        return status.replace("_", " ")
+
+    lifecycle = (row.item_lifecycle_status or ItemStatus.ISSUED.value).strip().upper()
+    if row.verified_at or lifecycle == ItemStatus.INSTALLED_VERIFIED.value:
+        return "installed verified"
+    if getattr(row, "defect_pending", False):
+        return "defect pending"
+    if lifecycle == ItemStatus.INSTALLATION_IN_PROGRESS.value:
+        return "install in progress"
+    if lifecycle == ItemStatus.UNDER_TESTING_REVIEW.value:
+        return "under testing"
+    if lifecycle == ItemStatus.INSPECTION.value:
+        return "inspection"
+    if lifecycle not in ("", ItemStatus.ISSUED.value):
+        return lifecycle.lower().replace("_", " ")
+    return status.replace("_", " ")
+
+
 def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
+    from app.services.issuance_signature_service import issuance_signature_summary
+
     issued_to = session.get(User, row.issued_to_user_id) if row.issued_to_user_id else None
     issued_by = session.get(User, row.issued_by_user_id) if row.issued_by_user_id else None
     installed_by = session.get(User, row.installed_by_id) if row.installed_by_id else None
@@ -400,6 +429,8 @@ def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     data["issued_by_name"] = _user_display_name(issued_by)
     data["installed_by_name"] = _user_display_name(installed_by)
     data["closed_by_name"] = _user_display_name(closed_by)
+    data["display_status"] = issuance_display_status(row)
+    data.update(issuance_signature_summary(session, row))
     data.pop("signature_payload", None)
     return data
 
@@ -763,6 +794,15 @@ def issue_inventory_unit(
     )
     session.add(issuance)
     session.flush()
+    if sig_type == SignatureType.DIGITAL.value:
+        from app.services.issuance_signature_service import save_digital_signature_attachment
+
+        save_digital_signature_attachment(
+            session,
+            issuance,
+            sig_payload,
+            uploaded_by_id=issued_by_user_id,
+        )
     actor = session.get(User, issued_by_user_id)
     record_issuance_event(
         session,

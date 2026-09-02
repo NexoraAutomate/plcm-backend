@@ -1154,6 +1154,8 @@ class AttachmentType(str, Enum):
     WARRANTY           = "warranty"
     INVOICE            = "invoice"
     INSTALLATION_GUIDE = "installation_guide"
+    ISSUANCE_SIGNATURE = "issuance_signature"
+    ISSUANCE_PROFORMA  = "issuance_proforma"
     OTHER              = "other"
 
 # =============================================================================

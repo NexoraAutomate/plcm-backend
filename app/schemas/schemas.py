@@ -1137,6 +1137,11 @@ class InventoryIssuanceRead(SQLModel):
     closed_by_id: Optional[int] = None
     return_requested_at: Optional[datetime] = None
     signature_type: Optional[str] = None
+    display_status: Optional[str] = None
+    has_signature_attachment: bool = False
+    has_proforma_attachment: bool = False
+    signature_attachment_id: Optional[int] = None
+    proforma_attachment_id: Optional[int] = None
     item_request_id: Optional[int] = None
     reservation_id: Optional[int] = None
     project_id: Optional[int] = None
@@ -1155,6 +1160,18 @@ class InventoryIssuanceRead(SQLModel):
 
 class InventoryIssuanceReturnRequest(SQLModel):
     notes: str
+
+
+class InventoryIssuanceSignatureRead(SQLModel):
+    signature_type: Optional[str] = None
+    has_signature_attachment: bool = False
+    has_proforma_attachment: bool = False
+    signature_attachment_id: Optional[int] = None
+    proforma_attachment_id: Optional[int] = None
+    signature_file_name: Optional[str] = None
+    proforma_file_name: Optional[str] = None
+    signature_mime_type: Optional[str] = None
+    proforma_mime_type: Optional[str] = None
 
 
 class InventoryIssuanceEventRead(SQLModel):
@@ -1267,6 +1284,18 @@ class InventoryConsumeRead(SQLModel):
 
 class InventoryIdsRead(SQLModel):
     ids: List[int] = Field(default_factory=list)
+
+
+class InventoryStatsSummary(SQLModel):
+    total_catalog_items: int = 0
+    available_units: int = 0
+    reserved_issued_open_units: int = 0
+    out_of_stock_catalog_items: int = 0
+    out_of_stock_top_names: List[str] = Field(default_factory=list)
+    open_shortages: int = 0
+    open_shortage_top_names: List[str] = Field(default_factory=list)
+    pending_issue_requests: int = 0
+    return_pending_inspect: int = 0
 
 
 class InventoryBulkDeleteRequest(SQLModel):
