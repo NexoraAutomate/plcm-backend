@@ -735,12 +735,21 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
 
 @router.delete("/projects/{project_id}/", tags=["projects"])
 def delete_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("delete_projects"))):
-    project = session.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    session.delete(project)
-    session.commit()
-    return {"ok": True}
+    from app.services.project_delete_service import (
+        ProjectDeleteError,
+        delete_project as do_delete_project,
+    )
+
+    try:
+        return do_delete_project(session, project_id, actor=current_user)
+    except ProjectDeleteError as exc:
+        detail = str(exc)
+        lower = detail.lower()
+        if "not found" in lower:
+            code = status.HTTP_404_NOT_FOUND
+        else:
+            code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(status_code=code, detail=detail) from exc
 
 @router.get("/projects/{project_id}/systems/", response_model=List[schemas.SystemRead], tags=["projects"])
 def list_project_systems(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
