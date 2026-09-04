@@ -212,6 +212,7 @@ class AppDefinitionsRead(SQLModel):
     inventory_qr_sticker_height_in: float = 1.25
     inventory_barcode_sticker_width_in: float = 2.25
     inventory_barcode_sticker_height_in: float = 0.9
+    inventory_location_tree: Optional[list[dict]] = None
     updated_at: Optional[datetime] = None
 
     class Config:
@@ -259,6 +260,7 @@ class AppDefinitionsUpdate(SQLModel):
     inventory_qr_sticker_height_in: Optional[float] = None
     inventory_barcode_sticker_width_in: Optional[float] = None
     inventory_barcode_sticker_height_in: Optional[float] = None
+    inventory_location_tree: Optional[list[dict]] = None
 
 
 class AuditLogRead(SQLModel):
@@ -975,6 +977,9 @@ class InventoryInstanceUpdate(SQLModel):
     status_id: Optional[int] = None
     holder_user_id: Optional[int] = None
     location: Optional[str] = None
+    location_room: Optional[str] = None
+    location_cabinet: Optional[str] = None
+    location_rack: Optional[str] = None
     added_date: Optional[datetime] = None
     shelf_life_expires_at: Optional[datetime] = None
     picture_url: Optional[str] = None
@@ -1319,6 +1324,9 @@ class InventoryUpdate(SQLModel):
     status_id: Optional[int] = None
     sku: Optional[str] = None
     location: Optional[str] = None
+    location_room: Optional[str] = None
+    location_cabinet: Optional[str] = None
+    location_rack: Optional[str] = None
     entity_id: Optional[int] = None
     holder_user_id: Optional[int] = None
     added_date: Optional[datetime] = None

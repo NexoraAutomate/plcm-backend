@@ -173,6 +173,10 @@ class AppDefinitionsCommon(SQLModel):
     inventory_qr_sticker_height_in: float = 1.25
     inventory_barcode_sticker_width_in: float = 2.25
     inventory_barcode_sticker_height_in: float = 0.9
+    # Hierarchical storage: Room → Cabinets → Racks (one-to-many tree)
+    inventory_location_tree: Optional[list[dict[str, Any]]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
 
 
 class AppDefinitionsBase(AppDefinitionsCommon):
@@ -437,6 +441,9 @@ class InventoryCommon(HierarchyInstallFields):
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
     sku: Optional[str] = None
     location: Optional[str] = None
+    location_room: Optional[str] = Field(default=None, max_length=120)
+    location_cabinet: Optional[str] = Field(default=None, max_length=120)
+    location_rack: Optional[str] = Field(default=None, max_length=120)
     entity_id: Optional[int] = None  # PK of linked hierarchy row after install
     holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -453,6 +460,9 @@ class InventoryInstanceCommon(HierarchyInstallFields):
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
     holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     location: Optional[str] = None
+    location_room: Optional[str] = Field(default=None, max_length=120)
+    location_cabinet: Optional[str] = Field(default=None, max_length=120)
+    location_rack: Optional[str] = Field(default=None, max_length=120)
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     shelf_life_expires_at: Optional[datetime] = None
 

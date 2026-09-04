@@ -476,6 +476,72 @@ def _add_columns_if_missing(table: str, columns: list[tuple[str, str]]) -> None:
             )
 
 
+def _table_exists(conn, table: str) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = :table
+            LIMIT 1
+            """
+        ),
+        {"table": table},
+    ).first()
+    return row is not None
+
+
+def _dedupe_inventoryinstance_serials(conn) -> None:
+    """Keep the oldest unit serial; suffix later copies so the unique index can be created."""
+    conn.execute(
+        text(
+            """
+            UPDATE inventoryinstance AS inst
+            SET serial_number = LEFT(
+                    inst.serial_number,
+                    GREATEST(1, 128 - LENGTH('-DUP-' || inst.id::text))
+                ) || '-DUP-' || inst.id::text
+            WHERE inst.id IN (
+                SELECT ranked.id
+                FROM (
+                    SELECT
+                        id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY inventory_id, LOWER(serial_number)
+                            ORDER BY id ASC
+                        ) AS rn
+                    FROM inventoryinstance
+                    WHERE serial_number IS NOT NULL
+                ) AS ranked
+                WHERE ranked.rn > 1
+            )
+            """
+        )
+    )
+
+
+def _ensure_inventoryinstance_serial_unique_index(conn) -> None:
+    """Create the case-insensitive unit serial uniqueness index without aborting startup."""
+    if not _table_exists(conn, "inventoryinstance"):
+        return
+    conn.execute(text("SAVEPOINT inventory_serial_ci"))
+    try:
+        _dedupe_inventoryinstance_serials(conn)
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_inventoryinstance_inventory_serial_ci
+                ON inventoryinstance (inventory_id, LOWER(serial_number))
+                WHERE serial_number IS NOT NULL
+                """
+            )
+        )
+        conn.execute(text("RELEASE SAVEPOINT inventory_serial_ci"))
+    except Exception:
+        conn.execute(text("ROLLBACK TO SAVEPOINT inventory_serial_ci"))
+
+
 def _restrict_workflow_audit_privileges(conn) -> None:
     """App role may INSERT + SELECT audit rows; UPDATE/DELETE stay revoked.
 
@@ -516,16 +582,7 @@ def ensure_user_management_schema() -> None:
         [("abbreviation", "VARCHAR")],
     )
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS
-                    uq_inventoryinstance_inventory_serial_ci
-                ON inventoryinstance (inventory_id, LOWER(serial_number))
-                WHERE serial_number IS NOT NULL
-                """
-            )
-        )
+        _ensure_inventoryinstance_serial_unique_index(conn)
         conn.execute(text(INVENTORY_LABEL_TABLE_DDL))
         conn.execute(text(INVENTORY_LABEL_PRINT_EVENT_TABLE_DDL))
         conn.execute(text(INVENTORY_LABEL_SCAN_EVENT_TABLE_DDL))
@@ -621,6 +678,7 @@ def ensure_user_management_schema() -> None:
             ("inventory_qr_sticker_height_in", "DOUBLE PRECISION DEFAULT 1.25 NOT NULL"),
             ("inventory_barcode_sticker_width_in", "DOUBLE PRECISION DEFAULT 2.25 NOT NULL"),
             ("inventory_barcode_sticker_height_in", "DOUBLE PRECISION DEFAULT 0.9 NOT NULL"),
+            ("inventory_location_tree", "JSON"),
         ],
     )
 

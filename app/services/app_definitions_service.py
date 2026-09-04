@@ -53,6 +53,7 @@ DEFAULT_APP_DEFINITIONS = {
     "inventory_qr_sticker_height_in": 1.25,
     "inventory_barcode_sticker_width_in": 2.25,
     "inventory_barcode_sticker_height_in": 0.9,
+    "inventory_location_tree": [],
 }
 
 ENTITY_LEVELS = ("project", "system", "subsystem", "module", "unit", "component")
@@ -107,6 +108,10 @@ LABEL_SETTING_FIELDS = (
     "inventory_qr_sticker_height_in",
     "inventory_barcode_sticker_width_in",
     "inventory_barcode_sticker_height_in",
+)
+
+LOCATION_PRESET_FIELDS = (
+    "inventory_location_tree",
 )
 
 _PADDED_TOKEN = re.compile(
@@ -361,6 +366,88 @@ def _validate_inches(value: Any, field: str) -> float:
     return round(cleaned, 3)
 
 
+def _new_location_id() -> str:
+    return f"loc_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+
+
+def _validate_named_node(raw: Any, *, kind: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"Each {kind} must be an object")
+    name = str(raw.get("name") or "").strip()
+    if not name:
+        raise ValueError(f"{kind} name cannot be empty")
+    if len(name) > 120:
+        raise ValueError(f"{kind} name must be 120 characters or fewer")
+    node_id = str(raw.get("id") or "").strip() or _new_location_id()
+    if len(node_id) > 64:
+        raise ValueError(f"{kind} id must be 64 characters or fewer")
+    return {"id": node_id, "name": name}
+
+
+def _validate_location_tree(value: Any, field: str) -> list[dict[str, Any]]:
+    """Validate Room → Cabinet → Rack one-to-many tree."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list of rooms")
+    if len(value) > 100:
+        raise ValueError(f"{field} cannot exceed 100 rooms")
+
+    rooms: list[dict[str, Any]] = []
+    room_names: set[str] = set()
+    for room_raw in value:
+        room = _validate_named_node(room_raw, kind="room")
+        room_key = room["name"].casefold()
+        if room_key in room_names:
+            raise ValueError(f"Duplicate room name: {room['name']}")
+        room_names.add(room_key)
+
+        cabinets_raw = room_raw.get("cabinets") if isinstance(room_raw, dict) else []
+        if cabinets_raw is None:
+            cabinets_raw = []
+        if not isinstance(cabinets_raw, list):
+            raise ValueError(f"Room '{room['name']}' cabinets must be a list")
+        if len(cabinets_raw) > 100:
+            raise ValueError(f"Room '{room['name']}' cannot exceed 100 cabinets")
+
+        cabinets: list[dict[str, Any]] = []
+        cabinet_names: set[str] = set()
+        for cabinet_raw in cabinets_raw:
+            cabinet = _validate_named_node(cabinet_raw, kind="cabinet")
+            cabinet_key = cabinet["name"].casefold()
+            if cabinet_key in cabinet_names:
+                raise ValueError(
+                    f"Duplicate cabinet '{cabinet['name']}' under room '{room['name']}'"
+                )
+            cabinet_names.add(cabinet_key)
+
+            racks_raw = cabinet_raw.get("racks") if isinstance(cabinet_raw, dict) else []
+            if racks_raw is None:
+                racks_raw = []
+            if not isinstance(racks_raw, list):
+                raise ValueError(f"Cabinet '{cabinet['name']}' racks must be a list")
+            if len(racks_raw) > 100:
+                raise ValueError(f"Cabinet '{cabinet['name']}' cannot exceed 100 racks")
+
+            racks: list[dict[str, Any]] = []
+            rack_names: set[str] = set()
+            for rack_raw in racks_raw:
+                rack = _validate_named_node(rack_raw, kind="rack")
+                rack_key = rack["name"].casefold()
+                if rack_key in rack_names:
+                    raise ValueError(
+                        f"Duplicate rack '{rack['name']}' under cabinet '{cabinet['name']}'"
+                    )
+                rack_names.add(rack_key)
+                racks.append(rack)
+
+            cabinets.append({**cabinet, "racks": racks})
+
+        rooms.append({**room, "cabinets": cabinets})
+
+    return rooms
+
+
 def update_app_definitions(
     session: Session,
     updates: dict,
@@ -376,7 +463,9 @@ def update_app_definitions(
     }
 
     for key, value in updates.items():
-        if not hasattr(settings, key) or value is None:
+        if not hasattr(settings, key):
+            continue
+        if value is None and key not in LOCATION_PRESET_FIELDS:
             continue
         if key in TEMPLATE_FIELDS:
             value = _validate_template(str(value), key)
@@ -390,9 +479,12 @@ def update_app_definitions(
                 raise ValueError("inventory_label_code_type must be qr or barcode")
         elif key in LABEL_SETTING_FIELDS:
             value = _validate_inches(value, key)
+        elif key in LOCATION_PRESET_FIELDS:
+            value = _validate_location_tree(value, key)
         else:
             continue
-        candidate[key] = value
+        if key in LABEL_SETTING_FIELDS:
+            candidate[key] = value
 
         previous = getattr(settings, key)
         if previous == value:

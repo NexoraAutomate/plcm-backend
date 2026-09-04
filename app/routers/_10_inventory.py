@@ -340,13 +340,42 @@ def _issuance_to_read(session: Session, row: InventoryIssuance) -> schemas.Inven
     return schemas.InventoryIssuanceRead.model_validate(issuance_to_dict(session, row))
 
 
+def _compose_location(
+    room: Optional[str] = None,
+    cabinet: Optional[str] = None,
+    rack: Optional[str] = None,
+    fallback: Optional[str] = None,
+) -> Optional[str]:
+    parts = [part.strip() for part in (room, cabinet, rack) if part and str(part).strip()]
+    if parts:
+        return " / ".join(parts)
+    text = (fallback or "").strip()
+    return text or None
+
+
+def _apply_location_parts(data: dict) -> None:
+    """Normalize Room/Cabinet/Rack and keep legacy `location` in sync."""
+    room = (data.get("location_room") or "").strip() or None
+    cabinet = (data.get("location_cabinet") or "").strip() or None
+    rack = (data.get("location_rack") or "").strip() or None
+    data["location_room"] = room
+    data["location_cabinet"] = cabinet
+    data["location_rack"] = rack
+    composed = _compose_location(room, cabinet, rack, data.get("location"))
+    if composed:
+        data["location"] = composed
+
+
 def _extract_instance_fields(data: dict) -> dict:
-    return {
+    fields = {
         "serial_number": data.pop("serial_number", None),
         "configuration_item": data.pop("configuration_item", None),
         "status_id": data.pop("status_id", None),
         "holder_user_id": data.pop("holder_user_id", None),
         "location": data.pop("location", None),
+        "location_room": data.pop("location_room", None),
+        "location_cabinet": data.pop("location_cabinet", None),
+        "location_rack": data.pop("location_rack", None),
         "added_date": data.pop("added_date", None),
         "shelf_life_expires_at": data.pop("shelf_life_expires_at", None),
         "picture_url": data.pop("picture_url", None),
@@ -355,6 +384,8 @@ def _extract_instance_fields(data: dict) -> dict:
         "original_part_number": data.pop("original_part_number", None),
         "original_serial_number": data.pop("original_serial_number", None),
     }
+    _apply_location_parts(fields)
+    return fields
 
 
 def _resolve_part_number(data: dict) -> Optional[str]:
@@ -403,6 +434,9 @@ def create_inventory(
     data["serial_number"] = None
     data["holder_user_id"] = None
     data["location"] = None
+    data["location_room"] = None
+    data["location_cabinet"] = None
+    data["location_rack"] = None
     data["shelf_life_expires_at"] = None
     data["picture_url"] = None
     data["installation_date"] = None
@@ -1499,6 +1533,9 @@ def update_inventory(
         "status_id",
         "holder_user_id",
         "location",
+        "location_room",
+        "location_cabinet",
+        "location_rack",
         "added_date",
         "shelf_life_expires_at",
         "picture_url",
@@ -1838,6 +1875,7 @@ def create_inventory_instance_endpoint(
         raise HTTPException(status_code=404, detail="Inventory not found")
 
     data = instance.model_dump()
+    _apply_location_parts(data)
     if not (data.get("location") or "").strip():
         data["location"] = "Warehouse"
 
@@ -1874,6 +1912,20 @@ def update_inventory_instance(
     if not db_instance:
         raise HTTPException(status_code=404, detail="Inventory instance not found")
     update_data = instance.model_dump(exclude_unset=True)
+    if any(
+        key in update_data
+        for key in ("location", "location_room", "location_cabinet", "location_rack")
+    ):
+        merged = {
+            "location": update_data.get("location", db_instance.location),
+            "location_room": update_data.get("location_room", db_instance.location_room),
+            "location_cabinet": update_data.get(
+                "location_cabinet", db_instance.location_cabinet
+            ),
+            "location_rack": update_data.get("location_rack", db_instance.location_rack),
+        }
+        _apply_location_parts(merged)
+        update_data.update(merged)
     if "serial_number" in update_data:
         serial_number = (update_data.get("serial_number") or "").strip()
         if not serial_number:
