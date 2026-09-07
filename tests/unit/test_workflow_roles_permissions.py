@@ -36,13 +36,20 @@ ROLE_PRIMARY_PERMS = {
         "hierarchy.generate",
         "inventory.reserve",
         "item.verify",
+        "view_my_assignments",
+        "view_notifications",
     ],
     WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM]: [
         "inventory.receive",
         "inventory.issue",
         "item.inspect",
     ],
-    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV]: ["item.request", "item.install_test"],
+    WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV]: [
+        "item.request",
+        "item.install_test",
+        "view_my_assignments",
+        "view_notifications",
+    ],
 }
 
 

@@ -62,6 +62,20 @@ def create_backup(
             ip_address=client_ip(request),
             commit=True,
         )
+        from app.services.app_notification_service import notify
+
+        notify(
+            session,
+            event_type="backup_created",
+            title="Database backup created",
+            message=filename,
+            href="/settings",
+            priority="high",
+            actor=current_user,
+            include_admin=True,
+            entity_type="backup",
+        )
+        session.commit()
         background_tasks.add_task(_cleanup_backup_file, zip_path)
         return FileResponse(
             path=str(zip_path),
@@ -133,6 +147,20 @@ async def restore_backup(
                 ip_address=client_ip(request),
                 commit=True,
             )
+            from app.services.app_notification_service import notify
+
+            notify(
+                audit_session,
+                event_type="backup_restored",
+                title="Database restore completed",
+                message=file.filename or "Backup archive restored",
+                href="/settings",
+                priority="high",
+                actor=restored_actor,
+                include_admin=True,
+                entity_type="backup",
+            )
+            audit_session.commit()
 
         return result
     except BackupError as exc:

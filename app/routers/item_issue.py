@@ -96,11 +96,16 @@ def require_item_request_or_issue(user: User = Depends(get_current_user)) -> Use
 
 
 def require_mine_assignments(user: User = Depends(get_current_user)) -> User:
-    if check_permission(user, "item.request") or check_permission(user, "item.install_test"):
+    if (
+        check_permission(user, "view_my_assignments")
+        or check_permission(user, "item.request")
+        or check_permission(user, "item.install_test")
+        or check_permission(user, "hierarchy.assign_developer")
+    ):
         return user
     raise HTTPException(
         status_code=403,
-        detail="User does not have permission: item.request",
+        detail="User does not have permission: view_my_assignments",
     )
 
 

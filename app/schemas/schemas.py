@@ -1715,6 +1715,25 @@ class InventoryReservationExpiryNoticeRead(SQLModel):
         orm_mode = True
 
 
+class AppNotificationRead(SQLModel):
+    id: int
+    user_id: int
+    event_type: str
+    title: str
+    message: str
+    href: str
+    priority: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    actor_user_id: Optional[int] = None
+    project_id: Optional[int] = None
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
 class ReservationExpiryJobResult(SQLModel):
     examined: int = 0
     reminded: int = 0

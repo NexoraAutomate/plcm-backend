@@ -572,7 +572,10 @@ def verify_issuance(
         actor=actor,
         project_id=issuance.project_id,
         old_value={"status": ItemStatus.UNDER_TESTING_REVIEW.value},
-        new_value={"status": ItemStatus.INSTALLED_VERIFIED.value},
+        new_value={
+            "status": ItemStatus.INSTALLED_VERIFIED.value,
+            "issued_to_user_id": issuance.issued_to_user_id,
+        },
         remarks=notes,
     )
     from app.services.inventory_assembly_service import (

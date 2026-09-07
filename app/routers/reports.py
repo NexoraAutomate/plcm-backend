@@ -73,9 +73,27 @@ def get_build_history_dossier(
     current_user: User = Depends(require_permission("generate_build_dossier")),
 ):
     try:
-        return report_service.build_history_dossier(session, project_id)
+        result = report_service.build_history_dossier(session, project_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="report_build_dossier",
+        title="Build history dossier generated",
+        message=f"Build dossier generated for project #{project_id}",
+        href=f"/reporting/build-history/{project_id}",
+        priority="low",
+        actor=current_user,
+        include_assigned_hm=True,
+        include_concerned_pd=True,
+        project_id=project_id,
+        entity_type="project",
+        entity_id=project_id,
+    )
+    session.commit()
+    return result
 
 
 @router.get("/hierarchy/{project_id}", response_model=HierarchyReportResponse)
@@ -107,9 +125,26 @@ def get_maintenance_history_dossier(
     current_user: User = Depends(require_permission("generate_maintenance_dossier")),
 ):
     try:
-        return report_service.maintenance_history_dossier(session, case_id)
+        result = report_service.maintenance_history_dossier(session, case_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="report_maintenance_dossier",
+        title="Maintenance history dossier generated",
+        message=f"Maintenance dossier generated for case #{case_id}",
+        href=f"/reporting/maintenance-history/{case_id}",
+        priority="low",
+        actor=current_user,
+        include_maintenance=True,
+        include_pd=True,
+        entity_type="maintenance_case",
+        entity_id=case_id,
+    )
+    session.commit()
+    return result
 
 
 @router.get("/inventory", response_model=InventoryReportResponse)

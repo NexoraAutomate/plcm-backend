@@ -549,6 +549,9 @@ def sync_project_progress(session: Session, project_id: int) -> dict[str, Any]:
         raise ProjectProgressError("Project not found")
     project.progress = int(snapshot["progress_pct"])
     session.add(project)
+    from app.services.app_notification_service import notify_progress_milestones
+
+    notify_progress_milestones(session, project, int(project.progress or 0))
     try:
         _apply_completion_gate(session, project, snapshot)
     except ProjectWorkflowError as exc:

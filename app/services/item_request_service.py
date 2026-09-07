@@ -133,6 +133,21 @@ def create_item_request(
     )
     session.add(row)
     if commit:
+        from app.services.app_notification_service import notify
+
+        notify(
+            session,
+            event_type="item_request_created",
+            title="Inventory issue requested",
+            message=f"Developer requested issue of reserved stock",
+            href="/issue-queue",
+            priority="high",
+            actor=actor,
+            include_im=True,
+            project_id=row.project_id,
+            entity_type="item_request",
+            entity_id=row.id,
+        )
         session.commit()
         session.refresh(row)
     else:
@@ -220,6 +235,24 @@ def create_bulk_item_requests(
     session.commit()
     for created_row in created:
         session.refresh(created_row)
+    if created:
+        from app.services.app_notification_service import notify
+
+        notify(
+            session,
+            event_type="item_request_created",
+            title="Inventory issue requested",
+            message=f"{len(created)} item request(s) waiting to be issued",
+            href="/issue-queue",
+            priority="high",
+            actor=actor,
+            include_im=True,
+            project_id=created[0].project_id,
+            entity_type="item_request",
+            entity_id=created[0].id,
+            dedupe_key=f"item_request_bulk:{actor.id}:{created[0].id}",
+        )
+        session.commit()
     return created, skipped
 
 
@@ -315,6 +348,21 @@ def issue_item_request(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, row.project_id)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="item_issued_hm",
+        title="Requested inventory issued",
+        message="IM issued a requested item to the developer",
+        href=f"/projects/{row.project_id}" if row.project_id else "/projects",
+        priority="low",
+        actor=actor,
+        include_assigned_hm=True,
+        project_id=row.project_id,
+        entity_type="item_request",
+        entity_id=row.id,
+    )
     session.commit()
     session.refresh(row)
     return row

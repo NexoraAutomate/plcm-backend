@@ -314,6 +314,23 @@ def ensure_open_rework_case(
             actor=actor,
             notes=notes or f"Rework re-entered at attempt {existing.attempt_count}",
         )
+        if cycle_warning(existing.attempt_count):
+            from app.services.app_notification_service import notify
+
+            notify(
+                session,
+                event_type="rework_cycle_warning",
+                title="Rework cycle warning",
+                message=f"Rework has looped {existing.attempt_count} times",
+                href=f"/projects/{existing.project_id}" if existing.project_id else "/projects",
+                priority="high",
+                actor=actor,
+                include_assigned_hm=True,
+                include_concerned_pd=True,
+                project_id=existing.project_id,
+                entity_type="inventory_rework",
+                entity_id=existing.id,
+            )
         return existing
 
     existing.current_issuance_id = issuance.id
@@ -393,6 +410,22 @@ def remove_item(
         IssuanceEventType.ITEM_REMOVED.value,
         actor=actor,
         notes=notes,
+    )
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="rework_item_removed",
+        title="Defective item removed",
+        message="Developer removed a failed item for return to IM",
+        href="/inspect-queue",
+        priority="high",
+        actor=actor,
+        include_im=True,
+        include_assigned_hm=True,
+        project_id=case.project_id,
+        entity_type="inventory_rework",
+        entity_id=case.id,
     )
     session.commit()
     session.refresh(case)
@@ -481,8 +514,22 @@ def start_inspection(
         notes=notes,
     )
     from app.services.project_progress_service import touch_project_progress
+    from app.services.app_notification_service import notify
 
     touch_project_progress(session, case.project_id)
+    notify(
+        session,
+        event_type="inspection_started",
+        title="Inspection started",
+        message="IM started inspection of a returned item",
+        href="/inspect-queue",
+        priority="low",
+        actor=actor,
+        include_assigned_hm=True,
+        project_id=case.project_id,
+        entity_type="inventory_rework",
+        entity_id=case.id,
+    )
     session.commit()
     session.refresh(case)
     return case
@@ -526,8 +573,26 @@ def disposition_item(
         notes=notes or key,
     )
     from app.services.project_progress_service import touch_project_progress
+    from app.services.app_notification_service import notify
 
     touch_project_progress(session, case.project_id)
+    passed = key == ReworkDisposition.REUSABLE.value
+    extra = [int(case.assigned_developer_id)] if case.assigned_developer_id else []
+    notify(
+        session,
+        event_type="inspection_passed" if passed else "inspection_failed",
+        title="Inspection passed" if passed else "Inspection failed",
+        message=f"Returned item disposition: {key}",
+        href="/inspect-queue",
+        priority="medium" if passed else "high",
+        actor=actor,
+        include_assigned_hm=True,
+        include_concerned_pd=not passed,
+        extra_user_ids=extra,
+        project_id=case.project_id,
+        entity_type="inventory_rework",
+        entity_id=case.id,
+    )
     session.commit()
     session.refresh(case)
     return case
@@ -553,6 +618,21 @@ def repair_complete(
     if notes:
         case.notes = notes
     session.add(case)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="repair_complete",
+        title="Repair complete",
+        message="Repaired item is ready to re-issue",
+        href="/issue-queue",
+        priority="medium",
+        actor=actor,
+        include_im=True,
+        project_id=case.project_id,
+        entity_type="inventory_rework",
+        entity_id=case.id,
+    )
     session.commit()
     session.refresh(case)
     return case

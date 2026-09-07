@@ -402,6 +402,19 @@ def signup(
     )
     db_user.roles = [default_role]
     session.add(db_user)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="user_signup_pending",
+        title="Signup awaiting activation",
+        message=f"{full_name} ({username}) requested an account",
+        href="/settings",
+        priority="high",
+        include_admin=True,
+        entity_type="user",
+        entity_id=db_user.id,
+    )
     session.commit()
 
     return schemas.UserSignupResponse(
@@ -426,6 +439,22 @@ def change_password(
         )
     set_user_password(session, user, change_pwd.new_password)
     session.add(user)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="password_changed",
+        title="Password changed",
+        message="Your password was changed successfully",
+        href="/profile",
+        priority="low",
+        actor=user,
+        exclude_actor=False,
+        confirmation_user_ids=[int(user.id)],
+        extra_user_ids=[int(user.id)],
+        entity_type="user",
+        entity_id=user.id,
+    )
     session.commit()
     return {"message": "Password changed successfully"}
 
@@ -745,6 +774,22 @@ def assign_role_to_user(
     # Replace existing roles so edit-user changes the role instead of stacking
     target_user.roles = [role]
     session.add(target_user)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="role_assigned",
+        title="Role assigned",
+        message=f"{target_user.full_name or target_user.username} is now {role.name}",
+        href="/settings",
+        priority="medium",
+        actor=user,
+        include_admin=True,
+        extra_user_ids=[int(target_user.id)],
+        confirmation_user_ids=[int(target_user.id)],
+        entity_type="user",
+        entity_id=target_user.id,
+    )
     session.commit()
     
     return {

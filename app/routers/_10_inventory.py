@@ -497,6 +497,20 @@ def create_inventory(
             )
         )
     ensure_inventory_labels(session, db_inventory, actor=current_user)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="inventory_created",
+        title="Inventory added",
+        message=db_inventory.name or db_inventory.part_number or f"Inventory #{db_inventory.id}",
+        href="/inventory",
+        priority="medium",
+        actor=current_user,
+        include_im=True,
+        entity_type="inventory",
+        entity_id=db_inventory.id,
+    )
     session.commit()
     return _with_fcfs(
         _inventory_to_read(session, db_inventory, include_instances=True),
@@ -645,12 +659,28 @@ async def _import_inventory_file(
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = content.decode("latin-1")
-    return import_inventory_payload(
+    result = import_inventory_payload(
         session,
         filename=file.filename or "inventory.csv",
         text=text,
         dry_run=dry_run,
     )
+    if not dry_run:
+        from app.services.app_notification_service import notify
+
+        notify(
+            session,
+            event_type="inventory_imported",
+            title="Inventory imported",
+            message=f"Inventory file '{file.filename or 'upload'}' was imported",
+            href="/inventory",
+            priority="medium",
+            actor=current_user,
+            include_im=True,
+            entity_type="inventory",
+        )
+        session.commit()
+    return result
 
 
 @router.post("/inventory/import-csv/", tags=["inventory"])
@@ -1195,7 +1225,7 @@ def get_inventory_installer_notices(
 def read_inventory_installer_notice(
     notice_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_inventory")),
+    current_user: User = Depends(require_permission("view_notifications")),
 ):
     row = session.get(InventoryInstallerNotice, notice_id)
     if not row:
@@ -1217,7 +1247,7 @@ def read_inventory_installer_notice(
 def read_all_inventory_installer_notices(
     all_users: bool = Query(False),
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("view_inventory")),
+    current_user: User = Depends(require_permission("view_notifications")),
 ):
     if all_users:
         _require_inventory_manager(current_user)
@@ -1488,6 +1518,22 @@ def revert_install_to_inventory(
     if restored is not None:
         restored_read = _enrich_instance_read(session, restored)
     issuance_read = _issuance_to_read(session, issuance) if issuance else None
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="install_reverted",
+        title="Install reverted to stock",
+        message=inventory.name or f"Inventory #{inventory.id}",
+        href="/inventory",
+        priority="medium",
+        actor=current_user,
+        include_im=True,
+        include_assigned_hm=True,
+        project_id=getattr(issuance, "project_id", None) if issuance else None,
+        entity_type="inventory",
+        entity_id=inventory.id,
+    )
     session.commit()
     session.refresh(inventory)
     return schemas.InventoryRevertToStockRead(
@@ -1604,6 +1650,20 @@ def update_inventory(
                 session.delete(instance)
         sync_inventory_quantity(session, db_inventory)
         ensure_inventory_labels(session, db_inventory, actor=current_user)
+        from app.services.app_notification_service import notify
+
+        notify(
+            session,
+            event_type="inventory_edited",
+            title="Inventory updated",
+            message=db_inventory.name or db_inventory.part_number or f"Inventory #{db_inventory.id}",
+            href="/inventory",
+            priority="medium",
+            actor=current_user,
+            include_im=True,
+            entity_type="inventory",
+            entity_id=db_inventory.id,
+        )
         session.commit()
     return _with_fcfs(
         _inventory_to_read(session, db_inventory, include_instances=True),
@@ -1621,6 +1681,20 @@ def delete_inventory(
     inventory = session.get(Inventory, inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="inventory_deleted",
+        title="Inventory deleted",
+        message=inventory.name or inventory.part_number or f"Inventory #{inventory_id}",
+        href="/inventory",
+        priority="high",
+        actor=current_user,
+        include_im=True,
+        entity_type="inventory",
+        entity_id=inventory_id,
+    )
     delete_inventory_item(session, inventory)
     session.commit()
     return {"ok": True}

@@ -715,6 +715,22 @@ def cancel_shortage(
     shortage.cancelled_by_user_id = int(actor.id)
     shortage.updated_at = _now()
     session.add(shortage)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="shortage_cancelled",
+        title="Shortage cancelled",
+        message=f"Shortage cancelled for PN {shortage.part_number or '—'}",
+        href=f"/projects/{shortage.project_id}" if shortage.project_id else "/shortages",
+        priority="low",
+        actor=actor,
+        include_assigned_hm=True,
+        include_im=True,
+        project_id=shortage.project_id,
+        entity_type="shortage",
+        entity_id=shortage.id,
+    )
     if commit:
         session.commit()
         session.refresh(shortage)

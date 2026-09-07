@@ -29,6 +29,21 @@ def create_customer(customer: schemas.CustomerCreate, session: Session = Depends
     # --------------------------------------------------------------------------------------------------------------------------------------------
     New_entity(session=session, entity=db_customer, entity_name = entity_config["display_name"], changed_by_user= current_user.id)
     # --------------------------------------------------------------------------------------------------------------------------------------------
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="customer_created",
+        title="New customer added",
+        message=db_customer.name or f"Customer #{db_customer.id}",
+        href=f"/customers/{db_customer.id}",
+        priority="medium",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="customer",
+        entity_id=db_customer.id,
+    )
 
     session.commit()
     session.refresh(db_customer)
@@ -109,6 +124,21 @@ def update_customer(customer_id: int, customer: schemas.CustomerUpdate, session:
     update_entity_status(session=session, entity=db_customer, entity_name = entity_config["display_name"], changed_by_user= current_user.id)
 
     # --------------------------------------------------------------------------------------------------------------------------------------------
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="customer_edited",
+        title="Customer updated",
+        message=db_customer.name or f"Customer #{db_customer.id}",
+        href=f"/customers/{db_customer.id}",
+        priority="medium",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="customer",
+        entity_id=db_customer.id,
+    )
     session.commit()
     session.refresh(db_customer)
     status_name = db_customer.status.status_name if db_customer.status_id else None
@@ -124,6 +154,21 @@ def delete_customer(customer_id: int, session: Session = Depends(get_session), c
     customer = session.get(Customer, customer_id)
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="customer_deleted",
+        title="Customer deleted",
+        message=customer.name or f"Customer #{customer_id}",
+        href="/customers",
+        priority="high",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="customer",
+        entity_id=customer_id,
+    )
     session.delete(customer)
     session.commit()
     return {"ok": True}

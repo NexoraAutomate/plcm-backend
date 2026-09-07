@@ -173,6 +173,12 @@ def write_workflow_audit(
     )
     session.add(event)
     session.flush()
+    try:
+        from app.services.app_notification_service import notify_from_audit
+
+        notify_from_audit(session, event, actor=actor)
+    except Exception:
+        pass
     return event
 
 

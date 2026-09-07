@@ -493,6 +493,13 @@ class InventoryInstallerNotice(InventoryInstallerNoticeBase, table=True):
     inventory_id: Optional[int] = Field(default=None, foreign_key="inventory.id", index=True)
 
 
+class AppNotification(AppNotificationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[AppNotification.user_id]"},
+    )
+
+
 class MaintenanceCase(MaintenanceCaseBase, table=True):
     """
     PostgreSQL table: maintenance_case

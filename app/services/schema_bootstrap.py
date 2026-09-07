@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from app.database import engine
 
@@ -363,6 +363,25 @@ CREATE TABLE IF NOT EXISTS workflowauditevent (
 )
 """
 
+APP_NOTIFICATION_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS appnotification (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    event_type VARCHAR(64) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message VARCHAR NOT NULL,
+    href VARCHAR(512) NOT NULL DEFAULT '/notifications',
+    priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+    entity_type VARCHAR(64),
+    entity_id INTEGER,
+    actor_user_id INTEGER REFERENCES "user"(id) ON DELETE SET NULL,
+    project_id INTEGER,
+    dedupe_key VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE,
+    read_at TIMESTAMP WITH TIME ZONE
+)
+"""
+
 WORKFLOW_AUDIT_APPEND_ONLY_FN_DDL = """
 CREATE OR REPLACE FUNCTION workflow_audit_append_only()
 RETURNS trigger AS $$
@@ -569,6 +588,35 @@ def _restrict_workflow_audit_privileges(conn) -> None:
         conn.execute(text("RELEASE SAVEPOINT audit_privs"))
     except Exception:
         conn.execute(text("ROLLBACK TO SAVEPOINT audit_privs"))
+
+
+def _ensure_app_notification_user_fks(conn) -> None:
+    inspector = inspect(conn)
+    if "appnotification" not in inspector.get_table_names():
+        return
+    for fk in inspector.get_foreign_keys("appnotification"):
+        cols = set(fk.get("constrained_columns") or [])
+        name = fk.get("name")
+        if name and cols & {"user_id", "actor_user_id"}:
+            conn.execute(text(f'ALTER TABLE appnotification DROP CONSTRAINT IF EXISTS "{name}"'))
+    conn.execute(
+        text(
+            """
+            ALTER TABLE appnotification
+            ADD CONSTRAINT appnotification_user_id_fkey
+            FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            ALTER TABLE appnotification
+            ADD CONSTRAINT appnotification_actor_user_id_fkey
+            FOREIGN KEY (actor_user_id) REFERENCES "user"(id) ON DELETE SET NULL
+            """
+        )
+    )
 
 
 def ensure_user_management_schema() -> None:
@@ -992,6 +1040,32 @@ def ensure_user_management_schema() -> None:
             )
         )
         conn.execute(text(WORKFLOW_AUDIT_EVENT_TABLE_DDL))
+        conn.execute(text(APP_NOTIFICATION_TABLE_DDL))
+        _ensure_app_notification_user_fks(conn)
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_appnotification_user_id
+                ON appnotification (user_id)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_appnotification_event_type
+                ON appnotification (event_type)
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS ix_appnotification_created_at
+                ON appnotification (created_at)
+                """
+            )
+        )
         conn.execute(
             text(
                 """

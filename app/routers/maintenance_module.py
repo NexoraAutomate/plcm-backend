@@ -103,6 +103,23 @@ def create_maintenance_case(
     session.add(case)
     session.commit()
     session.refresh(case)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="maintenance_case_opened",
+        title="Maintenance case opened",
+        message=case.case_number or case.description or f"Case #{case.id}",
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_maintenance=True,
+        include_assigned_hm=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+    session.commit()
     return _build_case_read(session, case)
 
 @router.get(
@@ -236,6 +253,25 @@ def update_maintenance_case(
     if payload.status == CaseStatus.CLOSED and not case.closed_at:
         case.closed_at = datetime.now(timezone.utc)
     session.add(case)
+    from app.services.app_notification_service import notify
+
+    status_val = str(getattr(payload, "status", None) or getattr(case, "status", "") or "").lower()
+    if "resolved" in status_val or "closed" in status_val:
+        notify(
+            session,
+            event_type="case_resolved",
+            title="Maintenance case resolved",
+            message=case.case_number or f"Case #{case.id}",
+            href=f"/maintenance/cases/{case.id}",
+            priority="low",
+            actor=current_user,
+            include_maintenance=True,
+            include_assigned_hm=True,
+            extra_user_ids=[int(case.reported_by)] if getattr(case, "reported_by", None) else None,
+            project_id=case.project_id,
+            entity_type="maintenance_case",
+            entity_id=case.id,
+        )
     session.commit()
     session.refresh(case)
     return _build_case_read(session, case)
@@ -354,6 +390,23 @@ def cascade_fault(
         current_user.id,
     )
     n = len(created)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="cascade_fault",
+        title="Fault cascaded up hierarchy",
+        message=f"Fault cascaded {n} level{'s' if n != 1 else ''} on case #{case_id}",
+        href=f"/maintenance/cases/{case_id}",
+        priority="high",
+        actor=current_user,
+        include_maintenance=True,
+        include_pd=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case_id,
+    )
+    session.commit()
     return FaultyEntityCascadeRead(
         created_faulty_entities=created,
         total_levels_cascaded=n,
@@ -978,6 +1031,22 @@ def confirm_maintenance_delivery(
         case.status    = CaseStatus.CLOSED
         case.closed_at = datetime.now(timezone.utc)
         session.add(case)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="delivery_confirmed",
+        title="Maintenance delivery confirmed",
+        message=received_by or "Customer confirmed receipt",
+        href=f"/maintenance/cases/{delivery.case_id}" if delivery.case_id else "/maintenance",
+        priority="medium",
+        actor=current_user,
+        include_maintenance=True,
+        include_pd=True,
+        entity_type="maintenance_delivery",
+        entity_id=delivery.id,
+        project_id=getattr(case, "project_id", None) if case else None,
+    )
     session.commit()
     session.refresh(delivery)
     return delivery

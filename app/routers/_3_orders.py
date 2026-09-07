@@ -29,6 +29,21 @@ def create_order(order: schemas.OrderCreate, session: Session = Depends(get_sess
 # --------------------------------------------------------------------------------------------------------------------------------------------
     New_entity(session=session, entity=db_order, entity_name = entity_config["display_name"], changed_by_user= current_user.id)
 # --------------------------------------------------------------------------------------------------------------------------------------------
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="order_created",
+        title="New order created",
+        message=db_order.order_number or getattr(db_order, "name", None) or f"Order #{db_order.id}",
+        href=f"/orders/{db_order.id}",
+        priority="medium",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="order",
+        entity_id=db_order.id,
+    )
     session.commit()
     session.refresh(db_order)
     # Attach status_name for response
@@ -109,6 +124,21 @@ def update_order(order_id: int, order: schemas.OrderUpdate, session: Session = D
 # --------------------------------------------------------------------------------------------------------------------------------------------
     update_entity_status(session=session, entity= db_order, entity_name = entity_config["display_name"],changed_by_user= current_user.id)
 # --------------------------------------------------------------------------------------------------------------------------------------------
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="order_edited",
+        title="Order updated",
+        message=db_order.order_number or getattr(db_order, "name", None) or f"Order #{db_order.id}",
+        href=f"/orders/{db_order.id}",
+        priority="medium",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="order",
+        entity_id=db_order.id,
+    )
     session.commit()
     session.refresh(db_order)
     status_name = db_order.status.status_name if db_order.status else None
@@ -122,6 +152,21 @@ def delete_order(order_id: int, session: Session = Depends(get_session), current
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="order_deleted",
+        title="Order deleted",
+        message=order.order_number or getattr(order, "name", None) or f"Order #{order_id}",
+        href="/orders",
+        priority="high",
+        actor=current_user,
+        include_admin=True,
+        include_pd=True,
+        entity_type="order",
+        entity_id=order_id,
+    )
     session.delete(order)
     session.commit()
     return {"ok": True}

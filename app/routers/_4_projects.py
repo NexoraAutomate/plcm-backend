@@ -729,6 +729,22 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
 # Update Entity status and Create Entity Status History
 # --------------------------------------------------------------------------------------------------------------------------------------------
     update_entity_status(session=session, entity= db_project, entity_name = entity_config["display_name"],changed_by_user= current_user.id)
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="project_edited",
+        title="Project updated",
+        message=db_project.name,
+        href=f"/projects/{db_project.id}",
+        priority="low",
+        actor=current_user,
+        include_assigned_hm=True,
+        include_concerned_pd=True,
+        project=db_project,
+        entity_type="project",
+        entity_id=db_project.id,
+    )
     session.commit()
     session.refresh(db_project)
     return _to_project_read(db_project)

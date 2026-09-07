@@ -303,6 +303,7 @@ DEFAULT_PERMISSIONS = [
     {"name": "view_audit_logs", "description": "View audit logs"},
     {"name": "manage_notifications", "description": "Manage notifications"},
     {"name": "view_notifications", "description": "View notifications"},
+    {"name": "view_my_assignments", "description": "View My assignments"},
     {"name": "approve_configuration_changes", "description": "Approve configuration change requests"},
     
     # ==================== ROLE MANAGEMENT ====================
@@ -714,6 +715,7 @@ DEFAULT_ROLES = [
             "view_reports",
             "view_hierarchy_dashboard",
             "view_notifications",
+            "view_my_assignments",
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.HM],
         ],
     },
@@ -761,6 +763,7 @@ DEFAULT_ROLES = [
             "view_status_history",
             "view_hierarchy",
             "view_notifications",
+            "view_my_assignments",
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.DEV],
         ],
     },

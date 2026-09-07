@@ -1072,6 +1072,23 @@ class InventoryInstallerNoticeBase(SQLModel):
     read_at: Optional[datetime] = None
 
 
+class AppNotificationBase(SQLModel):
+    """Spec 14 — persisted, role-targeted in-app notice (gap events only)."""
+    user_id: int = Field(foreign_key="user.id", index=True, ondelete="CASCADE")
+    event_type: str = Field(index=True, max_length=64)
+    title: str = Field(max_length=255)
+    message: str
+    href: str = Field(default="/notifications", max_length=512)
+    priority: str = Field(default="medium", max_length=16, index=True)
+    entity_type: Optional[str] = Field(default=None, max_length=64, index=True)
+    entity_id: Optional[int] = Field(default=None, index=True)
+    actor_user_id: Optional[int] = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+    project_id: Optional[int] = Field(default=None, index=True)
+    dedupe_key: Optional[str] = Field(default=None, max_length=255, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read_at: Optional[datetime] = None
+
+
 class EntityType(str, Enum):
     PROJECT   = "project"
     SYSTEM    = "system"

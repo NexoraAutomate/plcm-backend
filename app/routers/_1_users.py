@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select, func, col
 from app.database import get_session
-from app.models.tables import User, Role, UserLoginHistory
+from app.models.tables import AppNotification, User, Role, UserLoginHistory
 from app.schemas import schemas
 from app.routers.auth import require_permission, require_any_role, get_current_user
 from app.auth import check_role, check_any_role, hash_password, PRIVILEGED_ROLE_NAMES
@@ -118,6 +118,21 @@ def create_user(
     )
     db_user.roles = [default_role]
     session.add(db_user)
+    session.flush()
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="user_created",
+        title="New user created",
+        message=db_user.full_name or db_user.username,
+        href="/settings",
+        priority="medium",
+        actor=current_user,
+        include_admin=True,
+        entity_type="user",
+        entity_id=db_user.id,
+    )
     session.commit()
     session.refresh(db_user)
     return db_user
@@ -420,6 +435,37 @@ def update_user(
         if update_data["is_active"] is False:
             close_open_sessions_for_user(session, db_user.id)
 
+    from app.services.app_notification_service import notify
+
+    if "is_active" in update_data and update_data["is_active"] != previous_active:
+        notify(
+            session,
+            event_type="user_activated" if update_data["is_active"] else "user_deactivated",
+            title="Account activated" if update_data["is_active"] else "Account deactivated",
+            message=db_user.full_name or db_user.username,
+            href="/settings",
+            priority="medium",
+            actor=current_user,
+            include_admin=True,
+            confirmation_user_ids=[int(db_user.id)] if update_data["is_active"] else None,
+            extra_user_ids=[int(db_user.id)] if update_data["is_active"] else None,
+            entity_type="user",
+            entity_id=db_user.id,
+        )
+    else:
+        notify(
+            session,
+            event_type="user_edited",
+            title="User updated",
+            message=db_user.full_name or db_user.username,
+            href="/settings",
+            priority="medium",
+            actor=current_user,
+            include_admin=True,
+            entity_type="user",
+            entity_id=db_user.id,
+        )
+
     session.commit()
     session.refresh(db_user)
     return db_user
@@ -447,6 +493,31 @@ def delete_user(
             detail="Only Admin can delete SubAdmin users.",
         )
 
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="user_deleted",
+        title="User deleted",
+        message=user.full_name or user.username,
+        href="/settings",
+        priority="high",
+        actor=current_user,
+        include_admin=True,
+        entity_type="user",
+        entity_id=user_id,
+    )
+    owned = session.exec(
+        select(AppNotification).where(AppNotification.user_id == user_id)
+    ).all()
+    for row in owned:
+        session.delete(row)
+    acted = session.exec(
+        select(AppNotification).where(AppNotification.actor_user_id == user_id)
+    ).all()
+    for row in acted:
+        row.actor_user_id = None
+        session.add(row)
     user.roles.clear()
     session.delete(user)
     session.commit()

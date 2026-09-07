@@ -741,8 +741,22 @@ def start_recall_inspection(
         notes=notes,
     )
     from app.services.project_progress_service import touch_project_progress
+    from app.services.app_notification_service import notify
 
     touch_project_progress(session, task.project_id)
+    notify(
+        session,
+        event_type="inspection_started",
+        title="Recall inspection started",
+        message="IM started inspection of a recalled item",
+        href=f"/projects/{task.project_id}" if task.project_id else "/projects",
+        priority="low",
+        actor=actor,
+        include_assigned_hm=True,
+        project_id=task.project_id,
+        entity_type="inventory_recall",
+        entity_id=task.id,
+    )
     session.commit()
     session.refresh(task)
     return task
