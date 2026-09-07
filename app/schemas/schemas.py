@@ -959,6 +959,7 @@ class InventoryProjectHoldRead(SQLModel):
 class InventoryInstanceRead(InventoryInstanceBase):
     id: int
     inventory_id: int
+    holder_name: Optional[str] = None
     is_reserved: bool = False
     is_project_reserved: bool = False
     status_name: Optional[str] = None
@@ -1091,6 +1092,7 @@ class InventoryShortageReceiveRequest(SQLModel):
 class InventoryRead(InventoryBase):
     id: int
     instances: Optional[List[InventoryInstanceRead]] = None
+    holder_name: Optional[str] = None
     reserved_quantity: int = 0
     available_quantity: Optional[int] = None
     total_used: int = 0

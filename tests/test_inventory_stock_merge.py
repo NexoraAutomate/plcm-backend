@@ -11,6 +11,7 @@ from app.models.tables import Inventory, InventoryInstance
 from app.services.inventory_service import (
     create_inventory_instance,
     find_inventory_catalog_group,
+    generate_inventory_instance_serial,
     sync_inventory_quantity,
 )
 
@@ -176,3 +177,41 @@ def test_component_unit_without_serial_gets_generated_identity(session: Session)
     session.delete(instance)
     session.delete(group)
     session.commit()
+
+
+def test_generated_serial_continues_existing_sequence(session: Session):
+    group = Inventory(
+        name=f"Seq-{uuid.uuid4().hex[:6]}",
+        inventory_type="unit",
+        part_number="PN-SEQ-0031",
+        quantity=0,
+    )
+    session.add(group)
+    session.flush()
+    first = create_inventory_instance(
+        session,
+        group,
+        serial_number="SN-0031-001",
+        original_serial_number="SN-0031-001",
+        location="Warehouse",
+    )
+
+    next_serial = generate_inventory_instance_serial(session, group)
+    assert next_serial == "SN-0031-002"
+
+    second = create_inventory_instance(
+        session,
+        group,
+        serial_number=next_serial,
+        original_serial_number="SN-0031-001",
+        location="Warehouse",
+    )
+    assert second.serial_number == "SN-0031-002"
+    assert second.original_serial_number == "SN-0031-002"
+    assert generate_inventory_instance_serial(session, group) == "SN-0031-003"
+
+    session.delete(second)
+    session.delete(first)
+    session.delete(group)
+    session.commit()
+

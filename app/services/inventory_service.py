@@ -88,26 +88,93 @@ def sync_inventory_quantity(session: Session, inventory: Inventory) -> int:
     return count
 
 
+_SERIAL_TRAILING = re.compile(r"^(.*?)(\d+)$")
+
+
+def extract_trailing_serial_sequence(serial: str) -> Optional[tuple[str, int, int]]:
+    trimmed = (serial or "").strip()
+    if not trimmed:
+        return None
+    match = _SERIAL_TRAILING.match(trimmed)
+    if not match:
+        return None
+    return match.group(1), int(match.group(2)), len(match.group(2))
+
+
+def increment_serial_number(serial: str) -> str:
+    parsed = extract_trailing_serial_sequence(serial)
+    if parsed is None:
+        trimmed = (serial or "").strip()
+        return f"{trimmed}-00001" if trimmed else "00001"
+    prefix, sequence, width = parsed
+    return f"{prefix}{str(sequence + 1).zfill(width)}"
+
+
+def _instance_identity_values(instance: InventoryInstance) -> list[str]:
+    values: list[str] = []
+    for raw in (instance.serial_number, instance.original_serial_number):
+        text = (raw or "").strip()
+        if text:
+            values.append(text)
+    return values
+
+
+def occupied_inventory_serials(
+    session: Session,
+    inventory_id: int,
+) -> set[str]:
+    occupied: set[str] = set()
+    rows = session.exec(
+        select(InventoryInstance).where(InventoryInstance.inventory_id == inventory_id)
+    ).all()
+    for row in rows:
+        for value in _instance_identity_values(row):
+            occupied.add(value.lower())
+    return occupied
+
+
 def generate_inventory_instance_serial(
     session: Session,
     inventory: Inventory,
     *,
     base: Optional[str] = None,
 ) -> str:
-    """Generate a stable unit identity for stock received without a serial."""
-    prefix = (base or inventory.part_number or inventory.name or "UNIT").strip()
-    prefix = re.sub(r"[^A-Za-z0-9]+", "-", prefix).strip("-").upper() or "UNIT"
+    """Next unique unit identity, continuing the group's existing serial sequence."""
     inventory_id = inventory.id or 0
+    occupied = occupied_inventory_serials(session, inventory_id)
+    seed = (base or "").strip()
+    if seed and seed.lower() not in occupied:
+        return seed
+
+    best_serial = ""
+    best_sequence = -1
+    rows = session.exec(
+        select(InventoryInstance).where(InventoryInstance.inventory_id == inventory_id)
+    ).all()
+    candidates = [seed] if seed else []
+    for row in rows:
+        candidates.extend(_instance_identity_values(row))
+    for serial in candidates:
+        parsed = extract_trailing_serial_sequence(serial)
+        if parsed is None:
+            continue
+        sequence = parsed[1]
+        if sequence > best_sequence:
+            best_sequence = sequence
+            best_serial = serial.strip()
+
+    if best_serial:
+        candidate = increment_serial_number(best_serial)
+        while candidate.lower() in occupied:
+            candidate = increment_serial_number(candidate)
+        return candidate
+
+    prefix = (seed or inventory.part_number or inventory.name or "UNIT").strip()
+    prefix = re.sub(r"[^A-Za-z0-9]+", "-", prefix).strip("-").upper() or "UNIT"
     index = 1
     while True:
         candidate = f"{prefix}-{inventory_id}-{index:04d}"
-        exists = session.exec(
-            select(InventoryInstance).where(
-                InventoryInstance.inventory_id == inventory_id,
-                func.lower(InventoryInstance.serial_number) == candidate.lower(),
-            )
-        ).first()
-        if exists is None:
+        if candidate.lower() not in occupied:
             return candidate
         index += 1
 
@@ -148,6 +215,11 @@ def create_inventory_instance(
             status_code=409,
             detail=f"Inventory unit '{normalized_serial}' already exists in this group",
         )
+    normalized_original = (original_serial_number or "").strip() or normalized_serial
+    if normalized_original.lower() in occupied_inventory_serials(session, inventory.id):
+        # New stock must not reuse another unit's identity as original_serial_number.
+        # That copy-from-current-unit bug made the list show duplicate serials.
+        normalized_original = normalized_serial
     instance = InventoryInstance(
         inventory_id=inventory.id,
         serial_number=normalized_serial,
@@ -164,7 +236,7 @@ def create_inventory_instance(
         installation_date=installation_date,
         installed_by_id=installed_by_id,
         original_part_number=original_part_number,
-        original_serial_number=original_serial_number or normalized_serial,
+        original_serial_number=normalized_original,
     )
     session.add(instance)
     session.flush()

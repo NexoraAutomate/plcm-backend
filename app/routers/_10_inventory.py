@@ -134,12 +134,54 @@ def _normalize_inventory_quantity(inventory_type: str, quantity: int | None) -> 
     return quantity
 
 
+def _user_label(user: Optional[User]) -> Optional[str]:
+    if not user:
+        return None
+    return (user.full_name or user.username or "").strip() or None
+
+
+def _user_labels(session: Session, user_ids: set[Optional[int]]) -> dict[int, str]:
+    ids = {int(user_id) for user_id in user_ids if user_id is not None}
+    if not ids:
+        return {}
+    rows = session.exec(select(User).where(col(User.id).in_(list(ids)))).all()
+    labels: dict[int, str] = {}
+    for user in rows:
+        if user.id is None:
+            continue
+        label = _user_label(user)
+        if label:
+            labels[int(user.id)] = label
+    return labels
+
+
+def _holder_name_for(holder_user_id: Optional[int], labels: dict[int, str]) -> Optional[str]:
+    if holder_user_id is None:
+        return None
+    return labels.get(int(holder_user_id))
+
+
+def _unique_holder_names(
+    holder_user_ids: list[Optional[int]], labels: dict[int, str]
+) -> Optional[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for holder_user_id in holder_user_ids:
+        name = _holder_name_for(holder_user_id, labels)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return ", ".join(names) or None
+
+
 def _instance_to_read(
     instance: InventoryInstance,
     *,
     reserved_map: dict[int, tuple[int, str]] | None = None,
     project_hold_map: dict[int, dict] | None = None,
     status_name: str | None = None,
+    holder_name: Optional[str] = None,
 ) -> schemas.InventoryInstanceRead:
     # SQLAlchemy expires table-model attributes after commit.  Reading through
     # getattr refreshes those attributes; model_dump() alone only sees the
@@ -163,6 +205,7 @@ def _instance_to_read(
     data["project_reservation"] = hold
     data["open_issuance_id"] = open_id
     data["open_issuance_status"] = open_status
+    data["holder_name"] = holder_name
     return schemas.InventoryInstanceRead.model_validate(data)
 
 
@@ -178,11 +221,13 @@ def _enrich_instance_read(
         hold_map = project_holds_by_instance_id(session, instance.inventory_id)
     names = _instance_status_names(session, [instance])
     status_name = names.get(int(instance.status_id)) if instance.status_id else None
+    holder_labels = _user_labels(session, {instance.holder_user_id})
     return _instance_to_read(
         instance,
         reserved_map=reserved_map,
         project_hold_map=hold_map,
         status_name=status_name,
+        holder_name=_holder_name_for(instance.holder_user_id, holder_labels),
     )
 
 
@@ -256,6 +301,10 @@ def _inventory_to_read(
             data["quantity"] = installable_qty + pending_qty
             data["reserved_quantity"] = pending_qty
             data["available_quantity"] = installable_qty
+        holder_labels = _user_labels(
+            session,
+            {inventory.holder_user_id, *(inst.holder_user_id for inst in instances)},
+        )
         data["instances"] = [
             _instance_to_read(
                 inst,
@@ -264,11 +313,20 @@ def _inventory_to_read(
                 status_name=(
                     status_names.get(int(inst.status_id)) if inst.status_id else None
                 ),
+                holder_name=_holder_name_for(inst.holder_user_id, holder_labels),
             )
             for inst in instances
         ]
+        data["holder_name"] = _unique_holder_names(
+            [inst.holder_user_id for inst in instances],
+            holder_labels,
+        ) or _holder_name_for(inventory.holder_user_id, holder_labels)
     else:
         data["instances"] = None
+        data["holder_name"] = _holder_name_for(
+            inventory.holder_user_id,
+            _user_labels(session, {inventory.holder_user_id}),
+        )
         if issued_to_user_id is not None:
             installable_qty = session.exec(
                 select(func.coalesce(func.sum(InventoryIssuance.quantity), 0)).where(
@@ -463,24 +521,17 @@ def create_inventory(
         session.flush()
 
     created_instances: list[InventoryInstance] = []
-    for index in range(quantity):
+    for _ in range(quantity):
         unit_fields = dict(instance_fields)
-        if requested_serial:
-            unit_fields["serial_number"] = (
-                requested_serial
-                if quantity == 1
-                else f"{requested_serial}-{index + 1:04d}"
-            )
+        unit_fields["serial_number"] = generate_inventory_instance_serial(
+            session,
+            db_inventory,
+            base=requested_serial or None,
+        )
+        if quantity == 1 and requested_original_serial:
+            unit_fields["original_serial_number"] = requested_original_serial
         else:
-            unit_fields["serial_number"] = generate_inventory_instance_serial(
-                session, db_inventory
-            )
-        if requested_original_serial:
-            unit_fields["original_serial_number"] = (
-                requested_original_serial
-                if quantity == 1
-                else f"{requested_original_serial}-{index + 1:04d}"
-            )
+            unit_fields["original_serial_number"] = unit_fields["serial_number"]
         db_instance = create_inventory_instance(session, db_inventory, **unit_fields)
         created_instances.append(db_instance)
     session.commit()
@@ -1919,6 +1970,7 @@ def list_inventory_instances(
         reserved_map = {k: v for k, v in reserved_map.items() if k in allowed_instance_ids}
 
     status_names = _instance_status_names(session, list(instances))
+    holder_labels = _user_labels(session, {inst.holder_user_id for inst in instances})
     return [
         _instance_to_read(
             inst,
@@ -1927,6 +1979,7 @@ def list_inventory_instances(
             status_name=(
                 status_names.get(int(inst.status_id)) if inst.status_id else None
             ),
+            holder_name=_holder_name_for(inst.holder_user_id, holder_labels),
         )
         for inst in instances
     ]
