@@ -990,6 +990,18 @@ def reserve_inventory(
     )
     session.add(reservation)
     session.flush()
+
+    from app.services.entity_media_copy_service import copy_inventory_media_to_entity
+
+    copy_inventory_media_to_entity(
+        session,
+        entity_type=et,
+        entity_id=eid,
+        inventory_id=int(inventory.id),
+        inventory_instance_id=int(instance.id) if instance and instance.id else None,
+        actor=actor,
+    )
+
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, project_id)

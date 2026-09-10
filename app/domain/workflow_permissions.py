@@ -30,6 +30,7 @@ WORKFLOW_PERMISSION_DEFS: list[dict[str, str]] = [
     {"name": "item.verify", "description": "HM verify installation (Spec 08–10)"},
     {"name": "item.inspect", "description": "IM inspect returned items (Spec 10–12)"},
     {"name": "project.cancel", "description": "Cancel project / trigger recall (Spec 11)"},
+    {"name": "project.complete", "description": "Mark a non-existing project as completed"},
     {"name": "config_change.request", "description": "Request configuration change (Spec 12)"},
     {"name": "config_change.approve", "description": "Approve configuration change (Spec 12)"},
     {"name": "audit.read", "description": "Read audit trail (Spec 13)"},
@@ -45,6 +46,7 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "project.approve",
         "project.assign_hm",
         "project.cancel",
+        "project.complete",
         "audit.read",
     ],
     WorkflowRole.HM: [

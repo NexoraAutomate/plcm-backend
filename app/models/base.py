@@ -345,6 +345,8 @@ class HardwareEntityFields(HierarchyInstallFields, HardwareReplacementFields):
     # Snapshot of the template node's inventory source at hierarchy generation.
     # NULL on legacy rows is treated as turnkey.
     inventory_source: Optional[str] = Field(default=None, max_length=32)
+    # Vendor / OEM acronym — owned by the installed entity (esp. existing projects).
+    oem_name: Optional[str] = None
 
 
 class SystemCommon(HardwareEntityFields):

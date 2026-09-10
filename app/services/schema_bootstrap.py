@@ -193,6 +193,10 @@ HIERARCHY_INVENTORY_SOURCE_DDL = [
     ("inventory_source", "VARCHAR(32)"),
 ]
 
+HIERARCHY_OEM_NAME_DDL = [
+    ("oem_name", "VARCHAR"),
+]
+
 HIERARCHY_CONFIG_NODE_COLUMN_DDL = [
     ("inventory_source", "VARCHAR(32) DEFAULT 'turnkey' NOT NULL"),
 ]
@@ -854,6 +858,11 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing("module", HIERARCHY_INVENTORY_SOURCE_DDL)
     _add_columns_if_missing("unit", HIERARCHY_INVENTORY_SOURCE_DDL)
     _add_columns_if_missing("component", HIERARCHY_INVENTORY_SOURCE_DDL)
+    _add_columns_if_missing("system", HIERARCHY_OEM_NAME_DDL)
+    _add_columns_if_missing("subsystem", HIERARCHY_OEM_NAME_DDL)
+    _add_columns_if_missing("module", HIERARCHY_OEM_NAME_DDL)
+    _add_columns_if_missing("unit", HIERARCHY_OEM_NAME_DDL)
+    _add_columns_if_missing("component", HIERARCHY_OEM_NAME_DDL)
     _add_columns_if_missing("hierarchyconfignode", HIERARCHY_CONFIG_NODE_COLUMN_DDL)
     with engine.begin() as conn:
         conn.execute(

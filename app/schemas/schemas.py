@@ -790,6 +790,7 @@ class SystemUpdate(SQLModel):
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
     picture_url: Optional[str] = None
@@ -819,6 +820,7 @@ class SubsystemUpdate(SQLModel):
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
     picture_url: Optional[str] = None
@@ -847,6 +849,7 @@ class ModuleUpdate(SQLModel):
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
     picture_url: Optional[str] = None
@@ -875,6 +878,7 @@ class UnitUpdate(SQLModel):
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
     picture_url: Optional[str] = None
@@ -904,6 +908,7 @@ class ComponentUpdate(SQLModel):
     part_number: Optional[str] = None
     serial_number: Optional[str] = None
     configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
     picture_url: Optional[str] = None

@@ -676,6 +676,71 @@ def approve_project(
     return project
 
 
+def complete_project(
+    session: Session,
+    project_id: int,
+    *,
+    actor: User,
+) -> Project:
+    """Admin/PD administrative completion for non-existing projects."""
+    if not _can_approve_project(actor):
+        raise ProjectWorkflowError(
+            "Only Admin or Project Director can mark a project as completed"
+        )
+
+    project = session.get(Project, project_id)
+    if not project:
+        raise ProjectWorkflowError("Project not found")
+
+    if bool(project.is_existing_project):
+        raise ProjectWorkflowError(
+            "Existing projects cannot be marked completed from Workflow actions"
+        )
+
+    current = project_status_name(project) or ProjectWorkflowStatus.DRAFT.value
+    if current == ProjectWorkflowStatus.COMPLETED.value:
+        return project
+
+    try:
+        assert_transition(
+            "project",
+            current,
+            ProjectWorkflowStatus.COMPLETED.value,
+            actor_role=_actor_workflow_role(actor) or WorkflowRole.ADMIN,
+        )
+    except ValueError as exc:
+        raise ProjectWorkflowError(str(exc)) from exc
+
+    project.status_id = get_project_status_id(
+        session, ProjectWorkflowStatus.COMPLETED.value
+    )
+    project.updated_at = _now()
+    session.add(project)
+    session.flush()
+
+    entity_config = ENTITY_CONFIG.get("project")
+    update_entity_status(
+        session=session,
+        entity=project,
+        entity_name=entity_config["display_name"],
+        changed_by_user=actor.id,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.STATUS_CHANGED,
+        entity_type="project",
+        entity_id=int(project.id),
+        actor=actor,
+        project_id=int(project.id),
+        old_value={"status": current},
+        new_value={"status": ProjectWorkflowStatus.COMPLETED.value},
+        remarks="Project marked completed by Admin/PD",
+    )
+    session.commit()
+    session.refresh(project)
+    return project
+
+
 def assert_can_generate_hierarchy(project: Project, session=None) -> None:
     """Spec 02/03 gate — delegated to hierarchy generation service."""
     from app.services.hierarchy_generation_service import (

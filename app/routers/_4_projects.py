@@ -15,6 +15,7 @@ from app.services.project_workflow_service import (
     ProjectWorkflowError,
     assign_hm,
     approve_project,
+    complete_project,
     create_draft_project,
     create_draft_projects_by_flight,
     guard_structural_update,
@@ -152,6 +153,23 @@ def approve_project_endpoint(
 ):
     try:
         project = approve_project(session, project_id, actor=current_user)
+        return _to_project_read(project)
+    except ProjectWorkflowError as exc:
+        raise _workflow_http_error(exc) from exc
+
+
+@router.post(
+    "/projects/{project_id}/complete/",
+    response_model=schemas.ProjectRead,
+    tags=["projects"],
+)
+def complete_project_endpoint(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("project.complete")),
+):
+    try:
+        project = complete_project(session, project_id, actor=current_user)
         return _to_project_read(project)
     except ProjectWorkflowError as exc:
         raise _workflow_http_error(exc) from exc
