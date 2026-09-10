@@ -154,3 +154,10 @@ class TestWorkflowPermissionSeed:
         im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
         assert "view_hierarchy" in im
         assert "create_inventory" in im
+
+    def test_inventory_manager_can_manage_attachments(self):
+        """Inventory create/edit Attachments tab uploads against inventory owners."""
+        im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
+        assert "upload_attachments" in im
+        assert "download_attachments" in im
+        assert "delete_attachments" in im

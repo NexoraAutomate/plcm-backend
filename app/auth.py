@@ -741,6 +741,10 @@ DEFAULT_ROLES = [
             "view_statuses",
             "view_status_history",
             "view_notifications",
+            # Stocking inventory includes attaching docs/photos on create/edit.
+            "upload_attachments",
+            "download_attachments",
+            "delete_attachments",
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.IM],
         ],
     },
