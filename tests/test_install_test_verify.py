@@ -330,3 +330,82 @@ def test_total_used_counts_verified_issuance(
         assert installed_used_quantity(session, int(inv.id)) == 1
     finally:
         _cleanup(session, project, cfg, inv)
+
+
+def test_hm_reject_returns_to_developer_for_retest(
+    session: Session, admin_user: User, developer_user: User
+):
+    from app.services.item_install_verify_service import reject_issuance
+
+    project, cfg, inv, target, issued = _issue_to_developer(
+        session, admin_user, developer_user, "SN-ITV-8"
+    )
+    try:
+        start_install(session, "system", int(target.id), actor=developer_user)
+        submit_test(
+            session, "system", int(target.id), result="pass", actor=developer_user
+        )
+        report_complete(session, "system", int(target.id), actor=developer_user)
+
+        rejected = reject_issuance(
+            session,
+            int(issued.issued_issuance_id),
+            actor=admin_user,
+            notes="Torque marks incomplete",
+        )
+        assert rejected.item_lifecycle_status == ItemStatus.INSTALLATION_REJECTED.value
+        assert rejected.test_result is None
+        assert rejected.complete_reported_at is None
+        assert rejected.verified_at is None
+
+        queue = list_verification_queue(session, admin_user)
+        assert not any(row["issuance_id"] == issued.issued_issuance_id for row in queue)
+
+        work = list_assigned_work(session, int(developer_user.id))
+        row = next(r for r in work if r["entity_id"] == int(target.id))
+        assert row["item_status"] == ItemStatus.INSTALLATION_REJECTED.value
+        assert row["can_test"] is True
+        assert row["can_report_complete"] is False
+        assert row["rejection_count"] == 1
+        assert row["latest_rejection_reason"] == "Torque marks incomplete"
+        assert len(row["rejection_history"]) == 1
+
+        retested = submit_test(
+            session, "system", int(target.id), result="pass", actor=developer_user
+        )
+        assert retested.item_lifecycle_status == ItemStatus.UNDER_TESTING_REVIEW.value
+        report_complete(session, "system", int(target.id), actor=developer_user)
+        verified = verify_issuance(
+            session, int(issued.issued_issuance_id), actor=admin_user
+        )
+        assert verified.item_lifecycle_status == ItemStatus.INSTALLED_VERIFIED.value
+
+        types = _event_types(session, int(issued.issued_issuance_id))
+        assert IssuanceEventType.VERIFICATION_REJECTED.value in types
+        assert types.count(IssuanceEventType.TEST_PASSED.value) == 2
+        assert types.count(IssuanceEventType.COMPLETE_REPORTED.value) == 2
+        assert IssuanceEventType.VERIFIED.value in types
+    finally:
+        _cleanup(session, project, cfg, inv)
+
+
+def test_hm_reject_requires_reason(
+    session: Session, admin_user: User, developer_user: User
+):
+    from app.services.item_install_verify_service import reject_issuance
+
+    project, cfg, inv, target, issued = _issue_to_developer(
+        session, admin_user, developer_user, "SN-ITV-9"
+    )
+    try:
+        start_install(session, "system", int(target.id), actor=developer_user)
+        submit_test(
+            session, "system", int(target.id), result="pass", actor=developer_user
+        )
+        report_complete(session, "system", int(target.id), actor=developer_user)
+        with pytest.raises(ItemInstallVerifyError, match="Rejection reason"):
+            reject_issuance(
+                session, int(issued.issued_issuance_id), actor=admin_user, notes="  "
+            )
+    finally:
+        _cleanup(session, project, cfg, inv)

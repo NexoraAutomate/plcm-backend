@@ -569,6 +569,21 @@ def notify_from_audit(
             ],
             **common,
         )
+    if action == WorkflowAuditAction.INSTALLATION_REJECTED:
+        return notify(
+            session,
+            event_type="installation_rejected",
+            title="Installation rejected",
+            message=remarks or f"HM rejected installation on {label}",
+            href="/my-assignments",
+            priority="high",
+            extra_user_ids=[
+                int(v)
+                for v in [new_value.get("assigned_developer_id"), new_value.get("issued_to_user_id")]
+                if v
+            ],
+            **common,
+        )
     if action == WorkflowAuditAction.RETURNED and entity_type == "inventory_rework":
         return notify(
             session,

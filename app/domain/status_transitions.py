@@ -36,6 +36,13 @@ ITEM_TRANSITIONS: dict[str, frozenset[str]] = {
     ItemStatus.UNDER_TESTING_REVIEW.value: frozenset(
         {
             ItemStatus.INSTALLED_VERIFIED.value,
+            ItemStatus.INSTALLATION_REJECTED.value,
+            ItemStatus.RETURNED.value,
+        }
+    ),
+    ItemStatus.INSTALLATION_REJECTED.value: frozenset(
+        {
+            ItemStatus.UNDER_TESTING_REVIEW.value,
             ItemStatus.RETURNED.value,
         }
     ),
@@ -110,6 +117,14 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
         ItemStatus.INSTALLED_VERIFIED.value,
     ): frozenset({WorkflowRole.HM}),
     (
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+        ItemStatus.INSTALLATION_REJECTED.value,
+    ): frozenset({WorkflowRole.HM}),
+    (
+        ItemStatus.INSTALLATION_REJECTED.value,
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+    ): frozenset({WorkflowRole.DEV}),
+    (
         ItemStatus.ISSUED.value,
         ItemStatus.RETURNED.value,
     ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
@@ -119,6 +134,10 @@ ITEM_TRANSITION_ROLES: dict[tuple[str, str], RoleGate] = {
     ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
     (
         ItemStatus.UNDER_TESTING_REVIEW.value,
+        ItemStatus.RETURNED.value,
+    ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
+    (
+        ItemStatus.INSTALLATION_REJECTED.value,
         ItemStatus.RETURNED.value,
     ): frozenset({WorkflowRole.DEV, WorkflowRole.IM, WorkflowRole.HM}),
     (

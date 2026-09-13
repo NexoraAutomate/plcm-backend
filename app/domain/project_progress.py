@@ -19,6 +19,7 @@ STAGE_COMPLETION_FRACTION: dict[str, float] = {
     ItemStatus.RESERVED.value: 0.1,
     ItemStatus.ISSUED.value: 0.3,
     ItemStatus.INSTALLATION_IN_PROGRESS.value: 0.5,
+    ItemStatus.INSTALLATION_REJECTED.value: 0.55,
     ItemStatus.UNDER_TESTING_REVIEW.value: 0.75,
     ItemStatus.INSTALLED_VERIFIED.value: 1.0,
 }

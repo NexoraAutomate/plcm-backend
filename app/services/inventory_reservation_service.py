@@ -1429,6 +1429,41 @@ def _assemble_children_progress(
     return total, complete
 
 
+def _assign_distinct_suggested_serials(items: list[dict[str, Any]]) -> None:
+    """
+    Available plan rows that match the same inventory all see the full free
+    serial list. Walk the plan in order and pick a distinct suggested serial
+    per shared stock pool so the UI defaults are unique.
+    """
+    used_by_pool: dict[Any, set[str]] = {}
+    for row in items:
+        if row.get("status") != "available":
+            continue
+        serials = [s for s in (row.get("serial_numbers") or []) if s]
+        if not serials:
+            row["suggested_serial"] = None
+            continue
+        inventory_id = row.get("inventory_id")
+        pool_key: Any = (
+            ("id", inventory_id)
+            if inventory_id is not None
+            else ("name", row.get("inventory_name"), row.get("part_number"))
+        )
+        claimed = used_by_pool.setdefault(pool_key, set())
+        preferred = row.get("suggested_serial")
+        pick: Optional[str] = None
+        if preferred and preferred in serials and preferred not in claimed:
+            pick = preferred
+        else:
+            for sn in serials:
+                if sn not in claimed:
+                    pick = sn
+                    break
+        row["suggested_serial"] = pick
+        if pick:
+            claimed.add(pick)
+
+
 def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
     """
     Spec 04 UI — every reservable hierarchy shell under the project with a
@@ -1537,6 +1572,8 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
                                         path_parts=[*unit_path, component.name],
                                     )
                                 )
+
+    _assign_distinct_suggested_serials(items)
 
     available = sum(1 for row in items if row["status"] == "available")
     short = sum(1 for row in items if row["status"] == "short")

@@ -15,6 +15,7 @@ from app.models.tables import (
     Inventory,
     InventoryInstance,
     InventoryIssuance,
+    InventoryIssuanceEvent,
     Project,
     User,
 )
@@ -222,6 +223,34 @@ def _require_open_issuance(
     return entity, issuance
 
 
+def _rejection_history(
+    session: Session, issuance_id: Optional[int]
+) -> list[dict[str, Any]]:
+    if not issuance_id:
+        return []
+    rows = session.exec(
+        select(InventoryIssuanceEvent)
+        .where(
+            InventoryIssuanceEvent.issuance_id == int(issuance_id),
+            InventoryIssuanceEvent.event_type
+            == IssuanceEventType.VERIFICATION_REJECTED.value,
+        )
+        .order_by(
+            col(InventoryIssuanceEvent.created_at).desc(),
+            col(InventoryIssuanceEvent.id).desc(),
+        )
+    ).all()
+    return [
+        {
+            "id": int(row.id),
+            "reason": row.notes,
+            "rejected_at": row.created_at,
+            "rejected_by_name": row.actor_name,
+        }
+        for row in rows
+    ]
+
+
 def install_progress_payload(
     session: Session,
     entity_type: str,
@@ -234,6 +263,7 @@ def install_progress_payload(
     from app.services.item_rework_service import rework_progress_fields
 
     rework = rework_progress_fields(session, entity_type, entity_id)
+    empty_rejections: list[dict[str, Any]] = []
     if row is None:
         from app.services.inventory_assembly_service import get_assembled_inventory
         from app.services.inventory_reservation_service import (
@@ -258,6 +288,11 @@ def install_progress_payload(
             "can_install": False,
             "can_test": False,
             "can_report_complete": False,
+            "installation_rejected": False,
+            "rejection_count": 0,
+            "latest_rejection_reason": None,
+            "latest_rejection_at": None,
+            "rejection_history": empty_rejections,
             **rework,
         }
     status = current_item_status(session, row)
@@ -266,6 +301,9 @@ def install_progress_payload(
     defect_pending = bool(row.defect_pending)
     verified = row.verified_at is not None
     started = row.installed_at is not None
+    rejections = _rejection_history(session, row.id)
+    latest = rejections[0] if rejections else None
+    can_retest = status == ItemStatus.INSTALLATION_REJECTED.value
     return {
         "issuance_id": row.id,
         "item_status": status,
@@ -284,9 +322,14 @@ def install_progress_payload(
         ),
         "can_test": (
             started
-            and status == ItemStatus.INSTALLATION_IN_PROGRESS.value
+            and status
+            in (
+                ItemStatus.INSTALLATION_IN_PROGRESS.value,
+                ItemStatus.INSTALLATION_REJECTED.value,
+            )
             and test_result is None
             and not verified
+            and not defect_pending
         ),
         "can_report_complete": (
             test_result == ItemTestResult.PASS.value
@@ -294,6 +337,11 @@ def install_progress_payload(
             and not defect_pending
             and not verified
         ),
+        "installation_rejected": can_retest,
+        "rejection_count": len(rejections),
+        "latest_rejection_reason": (latest or {}).get("reason"),
+        "latest_rejection_at": (latest or {}).get("rejected_at"),
+        "rejection_history": rejections,
         **rework,
     }
 
@@ -416,10 +464,15 @@ def submit_test(
         raise ItemInstallVerifyError("Test result has already been recorded")
     outcome = _normalize_test_result(result)
     status = current_item_status(session, issuance)
-    if status != ItemStatus.INSTALLATION_IN_PROGRESS.value:
+    if status not in (
+        ItemStatus.INSTALLATION_IN_PROGRESS.value,
+        ItemStatus.INSTALLATION_REJECTED.value,
+    ):
         raise ItemInstallVerifyError(
-            f"Test can be recorded while INSTALLATION_IN_PROGRESS (current: {status})"
+            "Test can be recorded while INSTALLATION_IN_PROGRESS or "
+            f"INSTALLATION_REJECTED (current: {status})"
         )
+    old_status = status
     _advance_item_status(
         session, issuance, ItemStatus.UNDER_TESTING_REVIEW.value, actor=actor
     )
@@ -462,7 +515,7 @@ def submit_test(
         entity_id=int(issuance.id),
         actor=actor,
         project_id=issuance.project_id,
-        old_value={"status": ItemStatus.INSTALLATION_IN_PROGRESS.value},
+        old_value={"status": old_status},
         new_value={
             "status": ItemStatus.UNDER_TESTING_REVIEW.value,
             "test_result": outcome,
@@ -587,6 +640,79 @@ def verify_issuance(
         evaluate_assembly_after_verification(session, issuance, actor=actor)
     except InventoryAssemblyError as exc:
         raise ItemInstallVerifyError(str(exc)) from exc
+    from app.services.project_progress_service import touch_project_progress
+
+    touch_project_progress(session, issuance.project_id)
+    session.commit()
+    session.refresh(issuance)
+    return issuance
+
+
+def reject_issuance(
+    session: Session,
+    issuance_id: int,
+    *,
+    actor: User,
+    notes: str,
+) -> InventoryIssuance:
+    reason = (notes or "").strip()
+    if not reason:
+        raise ItemInstallVerifyError("Rejection reason is required")
+    issuance = session.get(InventoryIssuance, issuance_id)
+    if issuance is None:
+        raise ItemInstallVerifyError("Issuance not found")
+    project = session.get(Project, issuance.project_id) if issuance.project_id else None
+    if project is not None and not user_can_view_project(actor, project):
+        raise ItemInstallVerifyError("You cannot reject items for this project")
+    try:
+        assert_project_not_cancelled(project, action="verification reject")
+    except ProjectWorkflowError as exc:
+        raise ItemInstallVerifyError(str(exc)) from exc
+    if (issuance.test_result or "").strip().lower() != ItemTestResult.PASS.value:
+        raise ItemInstallVerifyError("HM can only reject after a Pass test result")
+    if issuance.complete_reported_at is None:
+        raise ItemInstallVerifyError(
+            "HM cannot reject until the developer reports complete"
+        )
+    if issuance.defect_pending:
+        raise ItemInstallVerifyError("Item has a pending defect and cannot be rejected here")
+    if issuance.verified_at is not None:
+        raise ItemInstallVerifyError("Item is already verified")
+    status = current_item_status(session, issuance)
+    if status != ItemStatus.UNDER_TESTING_REVIEW.value:
+        raise ItemInstallVerifyError(
+            f"Reject applies while UNDER_TESTING_REVIEW (current: {status})"
+        )
+    _advance_item_status(
+        session, issuance, ItemStatus.INSTALLATION_REJECTED.value, actor=actor
+    )
+    issuance.test_result = None
+    issuance.test_recorded_at = None
+    issuance.test_recorded_by_id = None
+    issuance.complete_reported_at = None
+    issuance.complete_reported_by_id = None
+    session.add(issuance)
+    record_issuance_event(
+        session,
+        issuance,
+        event_type=IssuanceEventType.VERIFICATION_REJECTED.value,
+        actor=actor,
+        notes=reason,
+    )
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.INSTALLATION_REJECTED,
+        entity_type="inventory_issuance",
+        entity_id=int(issuance.id),
+        actor=actor,
+        project_id=issuance.project_id,
+        old_value={"status": ItemStatus.UNDER_TESTING_REVIEW.value},
+        new_value={
+            "status": ItemStatus.INSTALLATION_REJECTED.value,
+            "issued_to_user_id": issuance.issued_to_user_id,
+        },
+        remarks=reason,
+    )
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, issuance.project_id)

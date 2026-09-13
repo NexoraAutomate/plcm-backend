@@ -22,6 +22,7 @@ from app.services.item_install_verify_service import (
     ItemInstallVerifyError,
     issuance_state_dict,
     list_verification_queue,
+    reject_issuance,
     report_complete,
     start_install,
     submit_test,
@@ -61,6 +62,7 @@ def _http_error(exc: ValueError) -> HTTPException:
         or "assigned to you" in lower
         or "assigned developer" in lower
         or "cannot verify items" in lower
+        or "cannot reject items" in lower
         or "only admin" in lower
         or "force-return" in lower
     ):
@@ -419,6 +421,29 @@ def verify_item_installation(
             issuance_id,
             actor=current_user,
             notes=payload.notes if payload else None,
+        )
+        return _install_state(session, issuance)
+    except ItemInstallVerifyError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-verifications/{issuance_id}/reject/",
+    response_model=schemas.ItemInstallStateRead,
+    tags=["item-verifications"],
+)
+def reject_item_installation(
+    issuance_id: int,
+    payload: schemas.ItemInstallRejectBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("item.verify")),
+):
+    try:
+        issuance = reject_issuance(
+            session,
+            issuance_id,
+            actor=current_user,
+            notes=payload.notes,
         )
         return _install_state(session, issuance)
     except ItemInstallVerifyError as exc:

@@ -854,6 +854,7 @@ class IssuanceEventType(str, Enum):
     TEST_PASSED = "test_passed"
     TEST_FAILED = "test_failed"
     COMPLETE_REPORTED = "complete_reported"
+    VERIFICATION_REJECTED = "verification_rejected"
     VERIFIED = "verified"
     DEFECT_PENDING = "defect_pending"
     REWORK_OPENED = "rework_opened"

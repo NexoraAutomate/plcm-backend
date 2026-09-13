@@ -20,6 +20,7 @@ class WorkflowAuditAction:
     ISSUED = "ISSUED"
     INSTALLATION_IN_PROGRESS = "INSTALLATION_IN_PROGRESS"
     UNDER_TESTING = "UNDER_TESTING"
+    INSTALLATION_REJECTED = "INSTALLATION_REJECTED"
     INSTALLED_VERIFIED = "INSTALLED_VERIFIED"
     RETURNED = "RETURNED"
     RE_ISSUED = "RE_ISSUED"
@@ -70,6 +71,7 @@ WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
     WorkflowAuditAction.ISSUED: "Issued",
     WorkflowAuditAction.INSTALLATION_IN_PROGRESS: "Installation in Progress",
     WorkflowAuditAction.UNDER_TESTING: "Under Testing",
+    WorkflowAuditAction.INSTALLATION_REJECTED: "Installation Rejected",
     WorkflowAuditAction.INSTALLED_VERIFIED: "Installed Verified",
     WorkflowAuditAction.RETURNED: "Returned",
     WorkflowAuditAction.RE_ISSUED: "Re-Issued",

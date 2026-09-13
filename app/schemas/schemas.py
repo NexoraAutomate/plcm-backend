@@ -1844,6 +1844,11 @@ class HierarchyAssignmentStatusRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    installation_rejected: bool = False
+    rejection_count: int = 0
+    latest_rejection_reason: Optional[str] = None
+    latest_rejection_at: Optional[datetime] = None
+    rejection_history: List["ItemInstallRejectionRead"] = []
     rework_id: Optional[int] = None
     rework_status: Optional[str] = None
     rework_stage: Optional[str] = None
@@ -1881,6 +1886,11 @@ class DeveloperAssignedWorkRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    installation_rejected: bool = False
+    rejection_count: int = 0
+    latest_rejection_reason: Optional[str] = None
+    latest_rejection_at: Optional[datetime] = None
+    rejection_history: List["ItemInstallRejectionRead"] = []
     rework_id: Optional[int] = None
     rework_status: Optional[str] = None
     rework_stage: Optional[str] = None
@@ -1898,6 +1908,17 @@ class ItemInstallNotesBody(SQLModel):
 class ItemInstallTestBody(SQLModel):
     result: str
     notes: Optional[str] = None
+
+
+class ItemInstallRejectBody(SQLModel):
+    notes: str
+
+
+class ItemInstallRejectionRead(SQLModel):
+    id: int
+    reason: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_name: Optional[str] = None
 
 
 class ItemInstallStateRead(SQLModel):
@@ -1922,6 +1943,11 @@ class ItemInstallStateRead(SQLModel):
     can_install: bool = False
     can_test: bool = False
     can_report_complete: bool = False
+    installation_rejected: bool = False
+    rejection_count: int = 0
+    latest_rejection_reason: Optional[str] = None
+    latest_rejection_at: Optional[datetime] = None
+    rejection_history: List[ItemInstallRejectionRead] = []
     rework_id: Optional[int] = None
     rework_status: Optional[str] = None
     rework_stage: Optional[str] = None

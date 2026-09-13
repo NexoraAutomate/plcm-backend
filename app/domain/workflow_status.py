@@ -18,6 +18,7 @@ class ItemStatus(str, Enum):
     ISSUED = "ISSUED"
     INSTALLATION_IN_PROGRESS = "INSTALLATION_IN_PROGRESS"
     UNDER_TESTING_REVIEW = "UNDER_TESTING_REVIEW"
+    INSTALLATION_REJECTED = "INSTALLATION_REJECTED"
     INSTALLED_VERIFIED = "INSTALLED_VERIFIED"
     RETURNED = "RETURNED"
     INSPECTION = "INSPECTION"
@@ -49,6 +50,7 @@ ITEM_STATUS_META: dict[ItemStatus, str] = {
     ItemStatus.ISSUED: "Physically issued to a Developer",
     ItemStatus.INSTALLATION_IN_PROGRESS: "Active install work or post-issue dwell",
     ItemStatus.UNDER_TESTING_REVIEW: "Installed and under test / review",
+    ItemStatus.INSTALLATION_REJECTED: "HM rejected installation; developer must re-test",
     ItemStatus.INSTALLED_VERIFIED: "Pass + HM verification complete",
     ItemStatus.RETURNED: "Back to IM; not yet dispositioned",
     ItemStatus.INSPECTION: "IM is inspecting returned item",
@@ -75,6 +77,7 @@ ITEM_STATUS_LABELS: dict[ItemStatus, str] = {
     ItemStatus.ISSUED: "Issued",
     ItemStatus.INSTALLATION_IN_PROGRESS: "Installation In Progress",
     ItemStatus.UNDER_TESTING_REVIEW: "Under Testing / Review",
+    ItemStatus.INSTALLATION_REJECTED: "Installation Rejected",
     ItemStatus.INSTALLED_VERIFIED: "Installed Verified",
     ItemStatus.RETURNED: "Returned",
     ItemStatus.INSPECTION: "Inspection",
@@ -101,6 +104,7 @@ ITEM_STATUS_COLORS: dict[ItemStatus, str] = {
     ItemStatus.ISSUED: "#0070C0",
     ItemStatus.INSTALLATION_IN_PROGRESS: "#C55A11",
     ItemStatus.UNDER_TESTING_REVIEW: "#BF9000",
+    ItemStatus.INSTALLATION_REJECTED: "#C00000",
     ItemStatus.INSTALLED_VERIFIED: "#00B050",
     ItemStatus.RETURNED: "#7030A0",
     ItemStatus.INSPECTION: "#ED7D31",

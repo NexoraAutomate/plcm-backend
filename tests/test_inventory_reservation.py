@@ -467,6 +467,32 @@ def test_reservation_plan_matches_available_and_short(
     _cleanup(session, project, cfg, inv)
 
 
+def test_reservation_plan_suggests_distinct_serials_for_similar_items(
+    session: Session, admin_user: User
+):
+    """Multiple available rows sharing stock must not all default to serials[0]."""
+    project, cfg = _ready_project(session, admin_user, flights=1, sdls=2)
+    inv = _stock_for_entity(
+        session,
+        name="RF",
+        inventory_type="subsystem",
+        serials=["SN-DISTINCT-1", "SN-DISTINCT-2"],
+    )
+    try:
+        plan = build_reservation_plan(session, int(project.id))
+        available_subsystems = [
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "subsystem" and row["status"] == "available"
+        ]
+        assert len(available_subsystems) == 2
+        suggested = [row["suggested_serial"] for row in available_subsystems]
+        assert suggested == ["SN-DISTINCT-1", "SN-DISTINCT-2"]
+        assert len(set(suggested)) == 2
+    finally:
+        _cleanup(session, project, cfg, inv)
+
+
 def _ensure_catalog(session: Session, name: str, hierarchy_type: str) -> None:
     if find_entity_list_entry(session, name=name, hierarchy_type=hierarchy_type):
         return
