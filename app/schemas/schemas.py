@@ -1157,8 +1157,15 @@ class InventoryIssuanceRead(SQLModel):
     item_request_id: Optional[int] = None
     reservation_id: Optional[int] = None
     project_id: Optional[int] = None
+    project_name: Optional[str] = None
     flight_id: Optional[int] = None
+    flight_name: Optional[str] = None
+    flight_code: Optional[str] = None
     sdls_id: Optional[int] = None
+    sdls_name: Optional[str] = None
+    sdls_code: Optional[str] = None
+    target_entity_name: Optional[str] = None
+    installed_entity_name: Optional[str] = None
     item_lifecycle_status: Optional[str] = None
     verified_at: Optional[datetime] = None
     issued_to_name: Optional[str] = None

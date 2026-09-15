@@ -20,6 +20,7 @@ from app.models.base import (
 )
 from app.models.helpers import _ENTITY_MODEL_MAP
 from app.models.tables import (
+    Flight,
     Inventory,
     InventoryInstance,
     InventoryIssuance,
@@ -27,6 +28,8 @@ from app.models.tables import (
     InventoryInstallerNotice,
     InventoryChildLink,
     InventoryReturnNotice,
+    Project,
+    Sdls,
     User,
 )
 from app.services.inventory_service import (
@@ -409,6 +412,22 @@ def issuance_display_status(row: InventoryIssuance) -> str:
     return status.replace("_", " ")
 
 
+def _issuance_entity_name(
+    session: Session,
+    entity_type: Optional[str],
+    entity_id: Optional[int],
+) -> Optional[str]:
+    et = (entity_type or "").strip().lower()
+    if not et or entity_id is None:
+        return None
+    entry = _ENTITY_MODEL_MAP.get(et)
+    if not entry:
+        return None
+    model, _pk, _label = entry
+    entity = session.get(model, int(entity_id))
+    return getattr(entity, "name", None) if entity else None
+
+
 def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     from app.services.issuance_signature_service import issuance_signature_summary
 
@@ -416,6 +435,9 @@ def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     issued_by = session.get(User, row.issued_by_user_id) if row.issued_by_user_id else None
     installed_by = session.get(User, row.installed_by_id) if row.installed_by_id else None
     closed_by = session.get(User, row.closed_by_id) if row.closed_by_id else None
+    project = session.get(Project, int(row.project_id)) if row.project_id else None
+    flight = session.get(Flight, int(row.flight_id)) if row.flight_id else None
+    sdls = session.get(Sdls, int(row.sdls_id)) if row.sdls_id else None
     data = row.model_dump()
     for key in (
         "issued_at",
@@ -429,6 +451,17 @@ def issuance_to_dict(session: Session, row: InventoryIssuance) -> dict:
     data["issued_by_name"] = _user_display_name(issued_by)
     data["installed_by_name"] = _user_display_name(installed_by)
     data["closed_by_name"] = _user_display_name(closed_by)
+    data["project_name"] = project.name if project else None
+    data["flight_name"] = flight.name if flight else None
+    data["flight_code"] = flight.code if flight else None
+    data["sdls_name"] = sdls.name if sdls else None
+    data["sdls_code"] = sdls.code if sdls else None
+    data["target_entity_name"] = _issuance_entity_name(
+        session, row.target_entity_type, row.target_entity_id
+    )
+    data["installed_entity_name"] = _issuance_entity_name(
+        session, row.installed_entity_type, row.installed_entity_id
+    )
     data["display_status"] = issuance_display_status(row)
     data.update(issuance_signature_summary(session, row))
     data.pop("signature_payload", None)

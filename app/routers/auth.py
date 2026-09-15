@@ -53,6 +53,11 @@ ACCOUNT_DEACTIVATED_MESSAGE = (
     "Please contact an administrator to activate your account."
 )
 
+ACTIVE_SESSION_EXISTS_MESSAGE = (
+    "This account is already signed in on another device. "
+    "Signing in here will sign out that session."
+)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,6 +77,8 @@ def authenticate_user(
     username: str,
     password: str,
     request: Optional[Request] = None,
+    *,
+    force_session_takeover: bool = False,
 ) -> tuple[User, str]:
     """
     Authenticate a user and record login history.
@@ -141,6 +148,28 @@ def authenticate_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Account is temporarily locked due to too many failed login attempts.",
         )
+
+    active_sessions = list_active_sessions(session, user_id=user.id, skip=0, limit=1)
+    if active_sessions and not force_session_takeover:
+        existing = active_sessions[0]
+        login_time = existing.login_time
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "ACTIVE_SESSION_EXISTS",
+                "message": ACTIVE_SESSION_EXISTS_MESSAGE,
+                "existing_session": {
+                    "ip_address": existing.ip_address,
+                    "device_name": existing.device_name,
+                    "browser": existing.browser,
+                    "operating_system": existing.operating_system,
+                    "login_time": login_time.isoformat() if login_time else None,
+                },
+            },
+        )
+
+    if active_sessions and force_session_takeover:
+        close_open_sessions_for_user(session, user.id)
 
     session_id = new_session_id()
     now = _utcnow()
@@ -286,10 +315,15 @@ def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
+    force_session_takeover: bool = Query(default=False),
 ):
     """Login endpoint. Returns JWT token with user info and permissions."""
     user, session_id = authenticate_user(
-        session, form_data.username, form_data.password, request=request
+        session,
+        form_data.username,
+        form_data.password,
+        request=request,
+        force_session_takeover=force_session_takeover,
     )
     return build_token_response(user, session_id=session_id)
 
@@ -299,10 +333,15 @@ def login_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
+    force_session_takeover: bool = Query(default=False),
 ):
     """OAuth2-compatible token endpoint (alias of /login)."""
     user, session_id = authenticate_user(
-        session, form_data.username, form_data.password, request=request
+        session,
+        form_data.username,
+        form_data.password,
+        request=request,
+        force_session_takeover=force_session_takeover,
     )
     return build_token_response(user, session_id=session_id)
 
