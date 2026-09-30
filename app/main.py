@@ -169,7 +169,8 @@ origins = (
 )
 _cors_origin_regex = os.getenv(
     "CORS_ORIGIN_REGEX",
-    r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?",
+    # localhost + RFC1918 private LAN so other devices on the network can call the API
+    r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|193\.193\.193\.\d+)(:\d+)?",
 )
 
 app.add_middleware(

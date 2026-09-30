@@ -7,11 +7,25 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select, func
 
+from sqlmodel import col
+
 from app.models.tables import (
+    AssembledInventory,
     Inventory,
     InventoryInstance,
     InventoryChildLink,
+    InventoryInstallerNotice,
+    InventoryIssuance,
+    InventoryIssuanceEvent,
+    InventoryItemRequest,
     InventoryLabel,
+    InventoryRecallTask,
+    InventoryReservation,
+    InventoryReservationExpiryNotice,
+    InventoryReturnNotice,
+    InventoryReworkCase,
+    InventoryShortage,
+    InventoryShortageNotice,
 )
 
 
@@ -554,11 +568,158 @@ def replace_inventory_child_links(
     return created
 
 
+def _delete_rows(session: Session, rows: list) -> None:
+    for row in rows:
+        session.delete(row)
+    if rows:
+        session.flush()
+
+
+def _purge_inventory_ledger(session: Session, inventory_id: int) -> None:
+    """Remove reservation/issuance/shortage ledger rows that block inventory delete."""
+    item_requests = list(
+        session.exec(
+            select(InventoryItemRequest).where(
+                InventoryItemRequest.inventory_id == inventory_id
+            )
+        ).all()
+    )
+    _delete_rows(session, item_requests)
+
+    recall_tasks = list(
+        session.exec(
+            select(InventoryRecallTask).where(
+                InventoryRecallTask.inventory_id == inventory_id
+            )
+        ).all()
+    )
+    _delete_rows(session, recall_tasks)
+
+    rework_cases = list(
+        session.exec(
+            select(InventoryReworkCase).where(
+                InventoryReworkCase.inventory_id == inventory_id
+            )
+        ).all()
+    )
+    _delete_rows(session, rework_cases)
+
+    reservations = list(
+        session.exec(
+            select(InventoryReservation).where(
+                InventoryReservation.inventory_id == inventory_id
+            )
+        ).all()
+    )
+    reservation_ids = [int(row.id) for row in reservations if row.id is not None]
+    if reservation_ids:
+        linked_shortages = list(
+            session.exec(
+                select(InventoryShortage).where(
+                    col(InventoryShortage.fulfilled_reservation_id).in_(reservation_ids)
+                )
+            ).all()
+        )
+        for shortage in linked_shortages:
+            shortage.fulfilled_reservation_id = None
+            session.add(shortage)
+        session.flush()
+
+        expiry_notices = list(
+            session.exec(
+                select(InventoryReservationExpiryNotice).where(
+                    col(InventoryReservationExpiryNotice.reservation_id).in_(
+                        reservation_ids
+                    )
+                )
+            ).all()
+        )
+        _delete_rows(session, expiry_notices)
+        _delete_rows(session, reservations)
+
+    shortages = list(
+        session.exec(
+            select(InventoryShortage).where(InventoryShortage.inventory_id == inventory_id)
+        ).all()
+    )
+    shortage_ids = [int(row.id) for row in shortages if row.id is not None]
+    if shortage_ids:
+        shortage_notices = list(
+            session.exec(
+                select(InventoryShortageNotice).where(
+                    col(InventoryShortageNotice.shortage_id).in_(shortage_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, shortage_notices)
+    _delete_rows(session, shortages)
+
+    issuances = list(
+        session.exec(
+            select(InventoryIssuance).where(InventoryIssuance.inventory_id == inventory_id)
+        ).all()
+    )
+    issuance_ids = [int(row.id) for row in issuances if row.id is not None]
+    if issuance_ids:
+        return_notices = list(
+            session.exec(
+                select(InventoryReturnNotice).where(
+                    col(InventoryReturnNotice.issuance_id).in_(issuance_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, return_notices)
+
+        installer_notices = list(
+            session.exec(
+                select(InventoryInstallerNotice).where(
+                    col(InventoryInstallerNotice.issuance_id).in_(issuance_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, installer_notices)
+
+        issuance_events = list(
+            session.exec(
+                select(InventoryIssuanceEvent).where(
+                    col(InventoryIssuanceEvent.issuance_id).in_(issuance_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, issuance_events)
+        _delete_rows(session, issuances)
+
+    for model in (
+        InventoryReturnNotice,
+        InventoryInstallerNotice,
+        InventoryIssuanceEvent,
+    ):
+        dangling = list(
+            session.exec(select(model).where(model.inventory_id == inventory_id)).all()
+        )
+        for row in dangling:
+            row.inventory_id = None
+            session.add(row)
+        if dangling:
+            session.flush()
+
+    assembled = list(
+        session.exec(
+            select(AssembledInventory).where(
+                AssembledInventory.inventory_id == inventory_id
+            )
+        ).all()
+    )
+    _delete_rows(session, assembled)
+
+
 def delete_inventory_item(session: Session, inventory: Inventory) -> None:
-    """Remove an inventory group and all dependent rows (links, instances)."""
+    """Remove an inventory group and all dependent rows (ledger, links, instances)."""
     inventory_id = inventory.id
     if inventory_id is None:
         raise HTTPException(status_code=400, detail="Inventory item has no id")
+
+    _purge_inventory_ledger(session, int(inventory_id))
 
     related_links = session.exec(
         select(InventoryChildLink).where(

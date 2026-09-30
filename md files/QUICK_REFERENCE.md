@@ -4,7 +4,7 @@
 
 ### Start Application
 ```bash
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Register User

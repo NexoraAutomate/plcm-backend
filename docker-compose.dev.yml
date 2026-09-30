@@ -41,6 +41,7 @@ services:
       AUTH_ALGORITHM: ${AUTH_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGIN_REGEX: ${CORS_ORIGIN_REGEX:-https?://(localhost|127\\.0\\.0\\.1|192\\.168\\.\\d+\\.\\d+|10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2\\d|3[01])\\.\\d+\\.\\d+|193\\.193\\.193\\.\\d+)(:\\d+)?}
       PLCM_UPLOAD_DIR: ${PLCM_UPLOAD_DIR:-/app/uploads}
       BACKEND_RELOAD: "true"
     ports:
@@ -48,7 +49,7 @@ services:
     volumes:
       - .:/app:delegated
       - satlife_uploads_dev:/app/uploads
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   satlife_pgdata_dev:
