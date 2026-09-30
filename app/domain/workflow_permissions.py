@@ -47,6 +47,9 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "project.assign_hm",
         "project.cancel",
         "project.complete",
+        "hierarchy_config.manage",
+        "config_change.request",
+        "config_change.approve",
         "audit.read",
     ],
     WorkflowRole.HM: [

@@ -30,6 +30,9 @@ ROLE_PRIMARY_PERMS = {
         "project.approve",
         "project.assign_hm",
         "project.cancel",
+        "hierarchy_config.manage",
+        "config_change.request",
+        "config_change.approve",
     ],
     WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM]: [
         "project.create_draft",
@@ -101,14 +104,41 @@ class TestWorkflowPermissionSeed:
             WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
         )
 
-    def test_hierarchy_config_manage_admin_only_among_workflow(self):
+    def test_hierarchy_config_manage_admin_and_pd_among_workflow(self):
         assert "hierarchy_config.manage" in _role_perms(
             WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN]
         )
-        for role in (WorkflowRole.PD, WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
+        assert "hierarchy_config.manage" in _role_perms(
+            WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]
+        )
+        for role in (WorkflowRole.HM, WorkflowRole.IM, WorkflowRole.DEV):
             assert "hierarchy_config.manage" not in _role_perms(
                 WORKFLOW_ROLE_DB_NAMES[role]
             )
+
+    def test_project_director_has_definitions_and_config_change_permissions(self):
+        """Definitions Labels/Entity List/Configurations + Config Change (request+approve)."""
+        pd = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD])
+        assert {
+            "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
+            "hierarchy_config.manage",
+            "config_change.request",
+            "config_change.approve",
+        } <= pd
+
+    def test_hierarchy_manager_has_full_entity_list_and_labels_permissions(self):
+        """Definitions → Entity List (CRUD); Labels & Templates via create_hierarchy."""
+        hm = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM])
+        assert {
+            "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
+        } <= hm
+        assert "hierarchy_config.manage" not in hm
 
     def test_workflow_roles_can_view_generated_hierarchy_shells(self):
         """Spec 03 shells are listed via /systems|/subsystems|… — not Admin-only."""
@@ -154,6 +184,17 @@ class TestWorkflowPermissionSeed:
         im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
         assert "view_hierarchy" in im
         assert "create_inventory" in im
+
+    def test_inventory_manager_has_full_entity_list_and_labels_permissions(self):
+        """Definitions → Entity List (CRUD); Labels & Templates via edit_inventory."""
+        im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
+        assert {
+            "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
+            "edit_inventory",
+        } <= im
 
     def test_inventory_manager_can_manage_attachments(self):
         """Inventory create/edit Attachments tab uploads against inventory owners."""

@@ -683,13 +683,19 @@ DEFAULT_ROLES = [
             "view_modules",
             "view_units",
             "view_components",
+            # Entity List catalog — full CRUD (Definitions → Entity List).
             "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
             "view_statuses",
             "view_status_history",
             "view_reports",
             "view_executive_dashboard",
             "view_hierarchy_dashboard",
             "view_notifications",
+            # Labels & Templates + Configurations + Config Change via
+            # WORKFLOW_ROLE_PERMISSIONS (hierarchy_config.manage, config_change.*).
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.PD],
         ],
     },
@@ -702,7 +708,11 @@ DEFAULT_ROLES = [
             "edit_projects",
             "view_orders",
             "view_users",
+            # Entity List catalog — full CRUD (Definitions → Entity List).
             "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
             # Spec 03 generate creates System→Component shells; HM must list them.
             "view_systems",
             "view_subsystems",
@@ -716,6 +726,7 @@ DEFAULT_ROLES = [
             "view_hierarchy_dashboard",
             "view_notifications",
             "view_my_assignments",
+            # Labels & Templates via create_hierarchy (Definitions labels gate).
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.HM],
         ],
     },
@@ -736,8 +747,11 @@ DEFAULT_ROLES = [
             "view_units",
             "view_components",
             "view_entities",
-            # Entity List catalog — required to pick registered names when stocking inventory.
+            # Entity List catalog — full CRUD (Definitions → Entity List).
             "view_hierarchy",
+            "create_hierarchy",
+            "edit_hierarchy",
+            "delete_hierarchy",
             "view_statuses",
             "view_status_history",
             "view_notifications",
