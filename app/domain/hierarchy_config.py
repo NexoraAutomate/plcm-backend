@@ -54,12 +54,66 @@ TEMPLATE_NODE_LEVELS: tuple[HierarchyConfigLevel, ...] = (
     HierarchyConfigLevel.COMPONENT,
 )
 
+TEMPLATE_LEVEL_RANK: dict[HierarchyConfigLevel, int] = {
+    level: index for index, level in enumerate(TEMPLATE_NODE_LEVELS)
+}
+
+# Preferred (adjacent) parent — used as UX default, not as a hard rule.
 PARENT_TEMPLATE_LEVEL: dict[HierarchyConfigLevel, HierarchyConfigLevel | None] = {
     HierarchyConfigLevel.SYSTEM: None,
     HierarchyConfigLevel.SUBSYSTEM: HierarchyConfigLevel.SYSTEM,
     HierarchyConfigLevel.MODULE: HierarchyConfigLevel.SUBSYSTEM,
     HierarchyConfigLevel.UNIT: HierarchyConfigLevel.MODULE,
     HierarchyConfigLevel.COMPONENT: HierarchyConfigLevel.UNIT,
+}
+
+
+def is_valid_template_parent(
+    parent_level: HierarchyConfigLevel | None,
+    child_level: HierarchyConfigLevel,
+) -> bool:
+    """Any higher template level may parent any lower level; System is root."""
+    if child_level == HierarchyConfigLevel.SYSTEM:
+        return parent_level is None
+    if parent_level is None:
+        return False
+    if parent_level not in TEMPLATE_LEVEL_RANK or child_level not in TEMPLATE_LEVEL_RANK:
+        return False
+    return TEMPLATE_LEVEL_RANK[parent_level] < TEMPLATE_LEVEL_RANK[child_level]
+
+
+def allowed_parent_levels(
+    child_level: HierarchyConfigLevel,
+) -> tuple[HierarchyConfigLevel, ...]:
+    if child_level == HierarchyConfigLevel.SYSTEM:
+        return ()
+    child_rank = TEMPLATE_LEVEL_RANK[child_level]
+    return tuple(
+        level for level in TEMPLATE_NODE_LEVELS if TEMPLATE_LEVEL_RANK[level] < child_rank
+    )
+
+
+def allowed_child_levels(
+    parent_level: HierarchyConfigLevel,
+) -> tuple[HierarchyConfigLevel, ...]:
+    parent_rank = TEMPLATE_LEVEL_RANK[parent_level]
+    return tuple(
+        level for level in TEMPLATE_NODE_LEVELS if TEMPLATE_LEVEL_RANK[level] > parent_rank
+    )
+
+
+# Runtime FK attribute on the child table for (child_level, parent_level).
+PARENT_FK_ATTR: dict[tuple[str, str], str] = {
+    (HierarchyConfigLevel.SUBSYSTEM.value, HierarchyConfigLevel.SYSTEM.value): "system_id",
+    (HierarchyConfigLevel.MODULE.value, HierarchyConfigLevel.SUBSYSTEM.value): "subsystem_id",
+    (HierarchyConfigLevel.MODULE.value, HierarchyConfigLevel.SYSTEM.value): "system_id",
+    (HierarchyConfigLevel.UNIT.value, HierarchyConfigLevel.MODULE.value): "module_id",
+    (HierarchyConfigLevel.UNIT.value, HierarchyConfigLevel.SUBSYSTEM.value): "subsystem_id",
+    (HierarchyConfigLevel.UNIT.value, HierarchyConfigLevel.SYSTEM.value): "system_id",
+    (HierarchyConfigLevel.COMPONENT.value, HierarchyConfigLevel.UNIT.value): "unit_id",
+    (HierarchyConfigLevel.COMPONENT.value, HierarchyConfigLevel.MODULE.value): "module_id",
+    (HierarchyConfigLevel.COMPONENT.value, HierarchyConfigLevel.SUBSYSTEM.value): "subsystem_id",
+    (HierarchyConfigLevel.COMPONENT.value, HierarchyConfigLevel.SYSTEM.value): "system_id",
 }
 
 

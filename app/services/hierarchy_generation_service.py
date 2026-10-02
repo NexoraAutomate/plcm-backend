@@ -11,7 +11,11 @@ from typing import Any, Optional
 from sqlmodel import Session, select
 
 from app.config.entities import ENTITY_CONFIG
-from app.domain.hierarchy_config import HierarchyConfigLevel, normalize_inventory_source
+from app.domain.hierarchy_config import (
+    HierarchyConfigLevel,
+    PARENT_FK_ATTR,
+    normalize_inventory_source,
+)
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_roles import WorkflowRole, has_workflow_role
 from app.domain.workflow_status import ProjectWorkflowStatus
@@ -139,9 +143,26 @@ def _clone_template_under_sdls(
     actor_id: int,
     counts: dict[str, int],
 ) -> None:
-    """Clone System→Component template once under a single SDLS."""
-    # config node id → created entity id at that level
-    created: dict[int, Any] = {}
+    """Clone System→Component template once under a single SDLS.
+
+    Parent links may skip levels (e.g. Component under Subsystem); the child
+    row stores the matching parent FK for the actual parent level.
+    """
+    # config node id → (created entity, level)
+    created: dict[int, tuple[Any, str]] = {}
+
+    model_by_level = {
+        HierarchyConfigLevel.SUBSYSTEM.value: Subsystem,
+        HierarchyConfigLevel.MODULE.value: Module,
+        HierarchyConfigLevel.UNIT.value: Unit,
+        HierarchyConfigLevel.COMPONENT.value: Component,
+    }
+    count_key = {
+        HierarchyConfigLevel.SUBSYSTEM.value: "subsystems",
+        HierarchyConfigLevel.MODULE.value: "modules",
+        HierarchyConfigLevel.UNIT.value: "units",
+        HierarchyConfigLevel.COMPONENT.value: "components",
+    }
 
     for node in template_nodes:
         level = str(node.level).strip().lower()
@@ -159,7 +180,7 @@ def _clone_template_under_sdls(
             session.add(entity)
             session.flush()
             _register_entity(session, entity, "system", actor_id, int(project.id))
-            created[int(node.id)] = entity
+            created[int(node.id)] = (entity, level)
             counts["systems"] += 1
             continue
 
@@ -167,58 +188,28 @@ def _clone_template_under_sdls(
             raise ProjectWorkflowError(
                 f"Template node '{name}' ({level}) is missing a valid parent"
             )
-        parent = created[int(node.parent_id)]
-
-        if level == HierarchyConfigLevel.SUBSYSTEM.value:
-            entity = Subsystem(
-                name=name,
-                description=description,
-                system_id=int(parent.id),
-                inventory_source=_source_for_node(node),
+        parent_entity, parent_level = created[int(node.parent_id)]
+        fk_attr = PARENT_FK_ATTR.get((level, parent_level))
+        if not fk_attr:
+            raise ProjectWorkflowError(
+                f"Template node '{name}' ({level}) cannot hang under "
+                f"{parent_level}"
             )
-            session.add(entity)
-            session.flush()
-            _register_entity(session, entity, "subsystem", actor_id, int(project.id))
-            created[int(node.id)] = entity
-            counts["subsystems"] += 1
-        elif level == HierarchyConfigLevel.MODULE.value:
-            entity = Module(
-                name=name,
-                description=description,
-                subsystem_id=int(parent.id),
-                inventory_source=_source_for_node(node),
-            )
-            session.add(entity)
-            session.flush()
-            _register_entity(session, entity, "module", actor_id, int(project.id))
-            created[int(node.id)] = entity
-            counts["modules"] += 1
-        elif level == HierarchyConfigLevel.UNIT.value:
-            entity = Unit(
-                name=name,
-                description=description,
-                module_id=int(parent.id),
-                inventory_source=_source_for_node(node),
-            )
-            session.add(entity)
-            session.flush()
-            _register_entity(session, entity, "unit", actor_id, int(project.id))
-            created[int(node.id)] = entity
-            counts["units"] += 1
-        elif level == HierarchyConfigLevel.COMPONENT.value:
-            entity = Component(
-                name=name,
-                description=description,
-                unit_id=int(parent.id),
-                inventory_source=_source_for_node(node),
-            )
-            session.add(entity)
-            session.flush()
-            _register_entity(session, entity, "component", actor_id, int(project.id))
-            created[int(node.id)] = entity
-            counts["components"] += 1
-        else:
+        model_cls = model_by_level.get(level)
+        if model_cls is None:
             raise ProjectWorkflowError(f"Unsupported template level: {level}")
+
+        entity = model_cls(
+            name=name,
+            description=description,
+            inventory_source=_source_for_node(node),
+            **{fk_attr: int(parent_entity.id)},
+        )
+        session.add(entity)
+        session.flush()
+        _register_entity(session, entity, level, actor_id, int(project.id))
+        created[int(node.id)] = (entity, level)
+        counts[count_key[level]] += 1
 
 
 def assert_can_generate_hierarchy(project: Project, session: Optional[Session] = None) -> None:

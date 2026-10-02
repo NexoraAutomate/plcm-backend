@@ -50,6 +50,9 @@ def catalog(session: Session):
         ("A", "system"),
         ("B", "subsystem"),
         ("RF", "subsystem"),
+        ("Skip", "unit"),
+        ("Unit", "unit"),
+        ("Invalid", "module"),
     ):
         _ensure_catalog(session, name, level)
 
@@ -111,8 +114,22 @@ def test_validate_product_types_requires_unique_codes():
         )
 
 
-def test_validate_nodes_parent_rules(session: Session):
-    with pytest.raises(HierarchyConfigError, match="parent"):
+def test_validate_nodes_parent_rules(session: Session, catalog):
+    # Adjacent parent still required for System root; unit under system is allowed
+    _validate_nodes(
+        session,
+        [
+            {"client_key": "s1", "level": "system", "name": "Comm"},
+            {
+                "client_key": "u1",
+                "parent_client_key": "s1",
+                "level": "unit",
+                "name": "Skip",
+            },
+        ],
+    )
+    # Lower level cannot parent a higher level
+    with pytest.raises(HierarchyConfigError, match="higher level"):
         _validate_nodes(
             session,
             [
@@ -121,9 +138,15 @@ def test_validate_nodes_parent_rules(session: Session):
                     "client_key": "u1",
                     "parent_client_key": "s1",
                     "level": "unit",
-                    "name": "Skip",
+                    "name": "Unit",
                 },
-            ]
+                {
+                    "client_key": "m1",
+                    "parent_client_key": "u1",
+                    "level": "module",
+                    "name": "Invalid",
+                },
+            ],
         )
 
 

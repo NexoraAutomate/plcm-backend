@@ -192,33 +192,68 @@ class Subsystem(SubsystemBase, table=True):
 
 class Module(ModuleBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    subsystem_id: int = Field(foreign_key="subsystem.id", ondelete="CASCADE")
+    subsystem_id: Optional[int] = Field(
+        default=None, foreign_key="subsystem.id", ondelete="CASCADE"
+    )
+    system_id: Optional[int] = Field(
+        default=None, foreign_key="system.id", ondelete="CASCADE"
+    )
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
-    subsystem: Optional[Subsystem] = Relationship(back_populates="modules")
+    subsystem: Optional[Subsystem] = Relationship(
+        back_populates="modules",
+        sa_relationship_kwargs={"foreign_keys": "[Module.subsystem_id]"},
+    )
     status: Optional[Status] = Relationship(back_populates="modules")
     units: List["Unit"] = Relationship(back_populates="module", 
                                          sa_relationship_kwargs={
                                             "cascade": "all, delete-orphan",
                                             "passive_deletes": True,
+                                            "foreign_keys": "[Unit.module_id]",
                                             },)
 
 class Unit(UnitBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    module_id: int = Field(foreign_key="module.id", ondelete="CASCADE")
+    module_id: Optional[int] = Field(
+        default=None, foreign_key="module.id", ondelete="CASCADE"
+    )
+    subsystem_id: Optional[int] = Field(
+        default=None, foreign_key="subsystem.id", ondelete="CASCADE"
+    )
+    system_id: Optional[int] = Field(
+        default=None, foreign_key="system.id", ondelete="CASCADE"
+    )
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
-    module: Optional[Module] = Relationship(back_populates="units")
+    module: Optional[Module] = Relationship(
+        back_populates="units",
+        sa_relationship_kwargs={"foreign_keys": "[Unit.module_id]"},
+    )
     status: Optional[Status] = Relationship(back_populates="units")
     components: List["Component"] = Relationship(back_populates="unit", 
                                          sa_relationship_kwargs={
                                             "cascade": "all, delete-orphan",
                                             "passive_deletes": True,
+                                            "foreign_keys": "[Component.unit_id]",
                                             },)
 
 class Component(ComponentBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    unit_id: int = Field(foreign_key="unit.id", ondelete="CASCADE")
+    unit_id: Optional[int] = Field(
+        default=None, foreign_key="unit.id", ondelete="CASCADE"
+    )
+    module_id: Optional[int] = Field(
+        default=None, foreign_key="module.id", ondelete="CASCADE"
+    )
+    subsystem_id: Optional[int] = Field(
+        default=None, foreign_key="subsystem.id", ondelete="CASCADE"
+    )
+    system_id: Optional[int] = Field(
+        default=None, foreign_key="system.id", ondelete="CASCADE"
+    )
     status_id: Optional[int] = Field(default=None, foreign_key="status.id")
-    unit: Optional[Unit] = Relationship(back_populates="components")
+    unit: Optional[Unit] = Relationship(
+        back_populates="components",
+        sa_relationship_kwargs={"foreign_keys": "[Component.unit_id]"},
+    )
     status: Optional[Status] = Relationship(back_populates="components")
 
 class Entity(EntityBase, table=True):

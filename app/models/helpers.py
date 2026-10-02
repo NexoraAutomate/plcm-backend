@@ -1,7 +1,7 @@
 # =============================================================================
 # D. HELPERS
 # =============================================================================
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple, Any
 from sqlmodel import Session, select
 from app.database import get_session
 from app.schemas.Maintennance import (AncestorNode, DescendantNode, FaultType, FaultyEntityStatus)
@@ -55,16 +55,19 @@ def _resolve_ancestors(session: Session, entity_type: str,entity_id: int) -> Lis
     current_type = entity_type
     current_id   = entity_id
 
-    while current_type in _EXTENDED_PARENT_MAP:
-
-        parent_type, model_cls, fk_attr = _EXTENDED_PARENT_MAP[current_type]
-        row = session.get(model_cls, current_id)
-        if not row:
+    while True:
+        resolved = _resolve_direct_parent(session, current_type, current_id)
+        if not resolved and current_type in _EXTENDED_PARENT_MAP:
+            parent_type, model_cls, fk_attr = _EXTENDED_PARENT_MAP[current_type]
+            row = session.get(model_cls, current_id)
+            if row:
+                parent_id = getattr(row, fk_attr, None)
+                if parent_id is not None:
+                    resolved = (parent_type, int(parent_id))
+        if not resolved:
             break
-        parent_id = getattr(row, fk_attr, None)
-        if parent_id is None:
-            break
-        info:dict = _get_label(session, parent_type, parent_id)
+        parent_type, parent_id = resolved
+        info: dict = _get_label(session, parent_type, parent_id)
         print("------------info---------------", parent_type, info)
 
         ancestors.append(
@@ -82,43 +85,43 @@ def _collect_descendants(
     depth:       int = 0,
 ) -> List[DescendantNode]:
     """
-    Recursively walk DOWN _CHILD_MAP and collect every descendant entity.
+    Recursively walk DOWN _CHILDREN_MAP and collect every descendant entity.
     Returns a flat list ordered breadth-first (parent before children).
     """
     result: List[DescendantNode] = []
-    if entity_type not in _CHILD_MAP:
-        return result                          # leaf node — no children
+    child_specs = _CHILDREN_MAP.get(entity_type)
+    if not child_specs:
+        # Fall back to adjacent-only map for types not in the flexible map
+        if entity_type not in _CHILD_MAP:
+            return result
+        child_specs = [_CHILD_MAP[entity_type]]
 
-    child_type, child_model, fk_attr = _CHILD_MAP[entity_type]
-# EntityType.UNIT:      (EntityType.COMPONENT, Component, "unit_id"),
-
-    # Query all children whose FK matches entity_id
-    children = session.exec(
-        select(child_model).where(
-            getattr(child_model, fk_attr) == entity_id,
-            child_model.is_current_install == True,  # noqa: E712
-        )
-    ).all()
-
-    for child in children:
-        child_id = child.id
-        child_info = _get_label(session, child_type, child_id)
-        parent_info = _get_label(session, entity_type, entity_id)
-        result.append(
-            DescendantNode(
-                entity_type=child_type,
-                entity_id=child_id,
-                entity_name=child_info["entity_name"],
-                entity_PartNumber=child_info["part_number"],
-                entity_SerialNumber=child_info["serial_number"],
-                parent_ID=entity_id,
-                parent_type=entity_type,
-                parent_name=parent_info["entity_name"] if parent_info else None,
-                depth=depth + 1,
+    for child_type, child_model, fk_attr in child_specs:
+        children = session.exec(
+            select(child_model).where(
+                getattr(child_model, fk_attr) == entity_id,
+                child_model.is_current_install == True,  # noqa: E712
             )
-        )
-        # Recurse into grandchildren
-        result.extend(_collect_descendants(session, child_type, child_id, depth + 1))
+        ).all()
+
+        for child in children:
+            child_id = child.id
+            child_info = _get_label(session, child_type, child_id)
+            parent_info = _get_label(session, entity_type, entity_id)
+            result.append(
+                DescendantNode(
+                    entity_type=child_type,
+                    entity_id=child_id,
+                    entity_name=child_info["entity_name"],
+                    entity_PartNumber=child_info["part_number"],
+                    entity_SerialNumber=child_info["serial_number"],
+                    parent_ID=entity_id,
+                    parent_type=entity_type,
+                    parent_name=parent_info["entity_name"] if parent_info else None,
+                    depth=depth + 1,
+                )
+            )
+            result.extend(_collect_descendants(session, child_type, child_id, depth + 1))
 
     return result
 
@@ -251,6 +254,56 @@ _PARENT_MAP: dict = {
     EntityType.ORDER:     (EntityType.CUSTOMER,  Order,       "customer_id"),
 }
 
+# Preferred adjacent parent above, plus skipped-level parent FK candidates.
+_PARENT_FK_CANDIDATES: Dict[str, list[Tuple[str, Any, str]]] = {
+    EntityType.COMPONENT: [
+        (EntityType.UNIT, Component, "unit_id"),
+        (EntityType.MODULE, Component, "module_id"),
+        (EntityType.SUBSYSTEM, Component, "subsystem_id"),
+        (EntityType.SYSTEM, Component, "system_id"),
+    ],
+    EntityType.UNIT: [
+        (EntityType.MODULE, Unit, "module_id"),
+        (EntityType.SUBSYSTEM, Unit, "subsystem_id"),
+        (EntityType.SYSTEM, Unit, "system_id"),
+    ],
+    EntityType.MODULE: [
+        (EntityType.SUBSYSTEM, Module, "subsystem_id"),
+        (EntityType.SYSTEM, Module, "system_id"),
+    ],
+    EntityType.SUBSYSTEM: [
+        (EntityType.SYSTEM, Subsystem, "system_id"),
+    ],
+    EntityType.SYSTEM: [
+        (EntityType.PROJECT, System, "project_id"),
+    ],
+    EntityType.PROJECT: [
+        (EntityType.ORDER, Project, "order_id"),
+    ],
+    EntityType.ORDER: [
+        (EntityType.CUSTOMER, Order, "customer_id"),
+    ],
+}
+
+
+def _resolve_direct_parent(
+    session: Session,
+    entity_type: str,
+    entity_id: int,
+) -> Optional[Tuple[str, int]]:
+    """Return (parent_type, parent_id) using the first non-null parent FK."""
+    candidates = _PARENT_FK_CANDIDATES.get(entity_type) or (
+        [_PARENT_MAP[entity_type]] if entity_type in _PARENT_MAP else []
+    )
+    for parent_type, model_cls, fk_attr in candidates:
+        row = session.get(model_cls, entity_id)
+        if not row:
+            return None
+        parent_id = getattr(row, fk_attr, None)
+        if parent_id is not None:
+            return parent_type, int(parent_id)
+    return None
+
 def _cascade_fault_up(
     session:          Session,
     case_id:          int,
@@ -293,14 +346,12 @@ def _cascade_fault_up(
         created.append(fe)
         parent_fe_id = fe.id
 
-        if current_type not in _PARENT_MAP:
+        if current_type not in _PARENT_MAP and current_type not in _PARENT_FK_CANDIDATES:
             break                     # reached the top of the hierarchy
-        parent_type, model_cls, fk_attr = _PARENT_MAP[current_type]
-        row = session.get(model_cls, current_id)
-        if not row:
+        resolved = _resolve_direct_parent(session, current_type, current_id)
+        if not resolved:
             break                     # parent entity not found — stop cascade
-        current_id   = getattr(row, fk_attr)
-        current_type = parent_type
+        current_type, current_id = resolved
 
     session.commit()
     return created
@@ -313,8 +364,6 @@ def _cascade_fault_up(
 # Example: a MODULE has many UNITs; Unit.module_id is the FK.
 # Adapt the FK attribute names to your actual model definitions.
 
-from typing import Dict, Tuple, Any
-
 _CHILD_MAP: Dict[str, Tuple[str, Any, str]] = {
     EntityType.SYSTEM:    (EntityType.SUBSYSTEM, Subsystem, "system_id"),
     EntityType.SUBSYSTEM: (EntityType.MODULE,    Module,    "subsystem_id"),
@@ -322,6 +371,31 @@ _CHILD_MAP: Dict[str, Tuple[str, Any, str]] = {
     EntityType.UNIT:      (EntityType.COMPONENT, Component, "unit_id"),
     # but typically a project-level fault wouldn't trigger suspect-children.
     EntityType.PROJECT:   (EntityType.SYSTEM,    System,    "project_id"),
+}
+
+# All direct child types that may hang under a parent (including skipped levels).
+_CHILDREN_MAP: Dict[str, list[Tuple[str, Any, str]]] = {
+    EntityType.SYSTEM: [
+        (EntityType.SUBSYSTEM, Subsystem, "system_id"),
+        (EntityType.MODULE, Module, "system_id"),
+        (EntityType.UNIT, Unit, "system_id"),
+        (EntityType.COMPONENT, Component, "system_id"),
+    ],
+    EntityType.SUBSYSTEM: [
+        (EntityType.MODULE, Module, "subsystem_id"),
+        (EntityType.UNIT, Unit, "subsystem_id"),
+        (EntityType.COMPONENT, Component, "subsystem_id"),
+    ],
+    EntityType.MODULE: [
+        (EntityType.UNIT, Unit, "module_id"),
+        (EntityType.COMPONENT, Component, "module_id"),
+    ],
+    EntityType.UNIT: [
+        (EntityType.COMPONENT, Component, "unit_id"),
+    ],
+    EntityType.PROJECT: [
+        (EntityType.SYSTEM, System, "project_id"),
+    ],
 }
 
 # Map each entity type to its SQLModel class and the attribute used as its

@@ -670,12 +670,15 @@ class HierarchyTreeModuleNode(SQLModel):
     id: int
     name: str
     units: List[HierarchyTreeUnitNode] = []
+    components: List[HierarchyTreeComponentNode] = []
 
 
 class HierarchyTreeSubsystemNode(SQLModel):
     id: int
     name: str
     modules: List[HierarchyTreeModuleNode] = []
+    units: List[HierarchyTreeUnitNode] = []
+    components: List[HierarchyTreeComponentNode] = []
 
 
 class HierarchyTreeSystemNode(SQLModel):
@@ -683,6 +686,9 @@ class HierarchyTreeSystemNode(SQLModel):
     name: str
     subsystem_count: int = 0
     subsystems: List[HierarchyTreeSubsystemNode] = []
+    modules: List[HierarchyTreeModuleNode] = []
+    units: List[HierarchyTreeUnitNode] = []
+    components: List[HierarchyTreeComponentNode] = []
 
 
 class SdlsTreeNode(SQLModel):
@@ -828,12 +834,14 @@ class SubsystemUpdate(SQLModel):
     original_serial_number: Optional[str] = None
 
 class ModuleCreate(ModuleBase):
-    subsystem_id: int
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
 
 class ModuleRead(ModuleBase):
     id: int
-    subsystem_id: int
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     units: Optional[List["UnitRead"]] = None
@@ -843,6 +851,7 @@ class ModuleRead(ModuleBase):
 
 class ModuleUpdate(SQLModel):
     subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     name: Optional[str] = None
     description: Optional[str] = None
     status_id: Optional[int] = None
@@ -858,11 +867,15 @@ class ModuleUpdate(SQLModel):
 
 class UnitCreate(UnitBase):
     module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
 
 class UnitRead(UnitBase):
     id: int
     module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     components: Optional[List["ComponentRead"]] = None
@@ -872,6 +885,8 @@ class UnitRead(UnitBase):
 
 class UnitUpdate(SQLModel):
     module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     name: Optional[str] = None
     description: Optional[str] = None
     status_id: Optional[int] = None
@@ -887,11 +902,17 @@ class UnitUpdate(SQLModel):
 
 class ComponentCreate(ComponentBase):
     unit_id: Optional[int] = None
+    module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
 
 class ComponentRead(ComponentBase):
     id: int
     unit_id: Optional[int] = None
+    module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     status_id: Optional[int] = None
     status_name: Optional[str] = None
     inventory_items: Optional[List["InventoryRead"]] = None
@@ -901,6 +922,9 @@ class ComponentRead(ComponentBase):
 
 class ComponentUpdate(SQLModel):
     unit_id: Optional[int] = None
+    module_id: Optional[int] = None
+    subsystem_id: Optional[int] = None
+    system_id: Optional[int] = None
     name: Optional[str] = None
     sku: Optional[str] = None
     description: Optional[str] = None

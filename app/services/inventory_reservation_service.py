@@ -352,39 +352,56 @@ def effective_inventory_source(
 def _resolve_flight_sdls_for_entity(
     session: Session, entity_type: str, entity: Any
 ) -> tuple[Flight, Sdls, System]:
-    """Walk hierarchy up to System → SDLS → Flight."""
+    """Walk hierarchy up to System → SDLS → Flight (supports skipped levels)."""
     et = entity_type.strip().lower()
     system: Optional[System] = None
+    current_type = et
+    current = entity
 
-    if et == "system":
-        system = entity
-    elif et == "subsystem":
-        system = session.get(System, entity.system_id)
-    elif et == "module":
-        sub = session.get(Subsystem, entity.subsystem_id)
-        if not sub:
-            raise InventoryReservationError("Subsystem parent not found")
-        system = session.get(System, sub.system_id)
-    elif et == "unit":
-        mod = session.get(Module, entity.module_id)
-        if not mod:
-            raise InventoryReservationError("Module parent not found")
-        sub = session.get(Subsystem, mod.subsystem_id)
-        if not sub:
-            raise InventoryReservationError("Subsystem parent not found")
-        system = session.get(System, sub.system_id)
-    elif et == "component":
-        unit = session.get(Unit, entity.unit_id)
-        if not unit:
-            raise InventoryReservationError("Unit parent not found")
-        mod = session.get(Module, unit.module_id)
-        if not mod:
-            raise InventoryReservationError("Module parent not found")
-        sub = session.get(Subsystem, mod.subsystem_id)
-        if not sub:
-            raise InventoryReservationError("Subsystem parent not found")
-        system = session.get(System, sub.system_id)
-    else:
+    for _ in range(8):
+        if current is None:
+            break
+        if current_type == "system":
+            system = current
+            break
+        # Prefer a direct system_id when present (skipped-level parent).
+        system_id = getattr(current, "system_id", None)
+        if system_id is not None and current_type != "subsystem":
+            system = session.get(System, int(system_id))
+            break
+        if current_type == "subsystem":
+            system = session.get(System, getattr(current, "system_id", None))
+            break
+        if current_type == "module":
+            if getattr(current, "subsystem_id", None):
+                current = session.get(Subsystem, int(current.subsystem_id))
+                current_type = "subsystem"
+                continue
+            break
+        if current_type == "unit":
+            if getattr(current, "module_id", None):
+                current = session.get(Module, int(current.module_id))
+                current_type = "module"
+                continue
+            if getattr(current, "subsystem_id", None):
+                current = session.get(Subsystem, int(current.subsystem_id))
+                current_type = "subsystem"
+                continue
+            break
+        if current_type == "component":
+            if getattr(current, "unit_id", None):
+                current = session.get(Unit, int(current.unit_id))
+                current_type = "unit"
+                continue
+            if getattr(current, "module_id", None):
+                current = session.get(Module, int(current.module_id))
+                current_type = "module"
+                continue
+            if getattr(current, "subsystem_id", None):
+                current = session.get(Subsystem, int(current.subsystem_id))
+                current_type = "subsystem"
+                continue
+            break
         raise InventoryReservationError(f"Unsupported entity type: {entity_type}")
 
     if not system:
@@ -1468,7 +1485,10 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
     """
     Spec 04 UI — every reservable hierarchy shell under the project with a
     matched AVAILABLE stock suggestion (or short / already-reserved).
+
+    Walks flexible parents (skipped levels allowed).
     """
+    from app.models.helpers import _CHILDREN_MAP
     from app.services.entity_replacement_service import filter_current_installs
 
     project = session.get(Project, project_id)
@@ -1481,6 +1501,46 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
         .order_by(Flight.sequence, Flight.id)
     ).all()
 
+    def _sorted_rows(rows: list[Any]) -> list[Any]:
+        return sorted(
+            filter_current_installs(list(rows or [])),
+            key=lambda row: (getattr(row, "name", None) or "", int(row.id or 0)),
+        )
+
+    def _append_entity_and_descendants(
+        *,
+        entity_type: str,
+        entity: Any,
+        path_parts: list[str],
+        items: list[dict[str, Any]],
+    ) -> None:
+        items.append(
+            _plan_row_for_entity(
+                session,
+                project_id=project_id,
+                entity_type=entity_type,
+                entity=entity,
+                path_parts=path_parts,
+            )
+        )
+        child_specs = _CHILDREN_MAP.get(entity_type) or []
+        for child_type, child_model, fk_attr in child_specs:
+            child_type_key = str(getattr(child_type, "value", child_type)).strip().lower()
+            children = _sorted_rows(
+                session.exec(
+                    select(child_model).where(
+                        getattr(child_model, fk_attr) == int(entity.id)
+                    )
+                ).all()
+            )
+            for child in children:
+                _append_entity_and_descendants(
+                    entity_type=child_type_key,
+                    entity=child,
+                    path_parts=[*path_parts, child.name],
+                    items=items,
+                )
+
     items: list[dict[str, Any]] = []
     for flight in flights:
         flight_label = flight.name or flight.code or f"Flight-{flight.id}"
@@ -1491,87 +1551,20 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
         ).all()
         for sdls in sdls_rows:
             sdls_label = sdls.name or sdls.code or f"SDLS-{sdls.id}"
-            systems = filter_current_installs(
+            systems = _sorted_rows(
                 [
                     s
                     for s in (project.systems or [])
                     if s.sdls_id == sdls.id
                 ]
             )
-            systems = sorted(systems, key=lambda s: (s.name or "", int(s.id or 0)))
             for system in systems:
-                sys_path = [flight_label, sdls_label, system.name]
-                items.append(
-                    _plan_row_for_entity(
-                        session,
-                        project_id=project_id,
-                        entity_type="system",
-                        entity=system,
-                        path_parts=sys_path,
-                    )
+                _append_entity_and_descendants(
+                    entity_type="system",
+                    entity=system,
+                    path_parts=[flight_label, sdls_label, system.name],
+                    items=items,
                 )
-                subsystems = filter_current_installs(list(system.subsystems or []))
-                subsystems = sorted(
-                    subsystems, key=lambda s: (s.name or "", int(s.id or 0))
-                )
-                for subsystem in subsystems:
-                    sub_path = [*sys_path, subsystem.name]
-                    items.append(
-                        _plan_row_for_entity(
-                            session,
-                            project_id=project_id,
-                            entity_type="subsystem",
-                            entity=subsystem,
-                            path_parts=sub_path,
-                        )
-                    )
-                    modules = filter_current_installs(list(subsystem.modules or []))
-                    modules = sorted(
-                        modules, key=lambda m: (m.name or "", int(m.id or 0))
-                    )
-                    for module in modules:
-                        mod_path = [*sub_path, module.name]
-                        items.append(
-                            _plan_row_for_entity(
-                                session,
-                                project_id=project_id,
-                                entity_type="module",
-                                entity=module,
-                                path_parts=mod_path,
-                            )
-                        )
-                        units = filter_current_installs(list(module.units or []))
-                        units = sorted(
-                            units, key=lambda u: (u.name or "", int(u.id or 0))
-                        )
-                        for unit in units:
-                            unit_path = [*mod_path, unit.name]
-                            items.append(
-                                _plan_row_for_entity(
-                                    session,
-                                    project_id=project_id,
-                                    entity_type="unit",
-                                    entity=unit,
-                                    path_parts=unit_path,
-                                )
-                            )
-                            components = filter_current_installs(
-                                list(unit.components or [])
-                            )
-                            components = sorted(
-                                components,
-                                key=lambda c: (c.name or "", int(c.id or 0)),
-                            )
-                            for component in components:
-                                items.append(
-                                    _plan_row_for_entity(
-                                        session,
-                                        project_id=project_id,
-                                        entity_type="component",
-                                        entity=component,
-                                        path_parts=[*unit_path, component.name],
-                                    )
-                                )
 
     _assign_distinct_suggested_serials(items)
 

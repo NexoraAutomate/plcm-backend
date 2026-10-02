@@ -280,8 +280,11 @@ def get_project_hierarchy_tree(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_projects")),
 ):
-    """Spec 03 — nested Flight → SDLS → System → … → Component tree."""
-    from app.models.tables import Flight, Sdls
+    """Spec 03 — nested Flight → SDLS → System → … → Component tree.
+
+    Direct children may skip levels (e.g. Unit under System).
+    """
+    from app.models.tables import Component, Flight, Module, Sdls, Subsystem, Unit
     from app.services.entity_replacement_service import filter_current_installs
 
     project = _require_visible_project(session, project_id, current_user)
@@ -292,6 +295,13 @@ def get_project_hierarchy_tree(
             key=lambda row: (getattr(row, "name", None) or "", int(row.id or 0)),
         )
 
+    def _by_fk(model, fk_attr: str, parent_id: int):
+        return _sorted_current(
+            session.exec(
+                select(model).where(getattr(model, fk_attr) == int(parent_id))
+            ).all()
+        )
+
     def _component_node(component) -> schemas.HierarchyTreeComponentNode:
         return schemas.HierarchyTreeComponentNode(
             id=int(component.id),
@@ -299,7 +309,7 @@ def get_project_hierarchy_tree(
         )
 
     def _unit_node(unit) -> schemas.HierarchyTreeUnitNode:
-        components = _sorted_current(unit.components)
+        components = _by_fk(Component, "unit_id", int(unit.id))
         return schemas.HierarchyTreeUnitNode(
             id=int(unit.id),
             name=unit.name,
@@ -307,28 +317,40 @@ def get_project_hierarchy_tree(
         )
 
     def _module_node(module) -> schemas.HierarchyTreeModuleNode:
-        units = _sorted_current(module.units)
+        units = _by_fk(Unit, "module_id", int(module.id))
+        components = _by_fk(Component, "module_id", int(module.id))
         return schemas.HierarchyTreeModuleNode(
             id=int(module.id),
             name=module.name,
             units=[_unit_node(u) for u in units],
+            components=[_component_node(c) for c in components],
         )
 
     def _subsystem_node(subsystem) -> schemas.HierarchyTreeSubsystemNode:
-        modules = _sorted_current(subsystem.modules)
+        modules = _by_fk(Module, "subsystem_id", int(subsystem.id))
+        units = _by_fk(Unit, "subsystem_id", int(subsystem.id))
+        components = _by_fk(Component, "subsystem_id", int(subsystem.id))
         return schemas.HierarchyTreeSubsystemNode(
             id=int(subsystem.id),
             name=subsystem.name,
             modules=[_module_node(m) for m in modules],
+            units=[_unit_node(u) for u in units],
+            components=[_component_node(c) for c in components],
         )
 
     def _system_node(system) -> schemas.HierarchyTreeSystemNode:
-        subsystems = _sorted_current(system.subsystems)
+        subsystems = _by_fk(Subsystem, "system_id", int(system.id))
+        modules = _by_fk(Module, "system_id", int(system.id))
+        units = _by_fk(Unit, "system_id", int(system.id))
+        components = _by_fk(Component, "system_id", int(system.id))
         return schemas.HierarchyTreeSystemNode(
             id=int(system.id),
             name=system.name,
             subsystem_count=len(subsystems),
             subsystems=[_subsystem_node(s) for s in subsystems],
+            modules=[_module_node(m) for m in modules],
+            units=[_unit_node(u) for u in units],
+            components=[_component_node(c) for c in components],
         )
 
     flights = session.exec(

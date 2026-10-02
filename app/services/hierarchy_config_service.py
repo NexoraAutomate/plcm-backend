@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from app.domain.hierarchy_config import (
     CONFIG_RULE_NOTES_DEFAULT,
     DEFAULT_PRODUCT_TYPE_DEFS,
-    PARENT_TEMPLATE_LEVEL,
+    is_valid_template_parent,
     TEMPLATE_NODE_LEVELS,
     HierarchyConfigLevel,
     InventorySource,
@@ -101,15 +101,14 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
             raise HierarchyConfigError(f"Duplicate client_key: {client_key}")
         keys.add(client_key)
 
-    # Parent level rules
+    # Parent level rules — any higher template level may parent any lower level
     by_key = {
         str(n.get("client_key") or f"n{i}").strip(): n for i, n in enumerate(nodes)
     }
     for index, node in enumerate(nodes):
         level = HierarchyConfigLevel(str(node.get("level")).strip().lower())
-        expected_parent = PARENT_TEMPLATE_LEVEL[level]
         parent_key = node.get("parent_client_key")
-        if expected_parent is None:
+        if level == HierarchyConfigLevel.SYSTEM:
             if parent_key:
                 raise HierarchyConfigError(
                     f"Node[{index}] ({level.value}) must not have a parent"
@@ -124,10 +123,13 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
             raise HierarchyConfigError(
                 f"Node[{index}] parent_client_key '{parent_key}' not found"
             )
-        parent_level = str(parent.get("level", "")).strip().lower()
-        if parent_level != expected_parent.value:
+        parent_level = HierarchyConfigLevel(
+            str(parent.get("level", "")).strip().lower()
+        )
+        if not is_valid_template_parent(parent_level, level):
             raise HierarchyConfigError(
-                f"Node[{index}] parent must be {expected_parent.value}, got {parent_level}"
+                f"Node[{index}] parent must be a higher level than {level.value}, "
+                f"got {parent_level.value}"
             )
 
     children_of: dict[str, list[dict[str, Any]]] = {}

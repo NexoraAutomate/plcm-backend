@@ -18,7 +18,7 @@ from app.domain.hierarchy_config import is_build_from_children
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.domain.workflow_status import ItemStatus
 from app.models.base import IssuanceStatus
-from app.models.helpers import _CHILD_MAP, _ENTITY_MODEL_MAP, _PARENT_MAP
+from app.models.helpers import _CHILD_MAP, _CHILDREN_MAP, _ENTITY_MODEL_MAP, _resolve_direct_parent
 from app.models.tables import (
     AssembledInventory,
     AppDefinitions,
@@ -102,18 +102,12 @@ def _immediate_parent(
     et = _entity_type_key(entity_type)
     if et not in RESERVABLE_ENTITY_TYPES or et == "system":
         return None
-    mapping = _PARENT_MAP.get(et)
-    if not mapping:
+    resolved = _resolve_direct_parent(session, et, int(entity_id))
+    if not resolved:
         return None
-    parent_type, current_model, fk_attr = mapping
+    parent_type, parent_id = resolved
     parent_type = _entity_type_key(parent_type)
     if parent_type not in RESERVABLE_ENTITY_TYPES:
-        return None
-    entity = session.get(current_model, int(entity_id))
-    if entity is None:
-        return None
-    parent_id = getattr(entity, fk_attr, None)
-    if parent_id is None:
         return None
     parent_model = _ENTITY_MODEL_MAP[parent_type][0]
     parent = session.get(parent_model, int(parent_id))
@@ -125,19 +119,26 @@ def _immediate_parent(
 def _direct_children(
     session: Session, parent_type: str, parent_id: int
 ) -> list[tuple[str, Any]]:
-    mapping = _CHILD_MAP.get(_entity_type_key(parent_type))
-    if not mapping:
-        return []
-    child_type, child_model, fk_attr = mapping
-    child_type = _entity_type_key(child_type)
-    if child_type not in RESERVABLE_ENTITY_TYPES:
-        return []
-    rows = list(
-        session.exec(
-            select(child_model).where(getattr(child_model, fk_attr) == int(parent_id))
-        ).all()
-    )
-    return [(child_type, row) for row in filter_current_installs(rows)]
+    pt = _entity_type_key(parent_type)
+    specs = _CHILDREN_MAP.get(pt)
+    if not specs:
+        mapping = _CHILD_MAP.get(pt)
+        if not mapping:
+            return []
+        specs = [mapping]
+    out: list[tuple[str, Any]] = []
+    for child_type, child_model, fk_attr in specs:
+        child_type = _entity_type_key(child_type)
+        if child_type not in RESERVABLE_ENTITY_TYPES:
+            continue
+        rows = list(
+            session.exec(
+                select(child_model).where(getattr(child_model, fk_attr) == int(parent_id))
+            ).all()
+        )
+        for row in filter_current_installs(rows):
+            out.append((child_type, row))
+    return out
 
 
 def _has_verified_issuance(session: Session, entity_type: str, entity_id: int) -> bool:
