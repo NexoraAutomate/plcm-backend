@@ -1,35 +1,72 @@
-services:
+# Offline / client deployment — image-only, no build, no registry pulls.
+# Requires preloaded images from images/satlife-complete.tar:
+#   satlife-db:latest, satlife-backend:latest, satlife-frontend:latest
+#
+# Usage:
+#   docker load -i images/satlife-complete.tar
+#   docker compose -f docker-compose.prod.yml up -d
+# Or run start.bat
 
+services:
   db:
     image: satlife-db:latest
     container_name: satlife-db
     restart: unless-stopped
+    pull_policy: never
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: plcm
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-plcm}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - satlife_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-plcm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     image: satlife-backend:latest
     container_name: satlife-backend
+    restart: unless-stopped
+    pull_policy: never
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Always use the compose service hostname inside the Docker network
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-plcm}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-me-to-a-long-random-string}
+      AUTH_ALGORITHM: ${AUTH_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      CREATE_DEFAULT_ADMIN: ${CREATE_DEFAULT_ADMIN:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGIN_REGEX: ${CORS_ORIGIN_REGEX:-https?://(localhost|127\\.0\\.0\\.1|192\\.168\\.\\d+\\.\\d+|10\\.\\d+\\.\\d+\\.\\d+|172\\.(1[6-9]|2\\d|3[01])\\.\\d+\\.\\d+|193\\.193\\.193\\.\\d+)(:\\d+)?}
+      PLCM_UPLOAD_DIR: ${PLCM_UPLOAD_DIR:-/app/uploads}
+      BACKEND_RELOAD: "false"
     ports:
-      - "8000:8000"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - satlife_uploads:/app/uploads
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   frontend:
     image: satlife-frontend:latest
     container_name: satlife-frontend
+    restart: unless-stopped
+    pull_policy: never
     depends_on:
       - backend
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NEXT_TELEMETRY_DISABLED: "1"
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   satlife_pgdata:
