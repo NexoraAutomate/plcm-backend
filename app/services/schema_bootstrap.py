@@ -38,6 +38,8 @@ PROJECT_COLUMN_DDL = [
     ("successor_project_id", "INTEGER"),
     ("predecessor_project_id", "INTEGER"),
     ("is_existing_project", "BOOLEAN DEFAULT FALSE NOT NULL"),
+    ("delete_requested_at", "TIMESTAMP WITH TIME ZONE"),
+    ("delete_requested_by_id", "INTEGER"),
 ]
 
 SYSTEM_COLUMN_DDL = [

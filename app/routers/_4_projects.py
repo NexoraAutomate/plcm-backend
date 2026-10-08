@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Response, status
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, status
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.tables import (Project, System, User)
@@ -19,6 +19,7 @@ from app.services.project_workflow_service import (
     create_draft_project,
     create_draft_projects_by_flight,
     guard_structural_update,
+    project_hm_is_reassignable,
     project_list_visibility_where,
     user_can_view_project,
 )
@@ -45,16 +46,32 @@ def _to_system_read(system: System) -> schemas.SystemRead:
     )
 
 
-def _to_project_read(project: Project, *, include_systems: bool = True) -> schemas.ProjectRead:
+def _to_project_read(
+    project: Project,
+    *,
+    include_systems: bool = True,
+    hm_reassignable: bool = True,
+) -> schemas.ProjectRead:
     status_name = project.status.status_name if project.status else None
     return schemas.ProjectRead(
         **project.model_dump(),
         status_name=status_name,
+        hm_reassignable=hm_reassignable,
         systems=(
             [_to_system_read(system) for system in filter_current_installs(project.systems)]
             if include_systems
             else None
         ),
+    )
+
+
+def _to_project_read_with_hm_flag(
+    session: Session, project: Project, *, include_systems: bool = True
+) -> schemas.ProjectRead:
+    return _to_project_read(
+        project,
+        include_systems=include_systems,
+        hm_reassignable=project_hm_is_reassignable(session, int(project.id)),
     )
 
 
@@ -136,7 +153,7 @@ def assign_project_hm(
         project = assign_hm(
             session, project_id, payload.hm_user_id, actor=current_user
         )
-        return _to_project_read(project)
+        return _to_project_read_with_hm_flag(session, project)
     except ProjectWorkflowError as exc:
         raise _workflow_http_error(exc) from exc
 
@@ -720,7 +737,7 @@ def list_projects(
 @router.get("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def get_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("view_projects"))):
     project = _require_visible_project(session, project_id, current_user)
-    return _to_project_read(project)
+    return _to_project_read_with_hm_flag(session, project)
 
 @router.put("/projects/{project_id}/", response_model=schemas.ProjectRead, tags=["projects"])
 def update_project(project_id: int, project: schemas.ProjectUpdate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("edit_projects"))):
@@ -767,15 +784,55 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
     session.refresh(db_project)
     return _to_project_read(db_project)
 
+@router.get(
+    "/projects/{project_id}/delete-preview/",
+    response_model=schemas.ProjectDeletePreview,
+    tags=["projects"],
+)
+def project_delete_preview(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("delete_projects")),
+):
+    from app.services.project_delete_service import (
+        ProjectDeleteError,
+        project_delete_preview as do_delete_preview,
+    )
+
+    _ = current_user
+    try:
+        return do_delete_preview(session, project_id)
+    except ProjectDeleteError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in detail.lower()
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
 @router.delete("/projects/{project_id}/", tags=["projects"])
-def delete_project(project_id: int, session: Session = Depends(get_session), current_user: User = Depends(require_permission("delete_projects"))):
+def delete_project(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("delete_projects")),
+    inventory_disposition: str = Query("auto"),
+    confirm: bool = Query(False),
+):
     from app.services.project_delete_service import (
         ProjectDeleteError,
         delete_project as do_delete_project,
     )
 
     try:
-        return do_delete_project(session, project_id, actor=current_user)
+        return do_delete_project(
+            session,
+            project_id,
+            actor=current_user,
+            inventory_disposition=inventory_disposition,  # type: ignore[arg-type]
+            confirm=bool(confirm),
+        )
     except ProjectDeleteError as exc:
         detail = str(exc)
         lower = detail.lower()

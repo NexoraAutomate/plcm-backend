@@ -13,7 +13,15 @@ from sqlmodel import Session, select
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_roles import WorkflowRole, has_workflow_role, normalize_workflow_role
 from app.domain.workflow_status import ProjectWorkflowStatus
-from app.models.tables import HierarchyConfiguration, Project, Status, User
+from app.models.base import IssuanceEventType, ItemTestResult
+from app.models.tables import (
+    HierarchyConfiguration,
+    InventoryIssuance,
+    InventoryIssuanceEvent,
+    Project,
+    Status,
+    User,
+)
 from app.services.create_entity import New_entity
 from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
@@ -133,6 +141,48 @@ def user_can_view_project(user: User, project: Project) -> bool:
         project.created_by_id,
         project.assigned_hm_id,
     }
+
+
+def user_can_verify_project(user: User, project: Project) -> bool:
+    """Only the currently assigned HM (or Admin) may verify/reject installations."""
+    if _is_admin(user):
+        return True
+    if project.assigned_hm_id is None:
+        return False
+    return int(user.id) == int(project.assigned_hm_id)
+
+
+def project_has_hm_verification_action(session: Session, project_id: int) -> bool:
+    """True once any Accept/Reject verification has been recorded for the project."""
+    pid = int(project_id)
+    verified = session.exec(
+        select(InventoryIssuance.id)
+        .where(
+            InventoryIssuance.project_id == pid,
+            InventoryIssuance.verified_at.is_not(None),
+        )
+        .limit(1)
+    ).first()
+    if verified is not None:
+        return True
+    rejected = session.exec(
+        select(InventoryIssuanceEvent.id)
+        .join(
+            InventoryIssuance,
+            InventoryIssuance.id == InventoryIssuanceEvent.issuance_id,
+        )
+        .where(
+            InventoryIssuance.project_id == pid,
+            InventoryIssuanceEvent.event_type
+            == IssuanceEventType.VERIFICATION_REJECTED.value,
+        )
+        .limit(1)
+    ).first()
+    return rejected is not None
+
+
+def project_hm_is_reassignable(session: Session, project_id: int) -> bool:
+    return not project_has_hm_verification_action(session, int(project_id))
 
 
 def project_list_visibility_where(user: User) -> Any:
@@ -576,6 +626,16 @@ def assign_hm(
         )
 
     previous_hm_id = project.assigned_hm_id
+    if (
+        previous_hm_id is not None
+        and int(previous_hm_id) != int(hm_user_id)
+        and project_has_hm_verification_action(session, int(project.id))
+    ):
+        raise ProjectWorkflowError(
+            "Hierarchy Manager cannot be changed after installation "
+            "verification Accept/Reject on this project"
+        )
+
     project.assigned_hm_id = hm_user_id
     project.owner_id = hm_user_id
     project.updated_at = _now()
@@ -593,6 +653,38 @@ def assign_hm(
             "assigned_hm_name": hm_user.full_name or hm_user.username,
         },
     )
+
+    if previous_hm_id is not None and int(previous_hm_id) != int(hm_user_id):
+        from app.services.app_notification_service import (
+            dismiss_verify_queue_notifications_for_user,
+            notify_pending_verifications_routed,
+        )
+
+        dismiss_verify_queue_notifications_for_user(
+            session,
+            user_id=int(previous_hm_id),
+            project_id=int(project.id),
+            commit=False,
+        )
+        pending_ids = session.exec(
+            select(InventoryIssuance.id).where(
+                InventoryIssuance.project_id == int(project.id),
+                InventoryIssuance.test_result == ItemTestResult.PASS.value,
+                InventoryIssuance.complete_reported_at.is_not(None),
+                InventoryIssuance.verified_at.is_(None),
+                InventoryIssuance.defect_pending.is_(False),
+            )
+        ).all()
+        if pending_ids:
+            notify_pending_verifications_routed(
+                session,
+                project=project,
+                actor=actor,
+                new_hm_user_id=int(hm_user_id),
+                pending_count=len(pending_ids),
+                commit=False,
+            )
+
     session.commit()
     session.refresh(project)
     return project

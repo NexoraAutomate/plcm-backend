@@ -215,6 +215,10 @@ class ProjectCommon(SQLModel):
         default=None, foreign_key="project.id", index=True
     )
     is_existing_project: bool = Field(default=False)
+    delete_requested_at: Optional[datetime] = None
+    delete_requested_by_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
 
 class ProjectBase(ProjectCommon):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

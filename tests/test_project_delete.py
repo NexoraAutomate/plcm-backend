@@ -20,6 +20,7 @@ from app.models.tables import (
     InventoryIssuance,
     InventoryIssuanceEvent,
     InventoryInstallerNotice,
+    InventoryRecallTask,
     InventoryReservation,
     InventoryReworkCase,
     InventoryShortage,
@@ -42,13 +43,29 @@ from app.services.inventory_reservation_service import (
     reserve_inventory,
 )
 from app.services.item_request_service import create_item_request, issue_item_request
+from app.domain.workflow_audit import WorkflowAuditAction
+from app.domain.workflow_status import ProjectWorkflowStatus
+from app.models.base import RecallTaskStatus
+from app.services.inventory_recall_service import (
+    confirm_developer_return,
+    disposition_recall,
+    list_recall_tasks,
+    start_recall_inspection,
+)
 from app.services.project_delete_service import (
     PROJECT_DELETE_BLOCKED_MESSAGE,
+    PROJECT_DELETE_WAITING_RECALL_MESSAGE,
     ProjectDeleteError,
     delete_project,
+    project_delete_preview,
 )
-from app.services.project_workflow_service import approve_project, create_draft_project
+from app.services.project_workflow_service import (
+    approve_project,
+    create_draft_project,
+    project_status_name,
+)
 from app.services.schema_bootstrap import ensure_user_management_schema
+from app.services.workflow_audit_service import list_workflow_audits
 from app.services.workflow_foundation_seed import ensure_workflow_statuses
 from tests.test_issue_to_developer import _stock_for_system
 
@@ -104,7 +121,7 @@ def developer_user(session: Session):
 
 SIGNATURE = {
     "signature_type": "DIGITAL",
-    "signature_payload": "data:image/png;base64,aaa",
+    "signature_payload": "data:image/png;base64,iVBORw0KGgo=",
 }
 
 
@@ -177,6 +194,7 @@ def _cleanup_leftovers(session: Session, project_id: int | None, cfg, inventory:
         for model in (
             InventoryItemRequest,
             InventoryReworkCase,
+            InventoryRecallTask,
         ):
             rows = session.exec(select(model).where(model.project_id == project_id)).all()
             for row in rows:
@@ -337,3 +355,197 @@ def test_delete_project_without_inventory(session: Session, admin_user: User):
             session.delete(session.get(Project, project_id))
             session.commit()
         delete_configuration(session, cfg.id, hard=True)
+
+
+def _issue_on_project(
+    session: Session,
+    project_id: int,
+    *,
+    admin: User,
+    developer: User,
+    serial: str,
+):
+    system = _first_system(session, project_id)
+    reserve_inventory(
+        session,
+        project_id,
+        {
+            "target_entity_type": "system",
+            "target_entity_id": int(system.id),
+            "serial_number": serial,
+        },
+        actor=admin,
+    )
+    assign_developer(
+        session, "system", int(system.id), int(developer.id), actor=admin
+    )
+    req = create_item_request(
+        session, entity_type="system", entity_id=int(system.id), actor=developer
+    )
+    issue_item_request(session, int(req.id), actor=admin, **SIGNATURE)
+    return system
+
+
+def test_delete_auto_blocked_after_issue(
+    session: Session, admin_user: User, developer_user: User
+):
+    name = f"DelBlk-{uuid.uuid4().hex[:6]}"
+    serial = f"SN-BLK-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, name)
+    inventory = _stock_for_system(session, name=name, serials=[serial])
+    project_id = int(project.id)
+    try:
+        _issue_on_project(
+            session, project_id, admin=admin_user, developer=developer_user, serial=serial
+        )
+        with pytest.raises(ProjectDeleteError, match="cannot be deleted"):
+            delete_project(session, project_id, actor=admin_user)
+        assert session.get(Project, project_id) is not None
+        assert PROJECT_DELETE_BLOCKED_MESSAGE
+    finally:
+        _cleanup_leftovers(session, project_id, cfg, inventory)
+
+
+def test_delete_revert_requests_and_opens_recalls(
+    session: Session, admin_user: User, developer_user: User
+):
+    name = f"DelRev-{uuid.uuid4().hex[:6]}"
+    serial = f"SN-REV-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, name)
+    inventory = _stock_for_system(session, name=name, serials=[serial])
+    project_id = int(project.id)
+    try:
+        _issue_on_project(
+            session, project_id, admin=admin_user, developer=developer_user, serial=serial
+        )
+        result = delete_project(
+            session,
+            project_id,
+            actor=admin_user,
+            inventory_disposition="revert",
+            confirm=True,
+        )
+        assert result["status"] == "delete_requested"
+        assert result["recall_tasks_created"] >= 1
+        project = session.get(Project, project_id)
+        assert project is not None
+        assert project.delete_requested_at is not None
+        assert project.delete_requested_by_id == int(admin_user.id)
+        assert project_status_name(project) == ProjectWorkflowStatus.CANCELLED.value
+        tasks = list_recall_tasks(
+            session, project_id=project_id, status_filter=RecallTaskStatus.OPEN.value
+        )
+        assert len(tasks) >= 1
+        events, _total = list_workflow_audits(
+            session, entity_type="project", entity_id=str(project_id)
+        )
+        assert any(
+            e.action == WorkflowAuditAction.PROJECT_DELETE_REQUESTED for e in events
+        )
+
+        with pytest.raises(ProjectDeleteError, match="waiting"):
+            delete_project(session, project_id, actor=admin_user)
+        assert PROJECT_DELETE_WAITING_RECALL_MESSAGE
+    finally:
+        _cleanup_leftovers(session, project_id, cfg, inventory)
+
+
+def test_delete_after_recall_cleared_hard_deletes(
+    session: Session, admin_user: User, developer_user: User
+):
+    name = f"DelFin-{uuid.uuid4().hex[:6]}"
+    serial = f"SN-FIN-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, name)
+    inventory = _stock_for_system(session, name=name, serials=[serial])
+    project_id = int(project.id)
+    try:
+        _issue_on_project(
+            session, project_id, admin=admin_user, developer=developer_user, serial=serial
+        )
+        delete_project(
+            session,
+            project_id,
+            actor=admin_user,
+            inventory_disposition="revert",
+            confirm=True,
+        )
+        task = list_recall_tasks(session, project_id=project_id)[0]
+        confirm_developer_return(session, int(task.id), actor=developer_user)
+        start_recall_inspection(session, int(task.id), actor=admin_user)
+        disposition_recall(
+            session, int(task.id), actor=admin_user, outcome="reusable"
+        )
+
+        preview = project_delete_preview(session, project_id)
+        assert preview["inventory_is_cleared"] is True
+        assert preview["can_hard_delete"] is True
+
+        result = delete_project(session, project_id, actor=admin_user)
+        assert result["ok"] is True
+        assert result["status"] == "deleted"
+        assert result["inventory_disposition"] == "reverted"
+        assert session.get(Project, project_id) is None
+        project_id = None
+    finally:
+        _cleanup_leftovers(session, project_id, cfg, inventory)
+
+
+def test_delete_discard_orphans_inventory_items(
+    session: Session, admin_user: User, developer_user: User
+):
+    name = f"DelDisc-{uuid.uuid4().hex[:6]}"
+    serial = f"SN-DISC-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, name)
+    inventory = _stock_for_system(session, name=name, serials=[serial])
+    project_id = int(project.id)
+    try:
+        _issue_on_project(
+            session, project_id, admin=admin_user, developer=developer_user, serial=serial
+        )
+        instance = session.exec(
+            select(InventoryInstance).where(InventoryInstance.serial_number == serial)
+        ).first()
+        assert instance is not None
+        prior_status = item_status_name(session, instance.status_id)
+
+        result = delete_project(
+            session,
+            project_id,
+            actor=admin_user,
+            inventory_disposition="discard",
+            confirm=True,
+        )
+        assert result["ok"] is True
+        assert result["inventory_disposition"] == "discarded"
+        assert session.get(Project, project_id) is None
+        project_id = None
+
+        session.refresh(instance)
+        assert item_status_name(session, instance.status_id) == prior_status
+        assert session.get(InventoryInstance, instance.id) is not None
+    finally:
+        _cleanup_leftovers(session, project_id, cfg, inventory)
+
+
+def test_delete_preview_reports_progressed_state(
+    session: Session, admin_user: User, developer_user: User
+):
+    name = f"DelPrev-{uuid.uuid4().hex[:6]}"
+    serial = f"SN-PREV-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, name)
+    inventory = _stock_for_system(session, name=name, serials=[serial])
+    project_id = int(project.id)
+    try:
+        preview = project_delete_preview(session, project_id)
+        assert preview["progressed_past_reserve_or_assign"] is False
+        assert preview["can_hard_delete"] is True
+
+        _issue_on_project(
+            session, project_id, admin=admin_user, developer=developer_user, serial=serial
+        )
+        preview = project_delete_preview(session, project_id)
+        assert preview["progressed_past_reserve_or_assign"] is True
+        assert preview["can_hard_delete"] is False
+        assert preview["inventory_is_cleared"] is False
+    finally:
+        _cleanup_leftovers(session, project_id, cfg, inventory)

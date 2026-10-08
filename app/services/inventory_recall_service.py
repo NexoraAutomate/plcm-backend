@@ -828,6 +828,13 @@ def disposition_recall(
         maybe_mark_inventory_returned(session, int(task.project_id))
     except ConfigChangeError:
         pass
+    try:
+        from app.services.project_delete_service import maybe_notify_delete_ready
+
+        maybe_notify_delete_ready(session, int(task.project_id))
+        session.commit()
+    except Exception:
+        pass
     return task
 
 

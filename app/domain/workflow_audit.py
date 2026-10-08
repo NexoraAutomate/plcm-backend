@@ -30,6 +30,7 @@ class WorkflowAuditAction:
     PROJECT_APPROVED = "PROJECT_APPROVED"
     HIERARCHY_GENERATED = "HIERARCHY_GENERATED"
     PROJECT_CANCELLED = "PROJECT_CANCELLED"
+    PROJECT_DELETE_REQUESTED = "PROJECT_DELETE_REQUESTED"
     CONFIG_CHANGE_REQUESTED = "CONFIG_CHANGE_REQUESTED"
     CONFIG_CHANGE_INVENTORY_RETURNED = "CONFIG_CHANGE_INVENTORY_RETURNED"
     CONFIG_CHANGE_SUBMITTED = "CONFIG_CHANGE_SUBMITTED"
@@ -81,6 +82,7 @@ WORKFLOW_AUDIT_ACTION_LABELS: dict[str, str] = {
     WorkflowAuditAction.PROJECT_APPROVED: "Project Approved",
     WorkflowAuditAction.HIERARCHY_GENERATED: "Hierarchy Generated",
     WorkflowAuditAction.PROJECT_CANCELLED: "Project Cancelled",
+    WorkflowAuditAction.PROJECT_DELETE_REQUESTED: "Project Delete Requested",
     WorkflowAuditAction.CONFIG_CHANGE_REQUESTED: "Config Change Requested",
     WorkflowAuditAction.CONFIG_CHANGE_INVENTORY_RETURNED: "Config Change Inventory Returned",
     WorkflowAuditAction.CONFIG_CHANGE_SUBMITTED: "Config Change Submitted",

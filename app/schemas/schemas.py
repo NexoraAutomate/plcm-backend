@@ -490,6 +490,9 @@ class ProjectRead(ProjectBase):
     successor_project_id: Optional[int] = None
     predecessor_project_id: Optional[int] = None
     is_existing_project: bool = False
+    delete_requested_at: Optional[datetime] = None
+    delete_requested_by_id: Optional[int] = None
+    hm_reassignable: bool = True
     systems: Optional[List["SystemRead"]] = None
     class Config:
         orm_mode = True
@@ -541,6 +544,25 @@ class ProjectAssignHmRequest(SQLModel):
 class ProjectCancelRequest(SQLModel):
     confirm: bool = False
     notes: Optional[str] = None
+
+
+class ProjectDeleteRequest(SQLModel):
+    inventory_disposition: str = "auto"
+    confirm: bool = False
+
+
+class ProjectDeletePreview(SQLModel):
+    project_id: int
+    project_name: Optional[str] = None
+    project_status: Optional[str] = None
+    progressed_past_reserve_or_assign: bool = False
+    inventory_is_cleared: bool = True
+    delete_requested_at: Optional[datetime] = None
+    delete_requested_by_id: Optional[int] = None
+    open_recall_count: int = 0
+    reserved_count: int = 0
+    can_hard_delete: bool = True
+    preview: Optional["ProjectCancelPreview"] = None
 
 
 class ProjectCancelPreview(SQLModel):
@@ -1315,6 +1337,20 @@ class InventoryStatsSummary(SQLModel):
     open_shortage_top_names: List[str] = Field(default_factory=list)
     pending_issue_requests: int = 0
     return_pending_inspect: int = 0
+
+
+class PendingActionCounts(SQLModel):
+    """Sidebar badge counts for actions awaiting the current user."""
+
+    verify_queue: int = 0
+    my_assignments: int = 0
+    issue_queue: int = 0
+    inspect_queue: int = 0
+    issuances: int = 0
+    projects: int = 0
+    config_changes: int = 0
+    shortages: int = 0
+    notifications: int = 0
 
 
 class InventoryBulkDeleteRequest(SQLModel):

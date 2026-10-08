@@ -409,3 +409,88 @@ def test_hm_reject_requires_reason(
             )
     finally:
         _cleanup(session, project, cfg, inv)
+
+
+def test_verify_queue_routes_only_to_current_hm_after_reassign(
+    session: Session, admin_user: User, developer_user: User
+):
+    """Pending verify items must leave the previous HM when HM is reassigned."""
+    from app.services.project_workflow_service import (
+        ProjectWorkflowError,
+        assign_hm,
+        project_hm_is_reassignable,
+    )
+
+    hm_role = session.exec(select(Role).where(Role.name == "HierarchyManager")).first()
+    if not hm_role:
+        pytest.skip("HierarchyManager role required")
+
+    def _hm(label: str) -> User:
+        user = User(
+            username=f"hm_{label}_{uuid.uuid4().hex[:6]}",
+            email=f"hm_{label}_{uuid.uuid4().hex[:6]}@example.com",
+            full_name=f"HM {label}",
+            is_active=True,
+            password=hash_password("Hm@Test1"),
+            updated_at=datetime.now(timezone.utc),
+        )
+        user.roles = [hm_role]
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+
+    hm_old = _hm("old")
+    hm_new = _hm("new")
+    project, cfg, inv, target, issued = _issue_to_developer(
+        session, admin_user, developer_user, "SN-ITV-HM"
+    )
+    try:
+        # Simulate previous HM who also created the project (common dual-visibility leak).
+        project.created_by_id = int(hm_old.id)
+        project.assigned_hm_id = int(hm_old.id)
+        project.owner_id = int(hm_old.id)
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+
+        start_install(session, "system", int(target.id), actor=developer_user)
+        submit_test(
+            session, "system", int(target.id), result="pass", actor=developer_user
+        )
+        report_complete(session, "system", int(target.id), actor=developer_user)
+
+        old_queue = list_verification_queue(session, hm_old)
+        assert any(row["issuance_id"] == issued.issued_issuance_id for row in old_queue)
+        assert project_hm_is_reassignable(session, int(project.id))
+
+        assign_hm(session, int(project.id), int(hm_new.id), actor=admin_user)
+        session.refresh(project)
+
+        old_after = list_verification_queue(session, hm_old)
+        new_after = list_verification_queue(session, hm_new)
+        assert not any(
+            row["issuance_id"] == issued.issued_issuance_id for row in old_after
+        )
+        assert any(
+            row["issuance_id"] == issued.issued_issuance_id for row in new_after
+        )
+
+        with pytest.raises(ItemInstallVerifyError, match="cannot verify"):
+            verify_issuance(
+                session, int(issued.issued_issuance_id), actor=hm_old
+            )
+
+        verified = verify_issuance(
+            session, int(issued.issued_issuance_id), actor=hm_new
+        )
+        assert verified.verified_at is not None
+        assert not project_hm_is_reassignable(session, int(project.id))
+
+        with pytest.raises(ProjectWorkflowError, match="cannot be changed"):
+            assign_hm(session, int(project.id), int(hm_old.id), actor=admin_user)
+    finally:
+        _cleanup(session, project, cfg, inv)
+        session.delete(hm_old)
+        session.delete(hm_new)
+        session.commit()

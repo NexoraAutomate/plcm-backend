@@ -31,7 +31,7 @@ from app.services.inventory_reservation_service import (
 from app.services.project_workflow_service import (
     ProjectWorkflowError,
     assert_project_not_cancelled,
-    user_can_view_project,
+    user_can_verify_project,
 )
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.services.workflow_audit_service import write_workflow_audit
@@ -579,7 +579,7 @@ def verify_issuance(
     if issuance is None:
         raise ItemInstallVerifyError("Issuance not found")
     project = session.get(Project, issuance.project_id) if issuance.project_id else None
-    if project is not None and not user_can_view_project(actor, project):
+    if project is not None and not user_can_verify_project(actor, project):
         raise ItemInstallVerifyError("You cannot verify items for this project")
     try:
         assert_project_not_cancelled(project, action="verification")
@@ -662,7 +662,7 @@ def reject_issuance(
     if issuance is None:
         raise ItemInstallVerifyError("Issuance not found")
     project = session.get(Project, issuance.project_id) if issuance.project_id else None
-    if project is not None and not user_can_view_project(actor, project):
+    if project is not None and not user_can_verify_project(actor, project):
         raise ItemInstallVerifyError("You cannot reject items for this project")
     try:
         assert_project_not_cancelled(project, action="verification reject")
@@ -733,7 +733,10 @@ def list_verification_queue(session: Session, actor: User) -> list[dict[str, Any
     out: list[dict[str, Any]] = []
     for issuance in rows:
         project = session.get(Project, issuance.project_id) if issuance.project_id else None
-        if project is not None and not user_can_view_project(actor, project):
+        if project is None:
+            continue
+        # Route strictly to current assigned HM (or Admin) — not project creators/owners.
+        if not user_can_verify_project(actor, project):
             continue
         out.append(issuance_state_dict(session, issuance))
     out.sort(

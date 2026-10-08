@@ -448,6 +448,36 @@ def notify_from_audit(
             extra_user_ids=extra,
             **common,
         )
+    if action == WorkflowAuditAction.PROJECT_DELETE_REQUESTED:
+        extra: list[int] = []
+        if project_id is not None:
+            tasks = session.exec(
+                select(InventoryRecallTask).where(
+                    InventoryRecallTask.project_id == int(project_id)
+                )
+            ).all()
+            extra = [
+                int(t.assigned_developer_id)
+                for t in tasks
+                if getattr(t, "assigned_developer_id", None)
+            ]
+        return notify(
+            session,
+            event_type="project_delete_requested",
+            title="Project delete requested",
+            message=(
+                f"{label} delete requested — revert inventory via recall before "
+                "permanent delete"
+            ),
+            href=href,
+            priority="high",
+            include_assigned_hm=True,
+            include_im=True,
+            include_concerned_pd=True,
+            include_admin=True,
+            extra_user_ids=extra,
+            **common,
+        )
     if action == WorkflowAuditAction.ASSIGNED:
         dev_id = new_value.get("assigned_developer_id")
         prev = old_value.get("assigned_developer_id")
@@ -749,16 +779,18 @@ def notify_from_audit(
             **common,
         )
     if action == WorkflowAuditAction.DELETED and entity_type == "project":
+        disposition = str(new_value.get("inventory_disposition") or "released")
         return notify(
             session,
             event_type="project_deleted",
             title="Project deleted",
-            message=f"{label} was deleted",
+            message=f"{label} was deleted (inventory: {disposition})",
             href="/projects",
             priority="high",
             include_assigned_hm=True,
             include_concerned_pd=True,
             include_admin=True,
+            include_im=True,
             **common,
         )
     if action == WorkflowAuditAction.STATUS_CHANGED and entity_type == "project":
@@ -893,6 +925,75 @@ def list_app_notifications(
         )
     stmt = stmt.order_by(col(AppNotification.created_at).desc(), col(AppNotification.id).desc())
     return list(session.exec(stmt.limit(limit)).all())
+
+
+VERIFY_QUEUE_EVENT_TYPES = frozenset(
+    {
+        "handover_requested",
+        "verification_routed",
+    }
+)
+
+
+def dismiss_verify_queue_notifications_for_user(
+    session: Session,
+    *,
+    user_id: int,
+    project_id: int,
+    commit: bool = True,
+) -> int:
+    """Mark unread verify-queue notices for a project as read (HM reassignment)."""
+    rows = session.exec(
+        select(AppNotification).where(
+            AppNotification.user_id == int(user_id),
+            AppNotification.project_id == int(project_id),
+            AppNotification.event_type.in_(list(VERIFY_QUEUE_EVENT_TYPES)),
+            AppNotification.read_at.is_(None),
+        )
+    ).all()
+    now = _now()
+    for row in rows:
+        row.read_at = now
+        session.add(row)
+    if rows and commit:
+        session.commit()
+    elif rows:
+        session.flush()
+    return len(rows)
+
+
+def notify_pending_verifications_routed(
+    session: Session,
+    *,
+    project: Project,
+    actor: Optional[User],
+    new_hm_user_id: int,
+    pending_count: int,
+    commit: bool = True,
+) -> list[AppNotification]:
+    """Tell the new HM that pending Accept/Reject items now route to them."""
+    count = max(0, int(pending_count))
+    if count <= 0:
+        return []
+    label = _project_label(session, project, project.id)
+    noun = "verification" if count == 1 else "verifications"
+    rows = notify(
+        session,
+        event_type="verification_routed",
+        title="Verification queue reassigned",
+        message=f"{count} pending installation {noun} on {label} now route to you",
+        href="/verify-queue",
+        priority="high",
+        actor=actor,
+        exclude_actor=False,
+        extra_user_ids=[int(new_hm_user_id)],
+        project=project,
+        project_id=int(project.id) if project.id is not None else None,
+        dedupe_key=f"verification_routed:{int(project.id)}:{int(new_hm_user_id)}:{count}",
+    )
+    if rows and commit:
+        session.commit()
+    return rows
 
 
 def mark_app_notification_read(
