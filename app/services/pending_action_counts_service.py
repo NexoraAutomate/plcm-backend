@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.auth import check_permission
 from app.domain.workflow_status import ProjectWorkflowStatus
