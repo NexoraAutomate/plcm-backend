@@ -32,6 +32,11 @@ def test_stage_fractions():
     assert stage_fraction(ItemStatus.INSTALLATION_IN_PROGRESS.value) == 0.5
     assert stage_fraction(ItemStatus.UNDER_TESTING_REVIEW.value) == 0.75
     assert stage_fraction(ItemStatus.INSTALLED_VERIFIED.value) == 1.0
+    # Spaced / alias labels must map to the same Spec 09 fractions.
+    assert stage_fraction("Installation In Progress") == 0.5
+    assert stage_fraction("installing") == 0.5
+    assert stage_fraction("Under Testing / Review") == 0.75
+    assert stage_fraction("Installed Verified") == 1.0
 
 
 def test_fail_does_not_count_as_verified():
@@ -96,6 +101,49 @@ def test_stepwise_stage_weights_increment():
     leaf.status = ItemStatus.INSTALLED_VERIFIED.value
     rollup_progress(parent)
     assert progress_pct(parent.progress) == 100
+
+
+def test_reserved_and_installing_systems_differ_in_progress():
+    """Different lifecycle stages must not collapse to the same %."""
+    reserved_leaf = _leaf("R1", ItemStatus.RESERVED.value)
+    reserved = ProgressNode(
+        entity_type="system", entity_id=1, name="SYS-R", children=[reserved_leaf]
+    )
+    installing_leaf = _leaf("I1", ItemStatus.INSTALLATION_IN_PROGRESS.value)
+    installing = ProgressNode(
+        entity_type="system", entity_id=2, name="SYS-I", children=[installing_leaf]
+    )
+    rollup_progress(reserved)
+    rollup_progress(installing)
+    assert progress_pct(reserved.progress) == 10
+    assert progress_pct(installing.progress) == 50
+    assert progress_pct(reserved.progress) != progress_pct(installing.progress)
+
+
+def test_advanced_parent_coverage_overrides_stale_child_reserved():
+    from app.services.project_progress_service import _apply_coverage
+
+    leaf = ProgressNode(entity_type="component", entity_id=10, name="C1")
+    system = ProgressNode(
+        entity_type="system",
+        entity_id=1,
+        name="SYS",
+        children=[leaf],
+    )
+    coverage = {
+        ("system", 1): {
+            "status": ItemStatus.INSTALLATION_IN_PROGRESS.value,
+            "defect_pending": False,
+        },
+        ("component", 10): {
+            "status": ItemStatus.RESERVED.value,
+            "defect_pending": False,
+        },
+    }
+    _apply_coverage(system, coverage)
+    rollup_progress(system)
+    assert leaf.status == ItemStatus.INSTALLATION_IN_PROGRESS.value
+    assert progress_pct(system.progress) == 50
 
 
 def test_bottlenecks_rank_fail_loops_first():

@@ -159,8 +159,46 @@ def test_empty_generated_tree_is_zero(session: Session, admin_user: User):
         assert snapshot["weight"] >= 1
         assert snapshot["verified_leaves"] == 0
         assert snapshot["can_complete"] is False
+        systems = [
+            system
+            for flight in snapshot["flights"]
+            for sdls in flight["sdls"]
+            for system in sdls["systems"]
+        ]
+        assert systems
+        assert "subsystems" in systems[0]
         with pytest.raises(ProjectProgressError, match="unverified"):
             assert_completion_allowed(session, project)
+    finally:
+        _cleanup(session, project, cfg)
+
+
+def test_progress_payload_includes_subsystem_nodes(
+    session: Session, admin_user: User
+):
+    project, cfg = _ready_single_sdls(
+        session, admin_user, system_name=f"Psub-{uuid.uuid4().hex[:6]}"
+    )
+    try:
+        snapshot = compute_project_progress(session, int(project.id))
+        systems = [
+            system
+            for flight in snapshot["flights"]
+            for sdls in flight["sdls"]
+            for system in sdls["systems"]
+        ]
+        assert len(systems) == 1
+        assert systems[0]["progress_pct"] == 0
+        assert len(systems[0]["subsystems"]) == 1
+        subsystem = systems[0]["subsystems"][0]
+        assert subsystem["name"] == "RF"
+        assert subsystem["progress_pct"] == 0
+        assert subsystem["weight"] >= 1
+        assert "modules" in subsystem
+        for module in subsystem["modules"]:
+            assert "units" in module
+            for unit in module["units"]:
+                assert "components" in unit
     finally:
         _cleanup(session, project, cfg)
 

@@ -730,6 +730,49 @@ class ProjectHierarchyTree(SQLModel):
     flights: List[FlightTreeNode] = []
 
 
+class ProgressComponentNode(SQLModel):
+    entity_type: str = "component"
+    entity_id: int
+    name: str
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    status: Optional[str] = None
+
+
+class ProgressUnitNode(SQLModel):
+    entity_type: str = "unit"
+    entity_id: int
+    name: str
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    status: Optional[str] = None
+    components: List[ProgressComponentNode] = []
+
+
+class ProgressModuleNode(SQLModel):
+    entity_type: str = "module"
+    entity_id: int
+    name: str
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    status: Optional[str] = None
+    units: List[ProgressUnitNode] = []
+
+
+class ProgressSubsystemNode(SQLModel):
+    entity_type: str = "subsystem"
+    entity_id: int
+    name: str
+    weight: int = 0
+    progress_pct: int = 0
+    verified_leaves: int = 0
+    status: Optional[str] = None
+    modules: List[ProgressModuleNode] = []
+
+
 class ProgressSystemNode(SQLModel):
     entity_type: str = "system"
     entity_id: int
@@ -738,6 +781,7 @@ class ProgressSystemNode(SQLModel):
     progress_pct: int = 0
     verified_leaves: int = 0
     status: Optional[str] = None
+    subsystems: List[ProgressSubsystemNode] = []
 
 
 class ProgressSdlsNode(SQLModel):

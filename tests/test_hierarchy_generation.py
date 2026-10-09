@@ -186,12 +186,16 @@ def test_generate_creates_full_tree_counts(
     assert len(systems) == 6
     assert all(s.sdls_id is not None for s in systems)
     assert {s.name for s in systems} == {"Comm"}
+    assert {s.serial_number for s in systems} == {
+        f"SDLS-{i}" for i in range(1, 7)
+    }
 
     # Each SDLS has the same lower template
     for sdls in sdls_rows:
         sdls_systems = [s for s in systems if s.sdls_id == sdls.id]
         assert len(sdls_systems) == 1
         system = sdls_systems[0]
+        assert system.serial_number and system.serial_number.startswith("SDLS-")
         session.refresh(system)
         assert len(system.subsystems or []) == 1
         sub = system.subsystems[0]

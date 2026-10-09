@@ -24,15 +24,60 @@ STAGE_COMPLETION_FRACTION: dict[str, float] = {
     ItemStatus.INSTALLED_VERIFIED.value: 1.0,
 }
 
+# Human / plan aliases that may appear on instances or UI labels.
+STAGE_STATUS_ALIASES: dict[str, str] = {
+    "RESERVED": ItemStatus.RESERVED.value,
+    "ISSUED": ItemStatus.ISSUED.value,
+    "INSTALLATION_IN_PROGRESS": ItemStatus.INSTALLATION_IN_PROGRESS.value,
+    "INSTALLATION IN PROGRESS": ItemStatus.INSTALLATION_IN_PROGRESS.value,
+    "INSTALLING": ItemStatus.INSTALLATION_IN_PROGRESS.value,
+    "IN_PROGRESS": ItemStatus.INSTALLATION_IN_PROGRESS.value,
+    "INSTALLATION_REJECTED": ItemStatus.INSTALLATION_REJECTED.value,
+    "INSTALLATION REJECTED": ItemStatus.INSTALLATION_REJECTED.value,
+    "UNDER_TESTING_REVIEW": ItemStatus.UNDER_TESTING_REVIEW.value,
+    "UNDER TESTING / REVIEW": ItemStatus.UNDER_TESTING_REVIEW.value,
+    "UNDER TESTING": ItemStatus.UNDER_TESTING_REVIEW.value,
+    "TESTING": ItemStatus.UNDER_TESTING_REVIEW.value,
+    "INSTALLED_VERIFIED": ItemStatus.INSTALLED_VERIFIED.value,
+    "INSTALLED VERIFIED": ItemStatus.INSTALLED_VERIFIED.value,
+    "VERIFIED": ItemStatus.INSTALLED_VERIFIED.value,
+}
+
 NOT_STARTED_STATUS = "NOT_STARTED"
 STAGE_POLICY = "lifecycle_fractions"
 BOTTLENECK_LIMIT = 10
 
 
+def normalize_stage_status(status: Optional[str]) -> Optional[str]:
+    """Map free-form / spaced labels onto Spec 09 ItemStatus codes."""
+    raw = (status or "").strip()
+    if not raw:
+        return None
+    upper = raw.upper()
+    if upper == NOT_STARTED_STATUS:
+        return NOT_STARTED_STATUS
+    if upper in STAGE_COMPLETION_FRACTION:
+        return upper
+    aliased = STAGE_STATUS_ALIASES.get(upper)
+    if aliased:
+        return aliased
+    collapsed = upper.replace(" ", "_").replace("/", "_").replace("-", "_")
+    while "__" in collapsed:
+        collapsed = collapsed.replace("__", "_")
+    if collapsed in STAGE_COMPLETION_FRACTION:
+        return collapsed
+    return STAGE_STATUS_ALIASES.get(collapsed, upper)
+
+
+def stage_rank(status: Optional[str], *, defect_pending: bool = False) -> float:
+    """Comparable rank for picking the more advanced of two lifecycle statuses."""
+    return stage_fraction(status, defect_pending=defect_pending)
+
+
 def stage_fraction(
     status: Optional[str], *, defect_pending: bool = False
 ) -> float:
-    code = (status or "").strip().upper() or None
+    code = normalize_stage_status(status)
     if defect_pending and code == ItemStatus.INSTALLED_VERIFIED.value:
         code = ItemStatus.UNDER_TESTING_REVIEW.value
     if not code or code == NOT_STARTED_STATUS:
@@ -43,7 +88,7 @@ def stage_fraction(
 def is_verified_leaf(status: Optional[str], *, defect_pending: bool = False) -> bool:
     if defect_pending:
         return False
-    return (status or "").strip().upper() == ItemStatus.INSTALLED_VERIFIED.value
+    return normalize_stage_status(status) == ItemStatus.INSTALLED_VERIFIED.value
 
 
 def weighted_average(pairs: list[tuple[float, float]]) -> float:
@@ -61,7 +106,7 @@ def progress_pct(fraction: float) -> int:
 def bottleneck_reason(status: Optional[str], *, defect_pending: bool = False) -> str:
     if defect_pending:
         return "fail_loop"
-    code = (status or "").strip().upper()
+    code = normalize_stage_status(status)
     if not code or code == NOT_STARTED_STATUS:
         return "not_started"
     if code == ItemStatus.RESERVED.value:

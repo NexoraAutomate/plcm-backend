@@ -1317,10 +1317,14 @@ def _plan_row_for_entity(
         entity_type=entity_type,
         project_id=project_id,
     )
+    entity_serial = getattr(entity, "serial_number", None)
     base = {
         "target_entity_type": entity_type,
         "target_entity_id": eid,
         "entity_name": name,
+        "entity_serial_number": (
+            str(entity_serial).strip() if entity_serial else None
+        ),
         "path": " / ".join(path_parts),
         "depth": max(0, len(path_parts) - 2),
         "inventory_source": source,

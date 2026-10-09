@@ -11,8 +11,11 @@ from app.domain.project_progress import (
     STAGE_POLICY,
     ProgressNode,
     collect_bottlenecks,
+    normalize_stage_status,
     progress_pct,
     rollup_progress,
+    stage_fraction,
+    stage_rank,
 )
 from app.domain.status_transitions import assert_transition
 from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
@@ -53,17 +56,18 @@ class ProjectProgressError(ValueError):
 
 
 def _issuance_lifecycle_status(session: Session, issuance: InventoryIssuance) -> str:
-    lifecycle = (issuance.item_lifecycle_status or "").strip().upper()
+    lifecycle = normalize_stage_status(issuance.item_lifecycle_status)
     if issuance.verified_at is not None:
         return lifecycle or ItemStatus.INSTALLED_VERIFIED.value
-    if lifecycle:
+    if lifecycle and lifecycle != NOT_STARTED_STATUS:
         return lifecycle
     if issuance.inventory_instance_id:
         instance = session.get(InventoryInstance, issuance.inventory_instance_id)
         if instance is not None:
             name = item_status_name(session, instance.status_id)
-            if name:
-                return name.strip().upper()
+            normalized = normalize_stage_status(name)
+            if normalized and normalized != NOT_STARTED_STATUS:
+                return normalized
     return ItemStatus.ISSUED.value
 
 
@@ -86,7 +90,10 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
         if key in coverage:
             continue
         coverage[key] = {
-            "status": _issuance_lifecycle_status(session, issuance),
+            "status": normalize_stage_status(
+                _issuance_lifecycle_status(session, issuance)
+            )
+            or ItemStatus.ISSUED.value,
             "defect_pending": bool(issuance.defect_pending),
         }
 
@@ -110,10 +117,14 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
         if key in coverage:
             coverage[key]["defect_pending"] = True
             if item_status:
-                coverage[key]["status"] = item_status.strip().upper()
+                coverage[key]["status"] = (
+                    normalize_stage_status(item_status)
+                    or ItemStatus.UNDER_TESTING_REVIEW.value
+                )
             continue
         coverage[key] = {
-            "status": (item_status or ItemStatus.UNDER_TESTING_REVIEW.value).strip().upper(),
+            "status": normalize_stage_status(item_status)
+            or ItemStatus.UNDER_TESTING_REVIEW.value,
             "defect_pending": True,
         }
 
@@ -178,18 +189,74 @@ def _assembled_parents_are_verified(session: Session, project_id: int) -> bool:
     return True
 
 
+def _coverage_choice(
+    own: Optional[dict[str, Any]],
+    inherited: Optional[dict[str, Any]],
+    *,
+    entity_type: str,
+    entity_id: int,
+    entity_name: str,
+) -> Optional[dict[str, Any]]:
+    """Pick the more advanced lifecycle between own coverage and an ancestor.
+
+    Stale RESERVED on a child must not hide INSTALLATION_IN_PROGRESS (or later)
+    coverage already recorded on a parent — otherwise system badges and % diverge.
+    """
+    if own is None and inherited is None:
+        return None
+    if own is None:
+        return inherited
+    if inherited is None:
+        chosen = {
+            "status": normalize_stage_status(own.get("status")) or NOT_STARTED_STATUS,
+            "defect_pending": bool(own.get("defect_pending")),
+            "cover_entity_type": entity_type,
+            "cover_entity_id": entity_id,
+            "cover_name": entity_name,
+        }
+        return chosen
+
+    own_status = normalize_stage_status(own.get("status")) or NOT_STARTED_STATUS
+    own_defect = bool(own.get("defect_pending"))
+    inh_status = normalize_stage_status(inherited.get("status")) or NOT_STARTED_STATUS
+    inh_defect = bool(inherited.get("defect_pending"))
+    own_rank = stage_rank(own_status, defect_pending=own_defect)
+    inh_rank = stage_rank(inh_status, defect_pending=inh_defect)
+
+    if inh_rank > own_rank:
+        return inherited
+    return {
+        "status": own_status,
+        "defect_pending": own_defect,
+        "cover_entity_type": entity_type,
+        "cover_entity_id": entity_id,
+        "cover_name": entity_name,
+    }
+
+
 def _apply_coverage(
     node: ProgressNode,
     coverage: Coverage,
     inherited: Optional[dict[str, Any]] = None,
 ) -> None:
     own = coverage.get((node.entity_type, node.entity_id))
-    if own is not None:
-        node.status = own["status"]
-        node.defect_pending = bool(own["defect_pending"])
-        node.cover_entity_type = node.entity_type
-        node.cover_entity_id = node.entity_id
-        node.cover_name = node.name
+    chosen = _coverage_choice(
+        own,
+        inherited,
+        entity_type=node.entity_type,
+        entity_id=node.entity_id,
+        entity_name=node.name,
+    )
+    if chosen is not None:
+        node.status = normalize_stage_status(chosen.get("status")) or NOT_STARTED_STATUS
+        node.defect_pending = bool(chosen.get("defect_pending"))
+        node.cover_entity_type = chosen.get("cover_entity_type") or node.entity_type
+        node.cover_entity_id = (
+            chosen.get("cover_entity_id")
+            if chosen.get("cover_entity_id") is not None
+            else node.entity_id
+        )
+        node.cover_name = chosen.get("cover_name") or node.name
         passed = {
             "status": node.status,
             "defect_pending": node.defect_pending,
@@ -197,13 +264,6 @@ def _apply_coverage(
             "cover_entity_id": node.cover_entity_id,
             "cover_name": node.cover_name,
         }
-    elif inherited is not None:
-        node.status = inherited["status"]
-        node.defect_pending = bool(inherited["defect_pending"])
-        node.cover_entity_type = inherited["cover_entity_type"]
-        node.cover_entity_id = inherited["cover_entity_id"]
-        node.cover_name = inherited["cover_name"]
-        passed = inherited
     else:
         node.status = NOT_STARTED_STATUS
         node.defect_pending = False
@@ -417,7 +477,49 @@ def _load_progress_tree(session: Session, project: Project) -> ProgressNode:
     )
 
 
-def _system_payload(node: ProgressNode) -> dict[str, Any]:
+def _subtree_display_status(node: ProgressNode) -> Optional[str]:
+    """Status aligned with rolled-up progress for UI badges.
+
+    For parents, use the least-advanced incomplete leaf so a system cannot show
+    Installation In Progress while its weighted % is still stuck at Reserved
+    children. Leaves keep their own normalized status.
+    """
+    if not node.children:
+        status = normalize_stage_status(node.status)
+        if not status or status == NOT_STARTED_STATUS:
+            return None
+        return status
+
+    incomplete: list[ProgressNode] = []
+
+    def walk(current: ProgressNode) -> None:
+        if not current.children:
+            if stage_fraction(
+                current.status, defect_pending=current.defect_pending
+            ) < 1.0:
+                incomplete.append(current)
+            return
+        for child in current.children:
+            walk(child)
+
+    walk(node)
+    if not incomplete:
+        return ItemStatus.INSTALLED_VERIFIED.value
+
+    weakest = min(
+        incomplete,
+        key=lambda leaf: stage_rank(
+            leaf.status, defect_pending=leaf.defect_pending
+        ),
+    )
+    status = normalize_stage_status(weakest.status)
+    if not status or status == NOT_STARTED_STATUS:
+        return None
+    return status
+
+
+def _child_payload(node: ProgressNode) -> dict[str, Any]:
+    display_status = _subtree_display_status(node)
     return {
         "entity_type": node.entity_type,
         "entity_id": node.entity_id,
@@ -425,8 +527,48 @@ def _system_payload(node: ProgressNode) -> dict[str, Any]:
         "weight": node.weight,
         "progress_pct": progress_pct(node.progress),
         "verified_leaves": node.verified_leaves,
-        "status": None if node.status == NOT_STARTED_STATUS else node.status,
+        "status": display_status,
     }
+
+
+def _unit_payload(node: ProgressNode) -> dict[str, Any]:
+    payload = _child_payload(node)
+    payload["components"] = [
+        _child_payload(child)
+        for child in node.children
+        if child.entity_type == "component"
+    ]
+    return payload
+
+
+def _module_payload(node: ProgressNode) -> dict[str, Any]:
+    payload = _child_payload(node)
+    payload["units"] = [
+        _unit_payload(child)
+        for child in node.children
+        if child.entity_type == "unit"
+    ]
+    return payload
+
+
+def _subsystem_payload(node: ProgressNode) -> dict[str, Any]:
+    payload = _child_payload(node)
+    payload["modules"] = [
+        _module_payload(child)
+        for child in node.children
+        if child.entity_type == "module"
+    ]
+    return payload
+
+
+def _system_payload(node: ProgressNode) -> dict[str, Any]:
+    payload = _child_payload(node)
+    payload["subsystems"] = [
+        _subsystem_payload(child)
+        for child in node.children
+        if child.entity_type == "subsystem"
+    ]
+    return payload
 
 
 def _to_payload(project: Project, root: ProgressNode) -> dict[str, Any]:

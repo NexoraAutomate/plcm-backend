@@ -138,6 +138,7 @@ def _clone_template_under_sdls(
     template_nodes: list[HierarchyConfigNode],
     actor_id: int,
     counts: dict[str, int],
+    system_serial_counter: list[int],
 ) -> None:
     """Clone System→Component template once under a single SDLS."""
     # config node id → created entity id at that level
@@ -149,11 +150,15 @@ def _clone_template_under_sdls(
         description = node.description
 
         if level == HierarchyConfigLevel.SYSTEM.value:
+            # Project-wide unique shell serial: SDLS-1, SDLS-2, …
+            system_serial_counter[0] += 1
+            system_serial = f"SDLS-{system_serial_counter[0]}"
             entity = System(
                 name=name,
                 description=description,
                 project_id=int(project.id),
                 sdls_id=int(sdls.id),
+                serial_number=system_serial,
                 inventory_source=_source_for_node(node),
             )
             session.add(entity)
@@ -324,6 +329,8 @@ def generate_project_hierarchy(
         "units": 0,
         "components": 0,
     }
+    # Mutable counter so every System shell gets SDLS-1, SDLS-2, … project-wide.
+    system_serial_counter = [0]
 
     first_flight_idx = _first_flight_index(project)
     for offset in range(flight_count):
@@ -363,6 +370,7 @@ def generate_project_hierarchy(
                 template_nodes=template_nodes,
                 actor_id=actor_id,
                 counts=counts,
+                system_serial_counter=system_serial_counter,
             )
 
     from app.services.inventory_shortage_service import ensure_shortages_for_project
