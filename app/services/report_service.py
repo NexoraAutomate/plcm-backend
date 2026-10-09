@@ -1031,13 +1031,8 @@ def inventory_report(
         from app.services.inventory_issuance_service import issuance_to_dict
 
         stmt = select(InventoryIssuance)
-        if mode == "issued":
-            stmt = stmt.where(
-                InventoryIssuance.status.in_(
-                    [IssuanceStatus.ISSUED.value, IssuanceStatus.RETURN_PENDING.value]
-                )
-            )
-        elif mode == "reserved":
+        if mode in ("issued", "reserved"):
+            # Open issuances (issued + return_pending). "reserved" kept as alias.
             stmt = stmt.where(
                 InventoryIssuance.status.in_(
                     [IssuanceStatus.ISSUED.value, IssuanceStatus.RETURN_PENDING.value]
