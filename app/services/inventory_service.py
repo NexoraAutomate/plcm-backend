@@ -19,6 +19,8 @@ from app.models.tables import (
     InventoryIssuanceEvent,
     InventoryItemRequest,
     InventoryLabel,
+    InventoryLabelPrintEvent,
+    InventoryLabelScanEvent,
     InventoryRecallTask,
     InventoryReservation,
     InventoryReservationExpiryNotice,
@@ -713,6 +715,36 @@ def _purge_inventory_ledger(session: Session, inventory_id: int) -> None:
     _delete_rows(session, assembled)
 
 
+def _purge_inventory_labels(session: Session, inventory_id: int) -> None:
+    """Remove labels (and print/scan history) that block inventory delete."""
+    labels = list(
+        session.exec(
+            select(InventoryLabel).where(InventoryLabel.inventory_id == inventory_id)
+        ).all()
+    )
+    label_ids = [label.label_id for label in labels if label.label_id]
+    if label_ids:
+        print_events = list(
+            session.exec(
+                select(InventoryLabelPrintEvent).where(
+                    col(InventoryLabelPrintEvent.label_id).in_(label_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, print_events)
+
+        scan_events = list(
+            session.exec(
+                select(InventoryLabelScanEvent).where(
+                    col(InventoryLabelScanEvent.label_id).in_(label_ids)
+                )
+            ).all()
+        )
+        _delete_rows(session, scan_events)
+
+    _delete_rows(session, labels)
+
+
 def delete_inventory_item(session: Session, inventory: Inventory) -> None:
     """Remove an inventory group and all dependent rows (ledger, links, instances)."""
     inventory_id = inventory.id
@@ -747,6 +779,10 @@ def delete_inventory_item(session: Session, inventory: Inventory) -> None:
             retire_inventory_instance_labels(session, int(instance.id))
         session.delete(instance)
     session.flush()
+
+    # Labels keep inventory_id even after retire; purge before deleting inventory.
+    # (DB FK may lack ON DELETE CASCADE depending on how the table was created.)
+    _purge_inventory_labels(session, int(inventory_id))
 
     session.delete(inventory)
     session.flush()
