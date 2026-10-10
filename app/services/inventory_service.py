@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
@@ -214,6 +215,7 @@ def create_inventory_instance(
     installed_by_id: Optional[int] = None,
     original_part_number: Optional[str] = None,
     original_serial_number: Optional[str] = None,
+    unit_cost: Optional[Decimal] = None,
 ) -> InventoryInstance:
     if inventory.id is None:
         raise HTTPException(status_code=400, detail="Inventory group must be saved first")
@@ -253,8 +255,12 @@ def create_inventory_instance(
         installed_by_id=installed_by_id,
         original_part_number=original_part_number,
         original_serial_number=normalized_original,
+        unit_cost=unit_cost,
     )
     session.add(instance)
+    if unit_cost is not None:
+        inventory.default_unit_cost = unit_cost
+        session.add(inventory)
     session.flush()
     sync_inventory_quantity(session, inventory)
     return instance

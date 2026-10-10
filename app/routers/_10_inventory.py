@@ -441,6 +441,7 @@ def _extract_instance_fields(data: dict) -> dict:
         "installed_by_id": data.pop("installed_by_id", None),
         "original_part_number": data.pop("original_part_number", None),
         "original_serial_number": data.pop("original_serial_number", None),
+        "unit_cost": data.pop("unit_cost", None),
     }
     _apply_location_parts(fields)
     return fields

@@ -456,6 +456,8 @@ class InventoryCommon(HierarchyInstallFields):
     holder_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     shelf_life_expires_at: Optional[datetime] = None
+    # Last known / list unit cost (PKR) used to prefill restock forms.
+    default_unit_cost: Optional[Decimal] = None
 
 class InventoryBase(InventoryCommon):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -473,6 +475,8 @@ class InventoryInstanceCommon(HierarchyInstallFields):
     location_rack: Optional[str] = Field(default=None, max_length=120)
     added_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     shelf_life_expires_at: Optional[datetime] = None
+    # Acquisition cost for this unit (PKR); stamped when stock is received.
+    unit_cost: Optional[Decimal] = None
 
 
 class InventoryInstanceBase(InventoryInstanceCommon):

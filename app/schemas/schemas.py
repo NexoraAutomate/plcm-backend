@@ -1063,6 +1063,7 @@ class InventoryInstanceUpdate(SQLModel):
     installed_by_id: Optional[int] = None
     original_part_number: Optional[str] = None
     original_serial_number: Optional[str] = None
+    unit_cost: Optional[Decimal] = None
 
 
 class InventoryLabelTarget(SQLModel):
@@ -1154,7 +1155,8 @@ class InventoryLabelScanResponse(SQLModel):
 
 
 class InventoryCreate(InventoryBase):
-    pass
+    # Stamped onto each new unit at create time; not stored on the catalog row.
+    unit_cost: Optional[Decimal] = None
 
 
 class InventoryShortageReceiveRequest(SQLModel):
@@ -1437,6 +1439,7 @@ class InventoryUpdate(SQLModel):
     installed_by_id: Optional[int] = None
     original_part_number: Optional[str] = None
     original_serial_number: Optional[str] = None
+    default_unit_cost: Optional[Decimal] = None
 
 class EntityAttachmentRead(SQLModel):
     id: int
