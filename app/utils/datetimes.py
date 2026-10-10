@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Optional, Any
+from typing import Annotated, Any, Optional
 
+from pydantic import PlainSerializer
 from sqlalchemy import text
 
 # Ensures IANA zones (e.g. America/Los_Angeles) resolve on Windows.
@@ -59,3 +60,17 @@ def to_api_utc_iso(value: Optional[datetime]) -> Optional[str]:
     if dt is None:
         return None
     return dt.isoformat().replace("+00:00", "Z")
+
+
+def _serialize_utc_iso(value: datetime) -> str:
+    """Pydantic JSON serializer: always emit UTC with trailing Z."""
+    iso = to_api_utc_iso(value)
+    return iso if iso is not None else value.isoformat()
+
+
+# Use on response_model datetime fields so FastAPI/Pydantic v2 paths (which
+# bypass ENCODERS_BY_TYPE) still emit real UTC instead of naive DB wall-clock.
+UtcDateTime = Annotated[
+    datetime,
+    PlainSerializer(_serialize_utc_iso, return_type=str, when_used="json"),
+]

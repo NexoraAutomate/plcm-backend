@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 from sqlmodel import SQLModel
 from pydantic import ConfigDict, Field
+from app.utils.datetimes import UtcDateTime
 from app.models.base import (
     UserBase,
     CustomerBase,
@@ -148,6 +149,7 @@ class SecuritySettingsRead(SQLModel):
     two_factor_enabled: bool
     two_factor_require_all: bool
     two_factor_require_admins_only: bool
+    admin_session_super_password_set: bool = False
     updated_at: Optional[datetime] = None
 
     class Config:
@@ -168,6 +170,8 @@ class SecuritySettingsUpdate(SQLModel):
     two_factor_enabled: Optional[bool] = None
     two_factor_require_all: Optional[bool] = None
     two_factor_require_admins_only: Optional[bool] = None
+    # Write-only plaintext; stored hashed as admin_session_super_password_hash.
+    admin_session_super_password: Optional[str] = None
 
 
 class AppDefinitionsRead(SQLModel):
@@ -1310,10 +1314,10 @@ class InventoryReturnNoticeRead(SQLModel):
     serial_number: Optional[str] = None
     returned_by_user_id: int
     returned_by_name: Optional[str] = None
-    created_at: datetime
-    read_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    read_at: Optional[UtcDateTime] = None
     decision: Optional[str] = None
-    decided_at: Optional[datetime] = None
+    decided_at: Optional[UtcDateTime] = None
     decided_by_id: Optional[int] = None
     decision_notes: Optional[str] = None
     request_notes: Optional[str] = None
@@ -1333,8 +1337,8 @@ class InventoryInstallerNoticeRead(SQLModel):
     serial_number: Optional[str] = None
     message: Optional[str] = None
     notes: Optional[str] = None
-    created_at: datetime
-    read_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    read_at: Optional[UtcDateTime] = None
     user_name: Optional[str] = None
 
     class Config:
@@ -1783,8 +1787,8 @@ class InventoryShortageNoticeRead(SQLModel):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     message: Optional[str] = None
-    created_at: datetime
-    read_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    read_at: Optional[UtcDateTime] = None
 
     class Config:
         orm_mode = True
@@ -1805,8 +1809,8 @@ class InventoryReservationExpiryNoticeRead(SQLModel):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     message: Optional[str] = None
-    created_at: datetime
-    read_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    read_at: Optional[UtcDateTime] = None
 
     class Config:
         orm_mode = True
@@ -1824,8 +1828,8 @@ class AppNotificationRead(SQLModel):
     entity_id: Optional[int] = None
     actor_user_id: Optional[int] = None
     project_id: Optional[int] = None
-    created_at: datetime
-    read_at: Optional[datetime] = None
+    created_at: UtcDateTime
+    read_at: Optional[UtcDateTime] = None
 
     class Config:
         orm_mode = True

@@ -1023,6 +1023,8 @@ def mark_all_app_notifications_read(session: Session, user_id: int) -> int:
 
 
 def notification_to_dict(row: AppNotification) -> dict[str, Any]:
+    from app.utils.datetimes import to_api_utc
+
     return {
         "id": row.id,
         "user_id": row.user_id,
@@ -1035,6 +1037,6 @@ def notification_to_dict(row: AppNotification) -> dict[str, Any]:
         "entity_id": row.entity_id,
         "actor_user_id": row.actor_user_id,
         "project_id": row.project_id,
-        "created_at": row.created_at,
-        "read_at": row.read_at,
+        "created_at": to_api_utc(row.created_at),
+        "read_at": to_api_utc(row.read_at),
     }

@@ -261,11 +261,16 @@ def test_http_list_is_scoped_to_logged_in_user(
     payload = res.json()
     assert any(item.get("title") == f"Signup pending {marker}" for item in payload)
     assert all(item.get("user_id") == admin_user.id for item in payload)
+    matched = next(item for item in payload if item.get("title") == f"Signup pending {marker}")
+    created_at = matched.get("created_at") or ""
+    assert str(created_at).endswith("Z") or str(created_at).endswith("+00:00"), created_at
 
-    notice_id = next(item["id"] for item in payload if item.get("title") == f"Signup pending {marker}")
+    notice_id = matched["id"]
     read = client.post(f"/api/notifications/{notice_id}/read/", headers=headers)
     assert read.status_code == 200, read.text
-    assert read.json().get("read_at") is not None
+    read_at = read.json().get("read_at")
+    assert read_at is not None
+    assert str(read_at).endswith("Z") or str(read_at).endswith("+00:00"), read_at
 
     leftover = session.exec(
         select(AppNotification).where(AppNotification.title == f"Signup pending {marker}")

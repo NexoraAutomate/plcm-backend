@@ -229,6 +229,8 @@ def shortage_to_dict(
 
 
 def notice_to_dict(notice: InventoryShortageNotice) -> dict[str, Any]:
+    from app.utils.datetimes import to_api_utc
+
     return {
         "id": notice.id,
         "user_id": notice.user_id,
@@ -244,8 +246,8 @@ def notice_to_dict(notice: InventoryShortageNotice) -> dict[str, Any]:
         "project_id": notice.project_id,
         "project_name": notice.project_name,
         "message": notice.message,
-        "created_at": notice.created_at,
-        "read_at": notice.read_at,
+        "created_at": to_api_utc(notice.created_at),
+        "read_at": to_api_utc(notice.read_at),
     }
 
 

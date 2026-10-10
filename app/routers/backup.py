@@ -11,9 +11,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
+from app.auth import check_permission, get_user_from_token
 from app.database import engine, get_session
 from app.models.tables import User
-from app.routers.auth import require_permission
+from app.routers.auth import oauth2_scheme, require_permission
 from app.services.audit_service import write_audit_log
 from app.services.backup_service import (
     RESTORE_CONFIRM_PHRASE,
@@ -100,8 +101,7 @@ async def restore_backup(
     request: Request,
     file: UploadFile = File(...),
     confirm: str = Form(...),
-    session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("restore_database")),
+    token: str = Depends(oauth2_scheme),
 ):
     if confirm != RESTORE_CONFIRM_PHRASE:
         raise HTTPException(
@@ -115,10 +115,26 @@ async def restore_backup(
             detail="Backup file must be a .zip archive.",
         )
 
-    actor_username = current_user.username
+    # Auth + revision check in a short-lived session that is fully closed
+    # before pg_restore. A Depends(get_session) / require_permission session
+    # stays idle-in-transaction and blocks pg_restore --clean forever.
+    with Session(engine) as auth_session:
+        current_user = get_user_from_token(token, auth_session)
+        if not current_user or not current_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User is inactive or not found",
+            )
+        if not check_permission(current_user, "restore_database"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not have permission: restore_database",
+            )
+        actor_username = current_user.username
+        current_revision = get_alembic_revision(auth_session)
+
     tmp_path: Optional[Path] = None
     try:
-        current_revision = get_alembic_revision(session)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
             tmp_path = Path(tmp.name)
             while True:

@@ -1,8 +1,10 @@
 import os
+import threading
 from pathlib import Path
 from sqlmodel import create_engine, Session, SQLModel
 from sqlalchemy import text
 from dotenv import load_dotenv
+from fastapi import HTTPException, status
 from app.models.tables import *  # Ensure all models are imported so they are registered with SQLModel
 
 dotenv_path = Path(__file__).resolve().parents[1] / ".env"
@@ -23,6 +25,27 @@ engine = create_engine(
     max_overflow=20,
 )
 
+# Set while pg_restore --clean runs so other requests do not grab locks.
+_restore_lock = threading.Lock()
+_restore_in_progress = False
+
+
+def begin_database_restore() -> None:
+    global _restore_in_progress
+    with _restore_lock:
+        _restore_in_progress = True
+
+
+def end_database_restore() -> None:
+    global _restore_in_progress
+    with _restore_lock:
+        _restore_in_progress = False
+
+
+def is_database_restore_in_progress() -> bool:
+    with _restore_lock:
+        return _restore_in_progress
+
 def init_db() -> None:
     """Create any missing tables from SQLModel metadata (idempotent)."""
     with engine.connect() as conn:
@@ -36,5 +59,10 @@ def close_db() -> None:
     engine.dispose()
 
 def get_session():
+    if is_database_restore_in_progress():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database restore in progress. Please wait and retry.",
+        )
     with Session(engine) as session:
         yield session

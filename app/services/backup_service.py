@@ -17,7 +17,12 @@ from urllib.parse import unquote, urlparse
 from sqlalchemy import text
 from sqlmodel import Session
 
-from app.database import DATABASE_URL, engine
+from app.database import (
+    DATABASE_URL,
+    begin_database_restore,
+    end_database_restore,
+    engine,
+)
 
 APP_LABEL = "satlife"
 RESTORE_CONFIRM_PHRASE = "RESTORE"
@@ -269,6 +274,29 @@ def _safe_extract_member(zf: zipfile.ZipFile, member: zipfile.ZipInfo, dest: Pat
         shutil.copyfileobj(src, out)
 
 
+def _prepare_database_for_restore() -> None:
+    """
+    Release SQLAlchemy pool connections and terminate other backends on this
+    database so pg_restore --clean can acquire exclusive locks.
+    """
+    engine.dispose()
+    # Brief exclusive connection to kick everyone else off this DB.
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                """
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                  AND backend_type = 'client backend'
+                """
+            )
+        )
+        conn.commit()
+    engine.dispose()
+
+
 def restore_from_archive(
     archive_path: Path,
     *,
@@ -326,56 +354,62 @@ def restore_from_archive(
                 "Upgrade or match application versions before restoring."
             )
 
-        # Dispose pooled connections so --clean can drop objects safely
-        engine.dispose()
+        # Drop pooled app connections and kick other backends so --clean
+        # is not blocked by idle-in-transaction sessions (including the
+        # FastAPI request that started this restore).
+        begin_database_restore()
+        try:
+            _prepare_database_for_restore()
 
-        cmd = [
-            pg_restore,
-            "--clean",
-            "--if-exists",
-            "--no-owner",
-            "--no-acl",
-            "-h",
-            db["host"],
-            "-p",
-            db["port"],
-            "-U",
-            db["user"],
-            "-d",
-            db["dbname"],
-            str(dump_path),
-        ]
-        result = subprocess.run(
-            cmd,
-            env=_pg_env(db),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        # pg_restore may return non-zero for non-fatal warnings with --clean;
-        # treat as failure only when the database is unusable afterwards.
-        if result.returncode not in (0, 1):
-            detail = (result.stderr or result.stdout or "").strip() or "unknown error"
-            raise BackupError(f"pg_restore failed: {detail}")
-
-        engine.dispose()
-
-        # Verify alembic_version still readable after restore
-        with Session(engine) as verify_session:
-            restored_revision = get_alembic_revision(verify_session)
-        if restored_revision != backup_revision:
-            raise BackupError(
-                "Restore completed but alembic revision verification failed."
+            cmd = [
+                pg_restore,
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-acl",
+                "-h",
+                db["host"],
+                "-p",
+                db["port"],
+                "-U",
+                db["user"],
+                "-d",
+                db["dbname"],
+                str(dump_path),
+            ]
+            result = subprocess.run(
+                cmd,
+                env=_pg_env(db),
+                capture_output=True,
+                text=True,
+                check=False,
             )
+            # pg_restore may return non-zero for non-fatal warnings with --clean;
+            # treat as failure only when the database is unusable afterwards.
+            if result.returncode not in (0, 1):
+                detail = (result.stderr or result.stdout or "").strip() or "unknown error"
+                raise BackupError(f"pg_restore failed: {detail}")
 
-        _replace_uploads(extract_dir / "uploads")
+            engine.dispose()
 
-        return {
-            "message": "Restore completed successfully.",
-            "alembic_revision": restored_revision,
-            "created_at": manifest.get("created_at"),
-            "created_by": manifest.get("created_by"),
-        }
+            # Verify alembic_version still readable after restore
+            with Session(engine) as verify_session:
+                restored_revision = get_alembic_revision(verify_session)
+            if restored_revision != backup_revision:
+                raise BackupError(
+                    "Restore completed but alembic revision verification failed."
+                )
+
+            _replace_uploads(extract_dir / "uploads")
+
+            return {
+                "message": "Restore completed successfully.",
+                "alembic_revision": restored_revision,
+                "created_at": manifest.get("created_at"),
+                "created_by": manifest.get("created_by"),
+            }
+        finally:
+            end_database_restore()
     finally:
         shutil.rmtree(extract_dir, ignore_errors=True)
 

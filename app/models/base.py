@@ -122,6 +122,8 @@ class SecuritySettingsCommon(SQLModel):
     two_factor_enabled: bool = False
     two_factor_require_all: bool = False
     two_factor_require_admins_only: bool = True
+    # Hashed; required to force-takeover an Admin session on another device.
+    admin_session_super_password_hash: Optional[str] = Field(default=None, max_length=255)
 
 
 class SecuritySettingsBase(SecuritySettingsCommon):

@@ -632,6 +632,10 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing("project", PROJECT_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
     _add_columns_if_missing(
+        "securitysettings",
+        [("admin_session_super_password_hash", "VARCHAR(255)")],
+    )
+    _add_columns_if_missing(
         "hierarchy",
         [("abbreviation", "VARCHAR")],
     )

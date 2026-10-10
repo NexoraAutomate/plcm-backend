@@ -4,7 +4,7 @@ Handles user login, logout, password changes, and role management
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, status, Header, Request, Response, Query, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Request, Response, Query, File, UploadFile, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlmodel import Session, select, SQLModel, func, col
 from app.database import get_session
@@ -35,6 +35,7 @@ from app.services.login_history_service import (
 from app.services.security_settings_service import (
     get_or_create_security_settings,
     update_security_settings,
+    security_settings_to_read,
 )
 from app.services.password_policy_service import (
     enforce_password_policy,
@@ -58,6 +59,12 @@ ACTIVE_SESSION_EXISTS_MESSAGE = (
     "Signing in here will sign out that session."
 )
 
+ADMIN_SUPER_PASSWORD_REQUIRED_MESSAGE = (
+    "A super password is required to sign in and sign out the active admin session."
+)
+
+INVALID_ADMIN_SUPER_PASSWORD_MESSAGE = "Invalid super password."
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,6 +79,52 @@ def _is_locked(user: User) -> bool:
     return locked_until > _utcnow()
 
 
+def _is_admin_user(user: User) -> bool:
+    return check_any_role(user, ["Admin"])
+
+
+def _require_admin_session_super_password(
+    session: Session,
+    *,
+    user: User,
+    username: str,
+    super_password: Optional[str],
+    request: Optional[Request],
+) -> None:
+    """Block Admin session takeover unless the configured super password matches."""
+    settings = get_or_create_security_settings(session)
+    stored_hash = settings.admin_session_super_password_hash or ""
+    provided = (super_password or "").strip()
+    if not provided:
+        record_login_attempt(
+            session,
+            username=username,
+            login_status="Failed",
+            user=user,
+            failure_reason="Missing admin session super password",
+            request=request,
+            commit=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ADMIN_SUPER_PASSWORD_REQUIRED_MESSAGE,
+        )
+    if not stored_hash or not verify_password(provided, stored_hash):
+        record_login_attempt(
+            session,
+            username=username,
+            login_status="Failed",
+            user=user,
+            failure_reason="Invalid admin session super password",
+            request=request,
+            commit=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=INVALID_ADMIN_SUPER_PASSWORD_MESSAGE,
+        )
+
+
 def authenticate_user(
     session: Session,
     username: str,
@@ -79,6 +132,7 @@ def authenticate_user(
     request: Optional[Request] = None,
     *,
     force_session_takeover: bool = False,
+    super_password: Optional[str] = None,
 ) -> tuple[User, str]:
     """
     Authenticate a user and record login history.
@@ -149,6 +203,7 @@ def authenticate_user(
             detail="Account is temporarily locked due to too many failed login attempts.",
         )
 
+    is_admin = _is_admin_user(user)
     active_sessions = list_active_sessions(session, user_id=user.id, skip=0, limit=1)
     if active_sessions and not force_session_takeover:
         existing = active_sessions[0]
@@ -158,6 +213,7 @@ def authenticate_user(
             detail={
                 "code": "ACTIVE_SESSION_EXISTS",
                 "message": ACTIVE_SESSION_EXISTS_MESSAGE,
+                "requires_super_password": is_admin,
                 "existing_session": {
                     "ip_address": existing.ip_address,
                     "device_name": existing.device_name,
@@ -169,6 +225,14 @@ def authenticate_user(
         )
 
     if active_sessions and force_session_takeover:
+        if is_admin:
+            _require_admin_session_super_password(
+                session,
+                user=user,
+                username=username,
+                super_password=super_password,
+                request=request,
+            )
         close_open_sessions_for_user(session, user.id)
 
     session_id = new_session_id()
@@ -316,6 +380,7 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
     force_session_takeover: bool = Query(default=False),
+    super_password: Optional[str] = Form(default=None),
 ):
     """Login endpoint. Returns JWT token with user info and permissions."""
     user, session_id = authenticate_user(
@@ -324,6 +389,7 @@ def login(
         form_data.password,
         request=request,
         force_session_takeover=force_session_takeover,
+        super_password=super_password,
     )
     return build_token_response(user, session_id=session_id)
 
@@ -334,6 +400,7 @@ def login_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
     force_session_takeover: bool = Query(default=False),
+    super_password: Optional[str] = Form(default=None),
 ):
     """OAuth2-compatible token endpoint (alias of /login)."""
     user, session_id = authenticate_user(
@@ -342,6 +409,7 @@ def login_token(
         form_data.password,
         request=request,
         force_session_takeover=force_session_takeover,
+        super_password=super_password,
     )
     return build_token_response(user, session_id=session_id)
 
@@ -935,7 +1003,7 @@ def get_security_settings(
     user: User = Depends(require_permission("manage_settings")),
     session: Session = Depends(get_session),
 ):
-    return get_or_create_security_settings(session)
+    return security_settings_to_read(get_or_create_security_settings(session))
 
 
 @router.put("/security-settings", response_model=schemas.SecuritySettingsRead)
@@ -945,12 +1013,13 @@ def put_security_settings(
     user: User = Depends(require_permission("manage_settings")),
     session: Session = Depends(get_session),
 ):
-    return update_security_settings(
+    settings = update_security_settings(
         session,
         payload.model_dump(exclude_unset=True),
         actor=user,
         ip_address=client_ip(request),
     )
+    return security_settings_to_read(settings)
 
 
 @router.get("/password-policy", response_model=schemas.PasswordPolicyPublic)
