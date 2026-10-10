@@ -191,7 +191,7 @@ def _sync_entity_install_identity(
     entity: Any,
     issuance: InventoryIssuance,
 ) -> None:
-    """Copy warehouse PN/SN onto the hierarchy node after HM verification."""
+    """Copy warehouse PN/SN and install metadata onto the hierarchy node."""
     part_number = (issuance.part_number or "").strip()
     serial_number = (issuance.serial_number or "").strip()
     if part_number:
@@ -203,12 +203,28 @@ def _sync_entity_install_identity(
         if not current_ci:
             entity.configuration_item = part_number
     if issuance.installed_at is not None and hasattr(entity, "installation_date"):
-        if getattr(entity, "installation_date", None) is None:
-            entity.installation_date = issuance.installed_at
+        entity.installation_date = issuance.installed_at
     if issuance.installed_by_id is not None and hasattr(entity, "installed_by_id"):
-        if getattr(entity, "installed_by_id", None) is None:
-            entity.installed_by_id = int(issuance.installed_by_id)
+        entity.installed_by_id = int(issuance.installed_by_id)
     session.add(entity)
+
+
+def _sync_instance_install_identity(
+    session: Session,
+    issuance: InventoryIssuance,
+) -> None:
+    """Keep inventory unit install metadata aligned with the issuance workflow."""
+    instance_id = getattr(issuance, "inventory_instance_id", None)
+    if instance_id is None:
+        return
+    instance = session.get(InventoryInstance, int(instance_id))
+    if instance is None:
+        return
+    if issuance.installed_at is not None:
+        instance.installation_date = issuance.installed_at
+    if issuance.installed_by_id is not None:
+        instance.installed_by_id = int(issuance.installed_by_id)
+    session.add(instance)
 
 
 def _require_open_issuance(
@@ -423,6 +439,9 @@ def start_install(
             actor=actor,
             notes=notes,
         )
+    if hasattr(entity, "installation_date") or hasattr(entity, "installed_by_id"):
+        _sync_entity_install_identity(session, entity, issuance)
+    _sync_instance_install_identity(session, issuance)
     from app.services.item_rework_service import mark_rework_retesting
 
     mark_rework_retesting(session, entity_type, entity_id)
@@ -607,6 +626,7 @@ def verify_issuance(
             _sync_entity_install_identity(session, target, issuance)
         except Exception:
             pass
+    _sync_instance_install_identity(session, issuance)
     record_issuance_event(
         session,
         issuance,

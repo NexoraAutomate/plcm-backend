@@ -2042,6 +2042,9 @@ def update_inventory_instance(
     if not db_instance:
         raise HTTPException(status_code=404, detail="Inventory instance not found")
     update_data = instance.model_dump(exclude_unset=True)
+    # Workflow-owned fields — never editable from inventory manager forms.
+    for field in ("status_id", "installation_date", "installed_by_id"):
+        update_data.pop(field, None)
     if any(
         key in update_data
         for key in ("location", "location_room", "location_cabinet", "location_rack")
@@ -2096,6 +2099,21 @@ def delete_inventory_instance(
     inventory = session.get(Inventory, db_instance.inventory_id)
     if not inventory:
         raise HTTPException(status_code=404, detail="Inventory not found")
+
+    from app.services.inventory_issuance_service import open_issuance_for_instance
+    from app.services.inventory_reservation_service import active_reservation_for_instance
+
+    open_issuance = open_issuance_for_instance(session, int(instance_id))
+    project_hold = active_reservation_for_instance(session, int(instance_id))
+    if open_issuance is not None or project_hold is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This unit is reserved, issued, or installed and cannot be deleted. "
+                "Clear the reservation or issuance first."
+            ),
+        )
+
     if db_instance.id is not None:
         retire_inventory_instance_labels(session, int(db_instance.id))
     session.delete(db_instance)
