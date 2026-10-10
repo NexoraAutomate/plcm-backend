@@ -569,6 +569,10 @@ def receive_shortage_stock(
     location_room: Optional[str] = None,
     location_cabinet: Optional[str] = None,
     location_rack: Optional[str] = None,
+    unit_cost=None,
+    unit_costs: Optional[list] = None,
+    bulk_quote_cost=None,
+    currency: Optional[str] = None,
 ) -> tuple[Inventory, list[dict[str, Any]]]:
     """Receive stock from the shortage list and immediately run FCFS fulfillment."""
     shortage = session.get(InventoryShortage, shortage_id)
@@ -627,6 +631,9 @@ def receive_shortage_stock(
             inventory_type=requested_type,
             part_number=resolved_part_number,
         )
+    resolved_currency = (currency or (inventory.currency if inventory else None) or "PKR")
+    resolved_currency = str(resolved_currency).strip().upper() or "PKR"
+
     if inventory is None:
         inventory = Inventory(
             name=requested_name,
@@ -635,6 +642,8 @@ def receive_shortage_stock(
             part_number=resolved_part_number,
             configuration_item=resolved_part_number or requested_name,
             holder_user_id=int(actor.id),
+            currency=resolved_currency,
+            bulk_quote_cost=bulk_quote_cost,
         )
         session.add(inventory)
         session.flush()
@@ -643,10 +652,32 @@ def receive_shortage_stock(
 
     if not inventory.part_number:
         inventory.part_number = resolved_part_number
+    inventory.currency = resolved_currency
+    if bulk_quote_cost is not None:
+        inventory.bulk_quote_cost = bulk_quote_cost
     shortage.inventory_id = inventory.id
     if not shortage.part_number and inventory.part_number:
         shortage.part_number = inventory.part_number
     session.add_all([inventory, shortage])
+
+    from decimal import Decimal, ROUND_HALF_UP
+
+    if unit_costs and len([c for c in unit_costs if c is not None]) == quantity:
+        receipt_costs = list(unit_costs)
+    elif bulk_quote_cost is not None and quantity > 0:
+        total = Decimal(str(bulk_quote_cost))
+        each = (total / Decimal(quantity)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        receipt_costs = [each] * quantity
+        receipt_costs[-1] = (total - each * (quantity - 1)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    elif unit_cost is not None:
+        receipt_costs = [unit_cost] * quantity
+    else:
+        receipt_costs = [None] * quantity
+
     created_instances: list[InventoryInstance] = []
     for index in range(quantity):
         serial = serials[index] if index < len(serials) else None
@@ -661,6 +692,7 @@ def receive_shortage_stock(
             location_cabinet=cabinet,
             location_rack=rack,
             holder_user_id=int(actor.id),
+            unit_cost=receipt_costs[index],
         )
         created_instances.append(instance)
     session.commit()

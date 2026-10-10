@@ -1155,8 +1155,10 @@ class InventoryLabelScanResponse(SQLModel):
 
 
 class InventoryCreate(InventoryBase):
-    # Stamped onto each new unit at create time; not stored on the catalog row.
+    # Uniform unit cost stamped onto each new unit when unit_costs is omitted.
     unit_cost: Optional[Decimal] = None
+    # Per-unit costs for this receipt (length should match quantity).
+    unit_costs: Optional[List[Decimal]] = None
 
 
 class InventoryShortageReceiveRequest(SQLModel):
@@ -1167,6 +1169,10 @@ class InventoryShortageReceiveRequest(SQLModel):
     location_room: Optional[str] = None
     location_cabinet: Optional[str] = None
     location_rack: Optional[str] = None
+    unit_cost: Optional[Decimal] = None
+    unit_costs: Optional[List[Decimal]] = None
+    bulk_quote_cost: Optional[Decimal] = None
+    currency: Optional[str] = None
 
 
 class InventoryRead(InventoryBase):
@@ -1176,6 +1182,7 @@ class InventoryRead(InventoryBase):
     reserved_quantity: int = 0
     available_quantity: Optional[int] = None
     total_used: int = 0
+    total_stock_cost: Optional[Decimal] = None
     fcfs_fulfillments: Optional[List[FCFSFulfillmentRead]] = None
 
     class Config:
@@ -1440,6 +1447,8 @@ class InventoryUpdate(SQLModel):
     original_part_number: Optional[str] = None
     original_serial_number: Optional[str] = None
     default_unit_cost: Optional[Decimal] = None
+    currency: Optional[str] = None
+    bulk_quote_cost: Optional[Decimal] = None
 
 class EntityAttachmentRead(SQLModel):
     id: int

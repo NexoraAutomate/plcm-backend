@@ -347,6 +347,12 @@ def _inventory_to_read(
             data["quantity"] = installable_qty + pending_qty
             data["reserved_quantity"] = pending_qty
             data["available_quantity"] = installable_qty
+    total_cost = session.exec(
+        select(func.coalesce(func.sum(InventoryInstance.unit_cost), 0)).where(
+            InventoryInstance.inventory_id == inventory.id
+        )
+    ).one()
+    data["total_stock_cost"] = total_cost
     return schemas.InventoryRead.model_validate(data)
 
 
@@ -447,6 +453,41 @@ def _extract_instance_fields(data: dict) -> dict:
     return fields
 
 
+def _resolve_receipt_unit_costs(
+    quantity: int,
+    *,
+    unit_cost=None,
+    unit_costs=None,
+    bulk_quote_cost=None,
+) -> list:
+    """Build a per-unit cost list for a stock receipt."""
+    from decimal import Decimal, ROUND_HALF_UP
+
+    if unit_costs:
+        costs = [c for c in unit_costs if c is not None]
+        if len(costs) == quantity:
+            return costs
+        if len(costs) == 1 and quantity > 1:
+            return [costs[0]] * quantity
+        raise HTTPException(
+            status_code=400,
+            detail=f"unit_costs must have {quantity} values (got {len(costs)})",
+        )
+    if bulk_quote_cost is not None and quantity > 0:
+        total = Decimal(str(bulk_quote_cost))
+        each = (total / Decimal(quantity)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        costs = [each] * quantity
+        # Adjust last unit so the sum matches the batch quote.
+        adjustment = total - (each * quantity)
+        costs[-1] = (each + adjustment).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return costs
+    if unit_cost is not None:
+        return [unit_cost] * quantity
+    return [None] * quantity
+
+
 def _resolve_part_number(data: dict) -> Optional[str]:
     return data.get("part_number") or data.pop("manufacturer_part_number", None)
 
@@ -482,7 +523,17 @@ def create_inventory(
     quantity = _normalize_inventory_quantity(inventory_type, data.get("quantity"))
     if quantity < 1:
         raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+    unit_costs_payload = data.pop("unit_costs", None)
+    bulk_quote_cost = data.get("bulk_quote_cost")
+    currency = (data.get("currency") or "PKR").strip().upper() or "PKR"
+    data["currency"] = currency
     instance_fields = _extract_instance_fields(data)
+    receipt_costs = _resolve_receipt_unit_costs(
+        quantity,
+        unit_cost=instance_fields.get("unit_cost"),
+        unit_costs=unit_costs_payload,
+        bulk_quote_cost=bulk_quote_cost,
+    )
     if not instance_fields.get("configuration_item"):
         instance_fields["configuration_item"] = part_number or data.get("name")
     if not (instance_fields.get("location") or "").strip():
@@ -515,6 +566,9 @@ def create_inventory(
             db_inventory.description = data["description"]
         if data.get("oem_name") and not db_inventory.oem_name:
             db_inventory.oem_name = data["oem_name"]
+        db_inventory.currency = currency
+        if bulk_quote_cost is not None:
+            db_inventory.bulk_quote_cost = bulk_quote_cost
         session.add(db_inventory)
     else:
         db_inventory = Inventory(**data)
@@ -522,8 +576,9 @@ def create_inventory(
         session.flush()
 
     created_instances: list[InventoryInstance] = []
-    for _ in range(quantity):
+    for index in range(quantity):
         unit_fields = dict(instance_fields)
+        unit_fields["unit_cost"] = receipt_costs[index]
         unit_fields["serial_number"] = generate_inventory_instance_serial(
             session,
             db_inventory,
@@ -1372,6 +1427,10 @@ def receive_inventory_shortage(
             location_room=body.location_room,
             location_cabinet=body.location_cabinet,
             location_rack=body.location_rack,
+            unit_cost=body.unit_cost,
+            unit_costs=body.unit_costs,
+            bulk_quote_cost=body.bulk_quote_cost,
+            currency=body.currency,
         )
     except InventoryShortageError as exc:
         raise HTTPException(
