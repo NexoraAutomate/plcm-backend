@@ -1368,6 +1368,9 @@ def receive_inventory_shortage(
             part_number=body.part_number,
             serial_numbers=body.serial_numbers,
             location=body.location,
+            location_room=body.location_room,
+            location_cabinet=body.location_cabinet,
+            location_rack=body.location_rack,
         )
     except InventoryShortageError as exc:
         raise HTTPException(

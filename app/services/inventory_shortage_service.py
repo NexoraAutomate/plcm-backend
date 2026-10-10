@@ -564,6 +564,9 @@ def receive_shortage_stock(
     part_number: Optional[str] = None,
     serial_numbers: Optional[list[str]] = None,
     location: Optional[str] = None,
+    location_room: Optional[str] = None,
+    location_cabinet: Optional[str] = None,
+    location_rack: Optional[str] = None,
 ) -> tuple[Inventory, list[dict[str, Any]]]:
     """Receive stock from the shortage list and immediately run FCFS fulfillment."""
     shortage = session.get(InventoryShortage, shortage_id)
@@ -602,8 +605,18 @@ def receive_shortage_stock(
         serials = [suggested_serial_number]
     if not resolved_part_number and not (inventory and inventory.part_number):
         raise InventoryShortageError("Part number is required for inventory stock")
-    if not (location or "").strip():
-        location = "Warehouse"
+
+    room = (location_room or "").strip() or None
+    cabinet = (location_cabinet or "").strip() or None
+    rack = (location_rack or "").strip() or None
+    composed_parts = [part for part in (room, cabinet, rack) if part]
+    resolved_location = (location or "").strip() or (
+        " / ".join(composed_parts) if composed_parts else ""
+    )
+    if requested_type != "component" and not resolved_location:
+        raise InventoryShortageError("Room / Cabinet / Rack are required")
+    if not resolved_location:
+        resolved_location = "Warehouse"
 
     if inventory is None:
         inventory = find_inventory_catalog_group(
@@ -641,7 +654,10 @@ def receive_shortage_stock(
             session,
             inventory,
             serial_number=serial,
-            location=location.strip(),
+            location=resolved_location,
+            location_room=room,
+            location_cabinet=cabinet,
+            location_rack=rack,
             holder_user_id=int(actor.id),
         )
         created_instances.append(instance)

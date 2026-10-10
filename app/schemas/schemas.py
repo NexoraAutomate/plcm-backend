@@ -1158,6 +1158,9 @@ class InventoryShortageReceiveRequest(SQLModel):
     part_number: Optional[str] = None
     serial_numbers: List[str] = Field(default_factory=list)
     location: Optional[str] = None
+    location_room: Optional[str] = None
+    location_cabinet: Optional[str] = None
+    location_rack: Optional[str] = None
 
 
 class InventoryRead(InventoryBase):
