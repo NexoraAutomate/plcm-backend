@@ -13,6 +13,7 @@ from app.domain.project_progress import (
     weighted_average,
 )
 from app.domain.workflow_status import ItemStatus
+from app.services.project_progress_service import _subtree_display_status
 
 
 def _leaf(name: str, status: str | None = None, *, defect_pending: bool = False) -> ProgressNode:
@@ -23,6 +24,15 @@ def _leaf(name: str, status: str | None = None, *, defect_pending: bool = False)
         status=status or NOT_STARTED_STATUS,
         defect_pending=defect_pending,
     )
+
+
+def _with_own_coverage(node: ProgressNode, status: str) -> ProgressNode:
+    """Mark coverage as recorded on this node (not inherited from an ancestor)."""
+    node.status = status
+    node.cover_entity_type = node.entity_type
+    node.cover_entity_id = node.entity_id
+    node.cover_name = node.name
+    return node
 
 
 def test_stage_fractions():
@@ -118,6 +128,68 @@ def test_reserved_and_installing_systems_differ_in_progress():
     assert progress_pct(reserved.progress) == 10
     assert progress_pct(installing.progress) == 50
     assert progress_pct(reserved.progress) != progress_pct(installing.progress)
+
+
+def test_reserved_parent_caps_progress_when_children_are_verified():
+    """System/module/unit/subsystem integration pending must block 100%."""
+    for entity_type, name in (
+        ("system", "Antenna Pedestal"),
+        ("subsystem", "RF Bay"),
+        ("module", "Mod-A"),
+        ("unit", "Unit-1"),
+    ):
+        children = [
+            _leaf(f"{name}-a", ItemStatus.INSTALLED_VERIFIED.value),
+            _leaf(f"{name}-b", ItemStatus.INSTALLED_VERIFIED.value),
+        ]
+        parent = _with_own_coverage(
+            ProgressNode(
+                entity_type=entity_type,
+                entity_id=hash(entity_type) % 10_000,
+                name=name,
+                children=children,
+            ),
+            ItemStatus.RESERVED.value,
+        )
+        rollup_progress(parent)
+        assert parent.verified_leaves == 2
+        assert parent.weight == 2
+        assert progress_pct(parent.progress) == 10
+        assert _subtree_display_status(parent) == ItemStatus.RESERVED.value
+
+        # Once the parent itself is verified, rollup may reach 100%.
+        parent.status = ItemStatus.INSTALLED_VERIFIED.value
+        rollup_progress(parent)
+        assert progress_pct(parent.progress) == 100
+        assert _subtree_display_status(parent) == ItemStatus.INSTALLED_VERIFIED.value
+
+
+def test_structural_parent_without_coverage_still_rolls_up_children():
+    """Flight/SDLS containers without inventory coverage stay children-weighted."""
+    leaf = _leaf("L1", ItemStatus.INSTALLED_VERIFIED.value)
+    system = ProgressNode(
+        entity_type="system", entity_id=1, name="SYS", children=[leaf]
+    )
+    rollup_progress(system)
+    assert progress_pct(system.progress) == 100
+
+
+def test_incomplete_own_coverage_parent_is_bottleneck():
+    child = _leaf("C1", ItemStatus.INSTALLED_VERIFIED.value)
+    parent = _with_own_coverage(
+        ProgressNode(
+            entity_type="system",
+            entity_id=1,
+            name="Antenna Pedestal",
+            children=[child],
+        ),
+        ItemStatus.RESERVED.value,
+    )
+    rollup_progress(parent)
+    rows = collect_bottlenecks(parent)
+    assert any(
+        row["entity_type"] == "system" and row["reason"] == "reserved" for row in rows
+    )
 
 
 def test_advanced_parent_coverage_overrides_stale_child_reserved():

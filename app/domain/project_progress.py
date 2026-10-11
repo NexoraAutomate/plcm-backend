@@ -5,6 +5,10 @@ Parent progress is a weighted average of children. Default weight of a subtree
 is the number of required leaf nodes. Stage fractions are the documented
 implementation policy (Reserved … Installed Verified). Fail/open defects never
 count as Installed Verified.
+
+When a parent has its own inventory coverage (reservation / issuance / assemble
+shell), its lifecycle stage caps the rolled-up children average so system /
+module / unit / subsystem integration cannot show 100% while still pending.
 """
 
 from __future__ import annotations
@@ -91,6 +95,16 @@ def is_verified_leaf(status: Optional[str], *, defect_pending: bool = False) -> 
     return normalize_stage_status(status) == ItemStatus.INSTALLED_VERIFIED.value
 
 
+def node_has_own_coverage(node: "ProgressNode") -> bool:
+    """True when lifecycle coverage was recorded on this node (not inherited)."""
+    if node.cover_entity_type is None or node.cover_entity_id is None:
+        return False
+    return (
+        node.cover_entity_type == node.entity_type
+        and int(node.cover_entity_id) == int(node.entity_id)
+    )
+
+
 def weighted_average(pairs: list[tuple[float, float]]) -> float:
     """pairs: (progress_fraction, weight). Equal weights → simple mean."""
     total_w = sum(w for _, w in pairs)
@@ -151,10 +165,21 @@ def rollup_progress(node: ProgressNode, parent_path: str = "") -> ProgressNode:
     for child in node.children:
         rollup_progress(child, node.path)
     node.weight = sum(child.weight for child in node.children)
-    node.progress = weighted_average(
+    children_progress = weighted_average(
         [(child.progress, float(child.weight)) for child in node.children]
     )
     node.verified_leaves = sum(child.verified_leaves for child in node.children)
+    # Own inventory coverage (e.g. Antenna Pedestal still Reserved after its
+    # subsystems verified) caps progress so parents cannot report 100% while
+    # their integration stage is incomplete. Structural containers without
+    # coverage continue to roll up children only.
+    if node_has_own_coverage(node):
+        parent_fraction = stage_fraction(
+            node.status, defect_pending=node.defect_pending
+        )
+        node.progress = min(children_progress, parent_fraction)
+    else:
+        node.progress = children_progress
     return node
 
 
@@ -164,12 +189,16 @@ def collect_bottlenecks(
     incomplete: list[ProgressNode] = []
 
     def walk(node: ProgressNode) -> None:
-        if not node.children:
-            if not is_verified_leaf(node.status, defect_pending=node.defect_pending):
+        if node.children:
+            if node_has_own_coverage(node) and not is_verified_leaf(
+                node.status, defect_pending=node.defect_pending
+            ):
                 incomplete.append(node)
+            for child in node.children:
+                walk(child)
             return
-        for child in node.children:
-            walk(child)
+        if not is_verified_leaf(node.status, defect_pending=node.defect_pending):
+            incomplete.append(node)
 
     walk(root)
 

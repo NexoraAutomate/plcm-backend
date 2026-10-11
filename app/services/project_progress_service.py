@@ -11,6 +11,8 @@ from app.domain.project_progress import (
     STAGE_POLICY,
     ProgressNode,
     collect_bottlenecks,
+    is_verified_leaf,
+    node_has_own_coverage,
     normalize_stage_status,
     progress_pct,
     rollup_progress,
@@ -154,8 +156,13 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
         if not et or assembled.target_entity_id is None:
             continue
         key = (et, int(assembled.target_entity_id))
+        # Assembly creates the parent shell only. Do not overwrite a real
+        # reservation/issuance, and do not treat assemble as Installed Verified —
+        # parent integration (reserve → issue → install → verify) is still pending.
+        if key in coverage:
+            continue
         coverage[key] = {
-            "status": ItemStatus.INSTALLED_VERIFIED.value,
+            "status": NOT_STARTED_STATUS,
             "defect_pending": False,
         }
     return coverage
@@ -164,8 +171,8 @@ def _load_coverage(session: Session, project_id: int) -> Coverage:
 def _assembled_parents_are_verified(session: Session, project_id: int) -> bool:
     """BUILD parents do not complete the project until their own workflow completes.
 
-    Assembly makes a parent available for assignment and keeps progress at 100%,
-    but it is not an installed/verified issuance by itself.
+    Assembly makes a parent available for assignment, but it is not an
+    installed/verified issuance by itself.
     """
     assembled_rows = session.exec(
         select(AssembledInventory).where(
@@ -480,11 +487,22 @@ def _load_progress_tree(session: Session, project: Project) -> ProgressNode:
 def _subtree_display_status(node: ProgressNode) -> Optional[str]:
     """Status aligned with rolled-up progress for UI badges.
 
-    For parents, use the least-advanced incomplete leaf so a system cannot show
-    Installation In Progress while its weighted % is still stuck at Reserved
-    children. Leaves keep their own normalized status.
+    For parents, use the least-advanced incomplete required node (own-coverage
+    parents or leaves) so a system cannot show Installed Verified while it is
+    still Reserved, or Installation In Progress while children are stuck at
+    Reserved. Leaves keep their own normalized status.
     """
     if not node.children:
+        status = normalize_stage_status(node.status)
+        if not status or status == NOT_STARTED_STATUS:
+            return None
+        return status
+
+    # Own coverage incomplete → show this parent's real stage (e.g. Reserved)
+    # even when every child leaf is already Installed Verified.
+    if node_has_own_coverage(node) and not is_verified_leaf(
+        node.status, defect_pending=node.defect_pending
+    ):
         status = normalize_stage_status(node.status)
         if not status or status == NOT_STARTED_STATUS:
             return None
@@ -493,14 +511,18 @@ def _subtree_display_status(node: ProgressNode) -> Optional[str]:
     incomplete: list[ProgressNode] = []
 
     def walk(current: ProgressNode) -> None:
-        if not current.children:
-            if stage_fraction(
+        if current.children:
+            if node_has_own_coverage(current) and stage_fraction(
                 current.status, defect_pending=current.defect_pending
             ) < 1.0:
                 incomplete.append(current)
+            for child in current.children:
+                walk(child)
             return
-        for child in current.children:
-            walk(child)
+        if stage_fraction(
+            current.status, defect_pending=current.defect_pending
+        ) < 1.0:
+            incomplete.append(current)
 
     walk(node)
     if not incomplete:
@@ -516,6 +538,14 @@ def _subtree_display_status(node: ProgressNode) -> Optional[str]:
     if not status or status == NOT_STARTED_STATUS:
         return None
     return status
+
+
+def _own_coverage_parents_verified(node: ProgressNode) -> bool:
+    """Every non-leaf with its own inventory coverage must be Installed Verified."""
+    if node.children and node_has_own_coverage(node):
+        if not is_verified_leaf(node.status, defect_pending=node.defect_pending):
+            return False
+    return all(_own_coverage_parents_verified(child) for child in node.children)
 
 
 def _child_payload(node: ProgressNode) -> dict[str, Any]:
@@ -625,6 +655,7 @@ def compute_project_progress(session: Session, project_id: int) -> dict[str, Any
     snapshot = _to_payload(project, root)
     snapshot["can_complete"] = bool(
         snapshot["can_complete"]
+        and _own_coverage_parents_verified(root)
         and _assembled_parents_are_verified(session, int(project.id))
     )
     return snapshot
