@@ -1078,9 +1078,13 @@ def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLook
     """
     Look up any current-install hierarchy entity by unique serial number.
     Matches serial_number or original_serial_number (inventory SN).
+    Falls back to verified InventoryIssuance install links when hierarchy
+    serial columns were never populated.
     Walks up to project/order/customer and down through descendants.
     """
     from sqlalchemy import or_
+    from app.domain.workflow_status import ItemStatus
+    from app.models.tables import InventoryIssuance
 
     matched_type: Optional[str] = None
     matched_id: Optional[int] = None
@@ -1110,6 +1114,45 @@ def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLook
             PartNumber = str(getattr(row, "part_number", "") or "")
             matched_label = str(getattr(row, "name", serial_number))
             break
+
+    # Hierarchy rows often keep serial_number null after verify; resolve via issuance.
+    if not matched_type or matched_id is None:
+        issuance = session.exec(
+            select(InventoryIssuance)
+            .where(
+                InventoryIssuance.serial_number == serial_number,
+                InventoryIssuance.installed_entity_id.is_not(None),
+                InventoryIssuance.installed_entity_type.is_not(None),
+                or_(
+                    InventoryIssuance.item_lifecycle_status
+                    == ItemStatus.INSTALLED_VERIFIED.value,
+                    InventoryIssuance.verified_at.is_not(None),
+                ),
+            )
+            .order_by(InventoryIssuance.verified_at.desc())
+        ).first()
+        if issuance and issuance.installed_entity_type and issuance.installed_entity_id:
+            et = str(
+                getattr(issuance.installed_entity_type, "value", issuance.installed_entity_type)
+            ).strip().lower()
+            model_map = {
+                str(getattr(entity_type, "value", entity_type)).strip().lower(): model_cls
+                for entity_type, model_cls, _identity in _SR_SEARCH_MODELS
+            }
+            model_cls = model_map.get(et)
+            row = session.get(model_cls, issuance.installed_entity_id) if model_cls else None
+            if row is not None and (
+                not hasattr(row, "is_current_install") or row.is_current_install
+            ):
+                matched_type = et
+                matched_id = int(issuance.installed_entity_id)
+                serialNumber = str(issuance.serial_number or serial_number)
+                PartNumber = str(
+                    issuance.part_number
+                    or getattr(row, "part_number", "")
+                    or ""
+                )
+                matched_label = str(getattr(row, "name", serial_number))
 
     if not matched_type or matched_id is None:
         raise HTTPException(

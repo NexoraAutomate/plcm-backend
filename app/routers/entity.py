@@ -618,11 +618,15 @@ def get_serial_numbers(
     session: Session = Depends(get_session),
 ):
     """
-    Search serial numbers for hardware currently installed under a project.
-    Returns both serial_number and original_serial_number when they differ so
-    typeahead matches the SN shown on installed entities and inventory labels.
+    Search serial numbers for maintenance lookup.
+
+    Includes serials that are installed and verified under delivered projects
+    (project status COMPLETED or READY_TO_DELIVER). Sources:
+    - InventoryIssuance with item_lifecycle_status INSTALLED_VERIFIED
+    - Current-install hierarchy rows under those same projects
     """
     from sqlalchemy import or_
+    from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
     from app.models.tables import System, Subsystem, Module, Unit, Component
 
     needle = (q or "").strip()
@@ -634,13 +638,33 @@ def get_serial_numbers(
     found: set[str] = set()
     per_level = min(limit, 100)
 
+    delivered_status_ids = list(
+        session.exec(
+            select(Status.id).where(
+                Status.status_type == "projects",
+                Status.status_name.in_(
+                    [
+                        ProjectWorkflowStatus.COMPLETED.value,
+                        ProjectWorkflowStatus.READY_TO_DELIVER.value,
+                    ]
+                ),
+            )
+        ).all()
+    )
+    if not delivered_status_ids:
+        return []
+
+    delivered_project_ids = select(Project.id).where(
+        Project.status_id.in_(delivered_status_ids)
+    )
+
     def _as_serial(value) -> str | None:
         if value is None:
             return None
         text = str(value).strip()
         return text or None
 
-    def collect_serials(serial_number, original_serial_number) -> None:
+    def collect_serials(serial_number, original_serial_number=None) -> None:
         # Include both when they differ so typeahead finds the SN shown in
         # the project UI (serial_number) and the inventory/original SN.
         for value in (
@@ -652,10 +676,14 @@ def get_serial_numbers(
 
     def collect_rows(rows) -> None:
         for row in rows:
+            # Single-column selects may return bare scalars (str), not Row.
+            if isinstance(row, str):
+                collect_serials(row, None)
+                continue
             # SQLAlchemy Row is sequence-like but not a tuple/list — index it.
             try:
                 serial_number = row[0]
-                original_serial_number = row[1]
+                original_serial_number = row[1] if len(row) > 1 else None
             except (TypeError, IndexError, KeyError):
                 serial_number, original_serial_number = row, None
             collect_serials(serial_number, original_serial_number)
@@ -666,11 +694,32 @@ def get_serial_numbers(
             model.original_serial_number.ilike(pattern),
         )
 
+    # Primary source: verified installs on delivered projects (issuance ledger).
+    # Hierarchy.serial_number is often still empty even after verify.
+    collect_rows(
+        session.exec(
+            select(InventoryIssuance.serial_number)
+            .where(
+                InventoryIssuance.project_id.in_(delivered_project_ids),
+                InventoryIssuance.installed_entity_id.is_not(None),
+                or_(
+                    InventoryIssuance.item_lifecycle_status
+                    == ItemStatus.INSTALLED_VERIFIED.value,
+                    InventoryIssuance.verified_at.is_not(None),
+                ),
+                InventoryIssuance.serial_number.is_not(None),
+                InventoryIssuance.serial_number.ilike(pattern),
+            )
+            .order_by(InventoryIssuance.serial_number)
+            .limit(per_level)
+        ).all()
+    )
+
     collect_rows(
         session.exec(
             select(System.serial_number, System.original_serial_number)
             .where(
-                System.project_id.is_not(None),
+                System.project_id.in_(delivered_project_ids),
                 System.is_current_install == True,  # noqa: E712
                 matches_serial(System),
             )
@@ -684,7 +733,7 @@ def get_serial_numbers(
             select(Subsystem.serial_number, Subsystem.original_serial_number)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                System.project_id.is_not(None),
+                System.project_id.in_(delivered_project_ids),
                 Subsystem.is_current_install == True,  # noqa: E712
                 matches_serial(Subsystem),
             )
@@ -699,7 +748,7 @@ def get_serial_numbers(
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                System.project_id.is_not(None),
+                System.project_id.in_(delivered_project_ids),
                 Module.is_current_install == True,  # noqa: E712
                 matches_serial(Module),
             )
@@ -715,7 +764,7 @@ def get_serial_numbers(
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                System.project_id.is_not(None),
+                System.project_id.in_(delivered_project_ids),
                 Unit.is_current_install == True,  # noqa: E712
                 matches_serial(Unit),
             )
@@ -732,7 +781,7 @@ def get_serial_numbers(
             .join(Subsystem, Module.subsystem_id == Subsystem.id)
             .join(System, Subsystem.system_id == System.id)
             .where(
-                System.project_id.is_not(None),
+                System.project_id.in_(delivered_project_ids),
                 Component.is_current_install == True,  # noqa: E712
                 matches_serial(Component),
             )
