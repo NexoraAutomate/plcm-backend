@@ -98,6 +98,8 @@ def create_maintenance_case(
     payload.project_name = project.name if project else "Undefined"
     data = payload.model_dump()
     data["reported_by"] = data.get("reported_by") or current_user.id
+    # resolved_at is set only when engineers resolve the case
+    data["resolved_at"] = None
     case = MaintenanceCase(case_number=_generate_case_number(session),**data)
     print("-----------------------------------------------------------case Created:---------------------------------------------------------", case)
     session.add(case)
@@ -250,8 +252,13 @@ def update_maintenance_case(
         raise HTTPException(status_code=404, detail="Maintenance case not found")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(case, k, v)
-    if payload.status == CaseStatus.CLOSED and not case.closed_at:
-        case.closed_at = datetime.now(timezone.utc)
+    if payload.status == CaseStatus.RESOLVED and not case.resolved_at:
+        case.resolved_at = datetime.now(timezone.utc)
+    if payload.status == CaseStatus.CLOSED:
+        if not case.closed_at:
+            case.closed_at = datetime.now(timezone.utc)
+        if not case.resolved_at:
+            case.resolved_at = datetime.now(timezone.utc)
     session.add(case)
     from app.services.app_notification_service import notify
 
@@ -900,6 +907,8 @@ def create_maintenance_delivery(
     # Mark case as resolved when re-delivery is dispatched (if not already).
     if case.status not in (CaseStatus.RESOLVED, CaseStatus.CLOSED):
         case.status = CaseStatus.RESOLVED
+        if not case.resolved_at:
+            case.resolved_at = datetime.now(timezone.utc)
         session.add(case)
     session.commit()
     session.refresh(delivery)

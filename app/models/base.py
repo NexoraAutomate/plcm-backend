@@ -1218,7 +1218,7 @@ class MaintenanceCaseCommon(SQLModel):
     entity_type: Optional[str] = None
     part_number: Optional[str] = None
     status_id: Optional[int]= None
-    resolved_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    resolved_at: Optional[datetime] = None
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] =Field(default_factory=lambda: datetime.now(timezone.utc))
 
