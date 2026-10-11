@@ -130,8 +130,8 @@ def test_reserved_and_installing_systems_differ_in_progress():
     assert progress_pct(reserved.progress) != progress_pct(installing.progress)
 
 
-def test_reserved_parent_caps_progress_when_children_are_verified():
-    """System/module/unit/subsystem integration pending must block 100%."""
+def test_reserved_parent_keeps_child_work_share_for_ait():
+    """Verified children credit 80%; parent AIT (Reserved=0.1) adds 2% → 82%."""
     for entity_type, name in (
         ("system", "Antenna Pedestal"),
         ("subsystem", "RF Bay"),
@@ -154,7 +154,8 @@ def test_reserved_parent_caps_progress_when_children_are_verified():
         rollup_progress(parent)
         assert parent.verified_leaves == 2
         assert parent.weight == 2
-        assert progress_pct(parent.progress) == 10
+        # 0.8 * 1.0 + 0.2 * 0.1 = 0.82
+        assert progress_pct(parent.progress) == 82
         assert _subtree_display_status(parent) == ItemStatus.RESERVED.value
 
         # Once the parent itself is verified, rollup may reach 100%.
@@ -162,6 +163,55 @@ def test_reserved_parent_caps_progress_when_children_are_verified():
         rollup_progress(parent)
         assert progress_pct(parent.progress) == 100
         assert _subtree_display_status(parent) == ItemStatus.INSTALLED_VERIFIED.value
+
+
+def test_verified_children_credit_80_percent_before_parent_ait_starts():
+    """Assembled / not-started parent AIT still reflects completed child work."""
+    children = [
+        _leaf("a", ItemStatus.INSTALLED_VERIFIED.value),
+        _leaf("b", ItemStatus.INSTALLED_VERIFIED.value),
+    ]
+    parent = _with_own_coverage(
+        ProgressNode(
+            entity_type="system",
+            entity_id=1,
+            name="Antenna Pedestal",
+            children=children,
+        ),
+        NOT_STARTED_STATUS,
+    )
+    rollup_progress(parent)
+    assert progress_pct(parent.progress) == 80
+
+
+def test_ait_blend_rolls_up_to_flight():
+    """Parent AIT blend weights toward flight / SDLS grandparents."""
+    systems = []
+    for sid in (1, 2):
+        system = _with_own_coverage(
+            ProgressNode(
+                entity_type="system",
+                entity_id=sid,
+                name=f"Antenna-{sid}",
+                children=[
+                    _leaf(f"{sid}-a", ItemStatus.INSTALLED_VERIFIED.value),
+                    _leaf(f"{sid}-b", ItemStatus.INSTALLED_VERIFIED.value),
+                ],
+            ),
+            ItemStatus.RESERVED.value,
+        )
+        systems.append(system)
+    flight = ProgressNode(
+        entity_type="flight",
+        entity_id=1,
+        name="Flight-1",
+        children=systems,
+    )
+    rollup_progress(flight)
+    assert progress_pct(systems[0].progress) == 82
+    assert progress_pct(flight.progress) == 82
+    assert flight.verified_leaves == 4
+    assert flight.weight == 4
 
 
 def test_structural_parent_without_coverage_still_rolls_up_children():

@@ -1185,6 +1185,32 @@ def _lookup_entity_by_serial(session: Session, serial_number: str) -> EntityLook
             ),
         )
 
+    # Maintenance cases are only for hardware already shipped (COMPLETED projects).
+    from app.domain.workflow_status import ProjectWorkflowStatus
+    from app.models.tables import Status
+
+    project = session.get(Project, project_id)
+    completed_status_ids = set(
+        session.exec(
+            select(Status.id).where(
+                Status.status_type == "projects",
+                Status.status_name == ProjectWorkflowStatus.COMPLETED.value,
+            )
+        ).all()
+    )
+    if (
+        project is None
+        or project.status_id is None
+        or project.status_id not in completed_status_ids
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Serial number '{serial_number}' belongs to a project that is not completed. "
+                "Maintenance cases can only be opened for hardware already shipped to the customer."
+            ),
+        )
+
     return EntityLookupRead(
         matched_entity_type=matched_type,
         matched_entity_id=matched_id,

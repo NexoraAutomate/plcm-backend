@@ -7,8 +7,10 @@ implementation policy (Reserved … Installed Verified). Fail/open defects never
 count as Installed Verified.
 
 When a parent has its own inventory coverage (reservation / issuance / assemble
-shell), its lifecycle stage caps the rolled-up children average so system /
-module / unit / subsystem integration cannot show 100% while still pending.
+shell), children contribute the bulk of the work (design / develop / test) and
+the parent's remaining share is Assembly–Integration–Test (AIT). Verified
+children therefore credit most of the parent %, while unfinished parent AIT
+blocks 100% and rolls up honestly to SDLS / flight.
 """
 
 from __future__ import annotations
@@ -27,6 +29,10 @@ STAGE_COMPLETION_FRACTION: dict[str, float] = {
     ItemStatus.UNDER_TESTING_REVIEW.value: 0.75,
     ItemStatus.INSTALLED_VERIFIED.value: 1.0,
 }
+
+# Parents with own coverage: majority of effort is in children; remainder is AIT.
+PARENT_CHILDREN_WORK_SHARE = 0.8
+PARENT_AIT_WORK_SHARE = 1.0 - PARENT_CHILDREN_WORK_SHARE
 
 # Human / plan aliases that may appear on instances or UI labels.
 STAGE_STATUS_ALIASES: dict[str, str] = {
@@ -169,15 +175,18 @@ def rollup_progress(node: ProgressNode, parent_path: str = "") -> ProgressNode:
         [(child.progress, float(child.weight)) for child in node.children]
     )
     node.verified_leaves = sum(child.verified_leaves for child in node.children)
-    # Own inventory coverage (e.g. Antenna Pedestal still Reserved after its
-    # subsystems verified) caps progress so parents cannot report 100% while
-    # their integration stage is incomplete. Structural containers without
-    # coverage continue to roll up children only.
+    # Own coverage (system / subsystem / module / unit AIT): credit most work
+    # from children, keep a residual share for the parent's own lifecycle so
+    # e.g. verified children + Reserved parent ≈ 82% (not 10% and not 100%).
+    # Structural containers without coverage roll up children only.
     if node_has_own_coverage(node):
         parent_fraction = stage_fraction(
             node.status, defect_pending=node.defect_pending
         )
-        node.progress = min(children_progress, parent_fraction)
+        node.progress = (
+            PARENT_CHILDREN_WORK_SHARE * children_progress
+            + PARENT_AIT_WORK_SHARE * parent_fraction
+        )
     else:
         node.progress = children_progress
     return node
