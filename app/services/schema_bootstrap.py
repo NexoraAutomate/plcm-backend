@@ -195,6 +195,17 @@ HIERARCHY_INVENTORY_SOURCE_DDL = [
     ("inventory_source", "VARCHAR(32)"),
 ]
 
+# Spec inventory cost columns (alembic e6f7a8b9c0 / f7a8b9c0d1) for skip-Alembic deploys.
+INVENTORY_COST_COLUMN_DDL = [
+    ("default_unit_cost", "NUMERIC(18, 2)"),
+    ("currency", "VARCHAR(8) DEFAULT 'PKR' NOT NULL"),
+    ("bulk_quote_cost", "NUMERIC(18, 2)"),
+]
+
+INVENTORY_INSTANCE_COST_COLUMN_DDL = [
+    ("unit_cost", "NUMERIC(18, 2)"),
+]
+
 HIERARCHY_OEM_NAME_DDL = [
     ("oem_name", "VARCHAR"),
 ]
@@ -630,6 +641,8 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing('"user"', USER_COLUMN_DDL)
     _add_columns_if_missing("status", STATUS_COLUMN_DDL)
     _add_columns_if_missing("project", PROJECT_COLUMN_DDL)
+    _add_columns_if_missing("inventory", INVENTORY_COST_COLUMN_DDL)
+    _add_columns_if_missing("inventoryinstance", INVENTORY_INSTANCE_COST_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
     _add_columns_if_missing(
         "securitysettings",

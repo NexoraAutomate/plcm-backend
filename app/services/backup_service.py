@@ -47,7 +47,12 @@ class BackupError(Exception):
 
 def _parse_database_url(url: str) -> dict[str, Any]:
     parsed = urlparse(url)
-    if parsed.scheme not in {"postgresql", "postgres", "postgresql+psycopg2"}:
+    if parsed.scheme not in {
+        "postgresql",
+        "postgres",
+        "postgresql+psycopg",
+        "postgresql+psycopg2",
+    }:
         raise BackupError("DATABASE_URL must be a PostgreSQL connection string.")
     if not parsed.hostname or not parsed.path or parsed.path == "/":
         raise BackupError("DATABASE_URL is missing host or database name.")

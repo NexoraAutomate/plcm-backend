@@ -6,7 +6,7 @@ passlib[bcrypt]
 python-multipart
 pydantic-settings
 pyjwt
-psycopg2-binary
+psycopg[binary]
 python-dotenv
 alembic
 pwdlib[argon2]
