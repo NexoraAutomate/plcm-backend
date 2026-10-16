@@ -45,6 +45,20 @@ def get_database_timezone() -> Any:
     return timezone.utc
 
 
+def ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """
+    Ensure a datetime is timezone-aware UTC for TIMESTAMP WITH TIME ZONE binds.
+
+    Naive values (e.g. date-only API payloads like ``2026-10-16T00:00:00``) are
+    treated as UTC wall-clock. Aware values are converted to UTC.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def to_api_utc(value: Optional[datetime]) -> Optional[datetime]:
     """Convert DB/Python datetimes to UTC-aware values for JSON."""
     if value is None:

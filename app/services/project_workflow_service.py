@@ -27,6 +27,7 @@ from app.services.update_entity import update_entity_status
 from app.config.entities import ENTITY_CONFIG
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.services.workflow_audit_service import write_workflow_audit
+from app.utils.datetimes import ensure_utc
 
 
 class ProjectWorkflowError(ValueError):
@@ -454,7 +455,8 @@ def create_draft_project(
             raise ProjectWorkflowError("assigned_hm_id user not found")
 
     owner_id = int(payload.get("owner_id") or assigned_hm_id)
-    start_date = payload.get("start_date") or _now()
+    start_date = ensure_utc(payload.get("start_date")) or _now()
+    end_date = ensure_utc(payload.get("end_date"))
     order_id = payload.get("order_id")
     if order_id in (0, "", None):
         order_id = None
@@ -465,7 +467,7 @@ def create_draft_project(
         name=name,
         description=payload.get("description"),
         start_date=start_date,
-        end_date=payload.get("end_date"),
+        end_date=end_date,
         owner_id=owner_id,
         order_id=order_id,
         status_id=draft_status_id,

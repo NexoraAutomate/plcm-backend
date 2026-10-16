@@ -30,6 +30,7 @@ from app.services.project_progress_service import (
     status_is_completion_target,
     sync_project_progress,
 )
+from app.utils.datetimes import ensure_utc
 
 entity_config = ENTITY_CONFIG.get("project")
 
@@ -757,6 +758,8 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     for k, v in update_data.items():
+        if k in ("start_date", "end_date"):
+            v = ensure_utc(v)
         setattr(db_project, k, v)
     session.add(db_project)
     session.flush()

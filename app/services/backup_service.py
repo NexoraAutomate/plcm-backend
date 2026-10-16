@@ -125,12 +125,17 @@ def _candidate_binary_paths(name: str) -> list[Path]:
 def _require_binary(name: str) -> str:
     seen: set[str] = set()
     for candidate in _candidate_binary_paths(name):
-        resolved = str(candidate)
-        if resolved in seen:
+        # Use absolute() — not resolve() — so Debian/Ubuntu pg_dump symlinks to
+        # postgresql-common/pg_wrapper keep their basename. resolve() follows the
+        # link; invoking pg_wrapper by its real path then fails with
+        # "You must install at least one postgresql-client-<version> package".
+        path = candidate if candidate.is_absolute() else candidate.absolute()
+        key = str(path)
+        if key in seen:
             continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return str(candidate.resolve())
+        seen.add(key)
+        if path.is_file():
+            return key
 
     raise BackupError(
         f"Required tool '{name}' was not found. "
