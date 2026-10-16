@@ -1,6 +1,6 @@
 @echo off
 title PLCM System - Start (Offline)
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 
 set "COMPOSE_FILE=docker-compose.prod.yml"
@@ -37,20 +37,32 @@ if not exist ".env" (
     )
 )
 
-if not exist "%IMAGE_TAR%" (
-    echo ERROR: Image archive not found: %IMAGE_TAR%
-    echo Place satlife-complete.tar under the images\ folder.
-    pause
-    exit /b 1
-)
-
 echo.
-echo Loading Docker images from %IMAGE_TAR% ...
-docker load -i "%IMAGE_TAR%"
-if errorlevel 1 (
-    echo ERROR: Failed to load Docker images.
-    pause
-    exit /b 1
+echo Checking for loaded images...
+set "NEED_LOAD=0"
+docker image inspect satlife-db:latest >nul 2>&1
+if errorlevel 1 set "NEED_LOAD=1"
+docker image inspect satlife-backend:latest >nul 2>&1
+if errorlevel 1 set "NEED_LOAD=1"
+docker image inspect satlife-frontend:latest >nul 2>&1
+if errorlevel 1 set "NEED_LOAD=1"
+
+if "!NEED_LOAD!"=="1" (
+    if not exist "%IMAGE_TAR%" (
+        echo ERROR: Required images are not loaded and archive not found: %IMAGE_TAR%
+        echo Place satlife-complete.tar under the images\ folder.
+        pause
+        exit /b 1
+    )
+    echo Images missing — loading from %IMAGE_TAR% ...
+    docker load -i "%IMAGE_TAR%"
+    if errorlevel 1 (
+        echo ERROR: Failed to load Docker images.
+        pause
+        exit /b 1
+    )
+) else (
+    echo Images already loaded — skipping docker load.
 )
 
 echo.

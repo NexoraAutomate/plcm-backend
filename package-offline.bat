@@ -195,7 +195,7 @@ echo   export-db-volume.bat   Snapshot satlife_pgdata into backups\
 echo   import-db-volume.bat   Restore latest ^(or given^) backup into the volume
 echo.
 echo Notes:
-echo   - start.bat loads images then runs compose with --pull never
+echo   - start.bat loads images only if missing, then runs compose with --pull never
 echo   - Backend applies Alembic migrations automatically on every start
 echo   - No source code or /db folder is required on the client
 echo   - To update later: replace images\%TAR_NAME% and run update.bat

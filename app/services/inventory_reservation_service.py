@@ -5,6 +5,7 @@ Spec 04 — reserve AVAILABLE inventory against Flight → SDLS → hierarchy no
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, NoReturn, Optional
 
@@ -60,6 +61,16 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return default
+
+
+def _serial_sort_key(serial: str) -> tuple:
+    """Natural ascending key so SR-001 < SR-002 < SR-010 after release/reuse."""
+    parts = re.split(r"(\d+)", serial.casefold())
+    return tuple(int(p) if p.isdigit() else p for p in parts)
+
+
+def _sorted_serial_numbers(serials: list[str]) -> list[str]:
+    return sorted((s for s in serials if s), key=_serial_sort_key)
 
 
 def reservation_idle_days() -> int:
@@ -766,7 +777,9 @@ def check_availability(
         "inventory_id": inventory.id,
         "inventory_name": inventory.name,
         "part_number": inventory.part_number,
-        "serial_numbers": [i.serial_number for i in free_instances if i.serial_number],
+        "serial_numbers": _sorted_serial_numbers(
+            [i.serial_number for i in free_instances if i.serial_number]
+        ),
         "flight_id": flight.id,
         "sdls_id": sdls.id,
         "system_id": system.id,
@@ -1376,7 +1389,7 @@ def _plan_row_for_entity(
             session, entity_type, eid
         )
 
-    serials = list(avail.get("serial_numbers") or [])
+    serials = _sorted_serial_numbers(list(avail.get("serial_numbers") or []))
     assignment = _plan_assignment_fields(
         session,
         entity_type=entity_type,
