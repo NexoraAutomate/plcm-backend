@@ -18,6 +18,7 @@ from app.domain.hierarchy_config import (
     HierarchyConfigLevel,
     InventorySource,
     normalize_inventory_source,
+    requires_children_source,
 )
 from app.models.tables import (
     Hierarchy,
@@ -137,15 +138,6 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
             children_of.setdefault(str(parent_key).strip(), []).append(node)
 
     for index, node in enumerate(nodes):
-        client_key = str(node.get("client_key") or f"n{index}").strip()
-        has_children = bool(children_of.get(client_key))
-        level = str(node.get("level", "")).strip().lower()
-        if has_children and level != HierarchyConfigLevel.COMPONENT.value:
-            node["inventory_source"] = InventorySource.BUILD_FROM_CHILDREN.value
-        else:
-            node["inventory_source"] = InventorySource.TURNKEY.value
-
-    for index, node in enumerate(nodes):
         try:
             source = normalize_inventory_source(node.get("inventory_source"))
         except ValueError as exc:
@@ -153,12 +145,17 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
         node["inventory_source"] = source
         client_key = str(node.get("client_key") or f"n{index}").strip()
         has_children = bool(children_of.get(client_key))
-        if (
-            source == InventorySource.BUILD_FROM_CHILDREN.value
-            and not has_children
+        level = str(node.get("level", "")).strip().lower()
+        if requires_children_source(source) and (
+            not has_children or level == HierarchyConfigLevel.COMPONENT.value
         ):
+            label = (
+                "group"
+                if source == InventorySource.GROUP.value
+                else "build-from-children"
+            )
             raise HierarchyConfigError(
-                f"Node[{index}] ({node.get('name')}) cannot be build-from-children "
+                f"Node[{index}] ({node.get('name')}) cannot be {label} "
                 "because it has no child nodes"
             )
 

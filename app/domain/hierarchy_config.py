@@ -82,10 +82,11 @@ DEFAULT_PRODUCT_TYPE_DEFS: list[dict[str, str]] = [
 ]
 
 class InventorySource(str, Enum):
-    """How a configuration node becomes inventory."""
+    """How a configuration node becomes inventory (or a logical group)."""
 
     TURNKEY = "turnkey"
     BUILD_FROM_CHILDREN = "build_from_children"
+    GROUP = "group"
 
 
 _INVENTORY_SOURCE_ALIASES = {
@@ -93,6 +94,8 @@ _INVENTORY_SOURCE_ALIASES = {
     "procured": InventorySource.TURNKEY.value,
     "build_from_children": InventorySource.BUILD_FROM_CHILDREN.value,
     "build": InventorySource.BUILD_FROM_CHILDREN.value,
+    "group": InventorySource.GROUP.value,
+    "logical_group": InventorySource.GROUP.value,
 }
 
 
@@ -117,6 +120,25 @@ def is_build_from_children(value: Any) -> bool:
         )
     except ValueError:
         return False
+
+
+def is_group(value: Any) -> bool:
+    try:
+        return normalize_inventory_source(value) == InventorySource.GROUP.value
+    except ValueError:
+        return False
+
+
+def requires_children_source(value: Any) -> bool:
+    """True when the source is only valid on nodes that have children."""
+    try:
+        source = normalize_inventory_source(value)
+    except ValueError:
+        return False
+    return source in (
+        InventorySource.BUILD_FROM_CHILDREN.value,
+        InventorySource.GROUP.value,
+    )
 
 
 CONFIG_RULE_NOTES_DEFAULT = (

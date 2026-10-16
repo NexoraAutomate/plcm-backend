@@ -318,3 +318,52 @@ def test_build_from_children_rejected_on_leaf(session: Session, catalog):
                 }
             ],
         )
+
+
+def test_group_rejected_on_leaf(session: Session, catalog):
+    with pytest.raises(HierarchyConfigError, match="group"):
+        _validate_nodes(
+            session,
+            [
+                {
+                    "client_key": "s1",
+                    "level": "system",
+                    "name": "Comm",
+                    "inventory_source": "group",
+                }
+            ],
+        )
+
+
+def test_group_source_round_trip(session: Session, unique_code: str, catalog):
+    _cleanup(session, unique_code)
+    try:
+        cfg = create_configuration(
+            session,
+            {
+                "code": unique_code,
+                "name": f"Group {unique_code}",
+                "product_types": [{"code": "SSDLS-1", "name": "HDR"}],
+                "nodes": [
+                    {
+                        "client_key": "s1",
+                        "level": "system",
+                        "name": "Motor Module",
+                        "inventory_source": "group",
+                    },
+                    {
+                        "client_key": "ss1",
+                        "parent_client_key": "s1",
+                        "level": "subsystem",
+                        "name": "Azimuth",
+                        "inventory_source": "turnkey",
+                    },
+                ],
+            },
+        )
+        payload = configuration_to_dict(cfg)
+        by_name = {n["name"]: n["inventory_source"] for n in payload["nodes"]}
+        assert by_name["Motor Module"] == InventorySource.GROUP.value
+        assert by_name["Azimuth"] == InventorySource.TURNKEY.value
+    finally:
+        _cleanup(session, unique_code)

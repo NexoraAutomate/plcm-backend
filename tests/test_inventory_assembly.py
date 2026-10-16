@@ -349,20 +349,26 @@ def _complete_serialized_child(
     return inv
 
 
-def test_turnkey_parent_with_children_waits_and_assembles(
+def test_build_parent_with_children_waits_and_assembles(
     session: Session, admin_user: User, developer_user: User
 ):
-    """Parents with runtime children are BUILD even when config says turnkey."""
+    """BUILD parents wait for children, then auto-assemble inventory."""
     project, cfg = _ready_project(
         session,
         admin_user,
         _nodes(
-            {"client_key": "s1", "level": "system", "name": "Comm"},
+            {
+                "client_key": "s1",
+                "level": "system",
+                "name": "Comm",
+                "inventory_source": InventorySource.BUILD_FROM_CHILDREN.value,
+            },
             {
                 "client_key": "ss1",
                 "parent_client_key": "s1",
                 "level": "subsystem",
                 "name": "RF",
+                "inventory_source": InventorySource.TURNKEY.value,
             },
         ),
     )
@@ -378,6 +384,7 @@ def test_turnkey_parent_with_children_waits_and_assembles(
             and row["target_entity_id"] == int(system.id)
         )
         assert system_row["status"] == "assemble"
+        assert system_row["inventory_source"] == InventorySource.BUILD_FROM_CHILDREN.value
 
         inventories.append(
             _complete_serialized_child(
@@ -394,6 +401,90 @@ def test_turnkey_parent_with_children_waits_and_assembles(
         assert get_assembled_inventory(session, "system", int(system.id)) is not None
         session.refresh(system)
         assert system.inventory_source == InventorySource.BUILD_FROM_CHILDREN.value
+    finally:
+        _cleanup(session, project, cfg, inventories)
+
+
+def test_group_parent_verifies_without_inventory(
+    session: Session, admin_user: User, developer_user: User
+):
+    """GROUP parents become install-verified when children are verified — no inventory."""
+    from app.services.hierarchy_developer_service import assignment_status_map
+
+    project, cfg = _ready_project(
+        session,
+        admin_user,
+        _nodes(
+            {
+                "client_key": "s1",
+                "level": "system",
+                "name": "Motor Module",
+                "inventory_source": InventorySource.GROUP.value,
+            },
+            {
+                "client_key": "ss1",
+                "parent_client_key": "s1",
+                "level": "subsystem",
+                "name": "Azimuth",
+                "inventory_source": InventorySource.TURNKEY.value,
+            },
+            {
+                "client_key": "ss2",
+                "parent_client_key": "s1",
+                "level": "subsystem",
+                "name": "Elevation",
+                "inventory_source": InventorySource.TURNKEY.value,
+            },
+        ),
+    )
+    inventories: list[Inventory] = []
+    try:
+        system = _first_system(session, project)
+        assert system.inventory_source == InventorySource.GROUP.value
+        children = list(system.subsystems or [])
+        assert len(children) == 2
+
+        plan = build_reservation_plan(session, int(project.id))
+        system_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "system"
+            and row["target_entity_id"] == int(system.id)
+        )
+        assert system_row["status"] == "group"
+        assert system_row["inventory_source"] == InventorySource.GROUP.value
+
+        for child in children:
+            inventories.append(
+                _complete_serialized_child(
+                    session,
+                    admin=admin_user,
+                    developer=developer_user,
+                    project=project,
+                    entity_type="subsystem",
+                    entity_id=int(child.id),
+                    name=str(child.name),
+                    serial=f"SN-G-{uuid.uuid4().hex[:6]}",
+                )
+            )
+
+        assert get_assembled_inventory(session, "system", int(system.id)) is None
+
+        plan = build_reservation_plan(session, int(project.id))
+        system_row = next(
+            row
+            for row in plan["items"]
+            if row["target_entity_type"] == "system"
+            and row["target_entity_id"] == int(system.id)
+        )
+        assert system_row["status"] == "verified"
+        assert system_row["item_status"] == ItemStatus.INSTALLED_VERIFIED.value
+
+        status = assignment_status_map(session, "system", [int(system.id)])[
+            int(system.id)
+        ]
+        assert status["verified"] is True
+        assert status["item_status"] == ItemStatus.INSTALLED_VERIFIED.value
     finally:
         _cleanup(session, project, cfg, inventories)
 

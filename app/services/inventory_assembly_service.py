@@ -14,7 +14,7 @@ from typing import Any, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, func, select
 
-from app.domain.hierarchy_config import is_build_from_children
+from app.domain.hierarchy_config import is_build_from_children, is_group
 from app.domain.workflow_audit import WorkflowAuditAction
 from app.domain.workflow_status import ItemStatus
 from app.models.base import IssuanceStatus
@@ -183,6 +183,9 @@ def child_is_complete(session: Session, entity_type: str, entity: Any) -> bool:
         return (
             get_assembled_inventory(session, entity_type, int(entity.id)) is not None
         )
+    if is_group(source):
+        # Groups complete when every child is complete — no inventory row.
+        return _all_children_complete(session, entity_type, entity)
     return _has_verified_issuance(session, entity_type, int(entity.id))
 
 
@@ -441,7 +444,7 @@ def evaluate_parent_assembly(
     actor: User,
     _depth: int = 0,
 ) -> list[AssembledInventory]:
-    """If the child's parent is BUILD and all siblings are complete, assemble it."""
+    """After a child completes, evaluate BUILD assembly or GROUP completion upward."""
     if _depth > MAX_ASSEMBLY_DEPTH:
         return []
     parent_info = _immediate_parent(session, child_entity_type, int(child_entity_id))
@@ -458,6 +461,21 @@ def evaluate_parent_assembly(
         )
     else:
         parent_source = getattr(parent, "inventory_source", None)
+
+    # Logical groups: no inventory. When all children are complete, continue
+    # upward so a BUILD grandparent can assemble (or another GROUP can complete).
+    if is_group(parent_source):
+        parent = _lock_entity(session, parent_type, int(parent.id))
+        if not _all_children_complete(session, parent_type, parent):
+            return []
+        return evaluate_parent_assembly(
+            session,
+            parent_type,
+            int(parent.id),
+            actor=actor,
+            _depth=_depth + 1,
+        )
+
     if not is_build_from_children(parent_source):
         return []
 

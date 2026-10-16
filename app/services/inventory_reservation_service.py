@@ -16,6 +16,7 @@ from app.domain.workflow_status import ItemStatus, ProjectWorkflowStatus
 from app.domain.hierarchy_config import (
     InventorySource,
     is_build_from_children,
+    is_group,
     normalize_inventory_source,
 )
 from app.models.base import (
@@ -307,33 +308,14 @@ def effective_inventory_source(
     heal: bool = True,
 ) -> str:
     """
-    Resolve TURNKEY vs BUILD for a hierarchy shell.
+    Resolve TURNKEY / BUILD / GROUP for a hierarchy shell.
 
-    Priority: runtime children (structural parent) → entity snapshot →
-    project config template (level+name) → turnkey.
-    Parents with generated child shells are always BUILD regardless of stale
-    turnkey flags or warehouse stock.
+    Priority: entity snapshot → project config template (level+name) →
+    legacy fallback (structural parents with no explicit source → BUILD,
+    otherwise TURNKEY).
     """
     et = entity_type.strip().lower()
     eid = getattr(entity, "id", None)
-    if eid is not None:
-        from app.services.inventory_assembly_service import _direct_children
-
-        if _direct_children(session, et, int(eid)):
-            resolved = InventorySource.BUILD_FROM_CHILDREN.value
-            if heal and hasattr(entity, "inventory_source"):
-                current = getattr(entity, "inventory_source", None)
-                try:
-                    current_norm = (
-                        normalize_inventory_source(current) if current else None
-                    )
-                except ValueError:
-                    current_norm = None
-                if current_norm != resolved:
-                    entity.inventory_source = resolved
-                    session.add(entity)
-                    session.flush()
-            return resolved
 
     raw = getattr(entity, "inventory_source", None)
     if raw is not None and str(raw).strip():
@@ -348,7 +330,15 @@ def effective_inventory_source(
         entity_type=entity_type,
         entity_name=str(getattr(entity, "name", "") or ""),
     )
-    resolved = from_config or InventorySource.TURNKEY.value
+    if from_config:
+        resolved = from_config
+    else:
+        from app.services.inventory_assembly_service import _direct_children
+
+        if eid is not None and _direct_children(session, et, int(eid)):
+            resolved = InventorySource.BUILD_FROM_CHILDREN.value
+        else:
+            resolved = InventorySource.TURNKEY.value
 
     if heal and hasattr(entity, "inventory_source"):
         current = getattr(entity, "inventory_source", None)
@@ -758,6 +748,34 @@ def check_availability(
             "inventory_source": source,
         }
 
+    if is_group(source):
+        from app.services.inventory_assembly_service import _all_children_complete
+
+        complete = _all_children_complete(session, et, entity)
+        return {
+            "available": False,
+            "reason": (
+                "Group complete — all children are install verified"
+                if complete
+                else (
+                    "Logical group — becomes install verified when all child "
+                    "items are install verified (no inventory item is created)"
+                )
+            ),
+            "assemble": False,
+            "group": True,
+            "plan_status": "verified" if complete else "group",
+            "item_status": ItemStatus.INSTALLED_VERIFIED.value if complete else None,
+            "free_quantity": 0,
+            "inventory_id": None,
+            "inventory_name": None,
+            "part_number": None,
+            "flight_id": flight.id,
+            "sdls_id": sdls.id,
+            "system_id": system.id,
+            "inventory_source": source,
+        }
+
     inventory = resolve_inventory_for_entity(
         session, entity_type=et, entity=entity, part_number=part_number
     )
@@ -860,6 +878,11 @@ def reserve_inventory(
         entity_type=et,
         project_id=project_id,
     )
+    if is_group(source):
+        raise InventoryReservationError(
+            "This hierarchy node is configured as a logical group and "
+            "cannot be reserved from inventory"
+        )
     if is_build_from_children(source) and not allow_assembled:
         raise InventoryReservationError(
             "This hierarchy node is configured as build-from-children and "
@@ -1377,6 +1400,8 @@ def _plan_row_for_entity(
         status_code = "reserved"
     elif avail.get("assemble"):
         status_code = "assemble"
+    elif avail.get("group"):
+        status_code = "group"
     elif avail.get("available"):
         status_code = "available"
     else:
@@ -1384,7 +1409,7 @@ def _plan_row_for_entity(
 
     children_total: Optional[int] = None
     children_complete: Optional[int] = None
-    if status_code == "assemble":
+    if status_code in ("assemble", "group"):
         children_total, children_complete = _assemble_children_progress(
             session, entity_type, eid
         )
@@ -1596,6 +1621,7 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
     short = sum(1 for row in items if row["status"] == "short")
     reserved = sum(1 for row in items if row["status"] == "reserved")
     assemble = sum(1 for row in items if row["status"] == "assemble")
+    group = sum(1 for row in items if row["status"] == "group")
     return {
         "project_id": project_id,
         "project_status": project_status_name(project),
@@ -1604,5 +1630,6 @@ def build_reservation_plan(session: Session, project_id: int) -> dict[str, Any]:
         "short_count": short,
         "reserved_count": reserved,
         "assemble_count": assemble,
+        "group_count": group,
         "items": items,
     }

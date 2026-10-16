@@ -660,10 +660,10 @@ def test_build_node_null_source_healed_from_config(
         _cleanup(session, project, cfg, inv)
 
 
-def test_parent_with_children_shows_assemble_despite_turnkey_config(
+def test_turnkey_parent_with_children_can_match_warehouse_stock(
     session: Session, admin_user: User
 ):
-    """System/subsystem/module with runtime children must not match warehouse stock."""
+    """Explicit TURNKEY parents keep stock matching even when they have children."""
     sys_name = f"Parent-{uuid.uuid4().hex[:6]}"
     sub_name = "RF"
     project, cfg = _ready_build_project(
@@ -685,8 +685,8 @@ def test_parent_with_children_shows_assemble_despite_turnkey_config(
             for row in plan["items"]
             if row["target_entity_type"] == "system"
         )
-        assert system_row["status"] == "assemble"
-        assert system_row["inventory_source"] == InventorySource.BUILD_FROM_CHILDREN.value
+        assert system_row["status"] == "available"
+        assert system_row["inventory_source"] == InventorySource.TURNKEY.value
     finally:
         _cleanup(session, project, cfg, inv)
 

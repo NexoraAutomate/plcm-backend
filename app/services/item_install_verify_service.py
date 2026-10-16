@@ -281,16 +281,45 @@ def install_progress_payload(
     rework = rework_progress_fields(session, entity_type, entity_id)
     empty_rejections: list[dict[str, Any]] = []
     if row is None:
-        from app.services.inventory_assembly_service import get_assembled_inventory
+        from app.domain.hierarchy_config import is_group
+        from app.services.inventory_assembly_service import (
+            _all_children_complete,
+            get_assembled_inventory,
+        )
         from app.services.inventory_reservation_service import (
             active_reservation_for_entity,
+            effective_inventory_source,
+        )
+        from app.services.hierarchy_developer_service import (
+            _load_entity,
+            _project_id_for_entity,
         )
 
         assembled = get_assembled_inventory(session, et, int(entity_id))
         reservation = active_reservation_for_entity(session, et, int(entity_id))
         item_status = None
+        verified = False
         if assembled is not None and reservation is not None:
             item_status = ItemStatus.RESERVED.value
+        else:
+            try:
+                entity = _load_entity(session, et, int(entity_id))
+                project_id = _project_id_for_entity(session, et, entity)
+                if project_id is not None:
+                    source = effective_inventory_source(
+                        session,
+                        entity=entity,
+                        entity_type=et,
+                        project_id=int(project_id),
+                        heal=False,
+                    )
+                    if is_group(source) and _all_children_complete(
+                        session, et, entity
+                    ):
+                        item_status = ItemStatus.INSTALLED_VERIFIED.value
+                        verified = True
+            except Exception:
+                pass
         return {
             "issuance_id": None,
             "item_status": item_status,
@@ -298,7 +327,7 @@ def install_progress_payload(
             "complete_reported": False,
             "complete_reported_at": None,
             "defect_pending": bool(rework.get("rework_id")),
-            "verified": False,
+            "verified": verified,
             "verified_at": None,
             "installed_at": None,
             "can_install": False,
