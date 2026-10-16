@@ -158,12 +158,29 @@ def inventory_stock_where(stock: Optional[str]) -> Any:
     return None
 
 
+def inventory_source_where(inventory_source: Optional[str]) -> Any:
+    """Filter catalog rows by Turnkey (procured) vs Build (auto-assembled)."""
+    from app.models.tables import AssembledInventory, Inventory
+
+    raw = (inventory_source or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw or raw == "all":
+        return None
+
+    assembled_ids = select(AssembledInventory.inventory_id).distinct()
+    if raw in ("build", "build_from_children"):
+        return Inventory.id.in_(assembled_ids)
+    if raw in ("turnkey", "procured"):
+        return ~Inventory.id.in_(assembled_ids)
+    return None
+
+
 def inventory_list_where(
     *,
     scope: Any = None,
     inventory_type: Optional[str] = None,
     search: Optional[str] = None,
     stock: Optional[str] = None,
+    inventory_source: Optional[str] = None,
 ) -> Any:
     type_filter = None
     if inventory_type:
@@ -175,6 +192,7 @@ def inventory_list_where(
         type_filter,
         inventory_search_where(search),
         inventory_stock_where(stock),
+        inventory_source_where(inventory_source),
     )
 
 

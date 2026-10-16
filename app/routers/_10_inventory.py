@@ -633,6 +633,9 @@ def list_inventory(
     inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
     search: Optional[str] = Query(None),
     stock: Optional[str] = Query(None, description="available | reserved | out_of_stock"),
+    inventory_source: Optional[str] = Query(
+        None, description="turnkey | build (build_from_children)"
+    ),
     sort_by: str | None = None,
     sort_order: str | None = None,
     session: Session = Depends(get_session),
@@ -643,6 +646,7 @@ def list_inventory(
         inventory_type=inventory_type,
         search=search,
         stock=stock,
+        inventory_source=inventory_source,
     )
     items = paginated_query(
         session,
@@ -680,6 +684,9 @@ def list_inventory_ids(
     inventory_type: str = Query(None, description="Filter by inventory type (system, subsystem, module, unit, component)"),
     search: Optional[str] = Query(None),
     stock: Optional[str] = Query(None, description="available | reserved | out_of_stock"),
+    inventory_source: Optional[str] = Query(
+        None, description="turnkey | build (build_from_children)"
+    ),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
@@ -689,6 +696,7 @@ def list_inventory_ids(
         inventory_type=inventory_type,
         search=search,
         stock=stock,
+        inventory_source=inventory_source,
     )
     stmt = select(Inventory.id)
     if where is not None:
