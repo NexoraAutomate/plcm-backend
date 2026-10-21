@@ -1,0 +1,761 @@
+<mxfile host="app.diagrams.net" agent="PLCM-Maintenance-Workflow" version="22.1.0" type="device" pages="6">
+  <diagram id="page-overview" name="01 Overview">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Product Maintenance Lifecycle — Faulty Item Return, Repair &amp; Acceptance" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="200" y="20" width="1400" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Generic process for any product / system / Line-Replaceable Unit (LRU). Derived from controlled RMA → quarantine → diagnose → repair/replace → verify → release practices." style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#4a5568;" vertex="1" parent="1">
+          <mxGeometry x="200" y="56" width="1400" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="roles" value="Roles: Receiving / Stores &amp;nbsp;|&amp;nbsp; Repair Coordinator &amp;nbsp;|&amp;nbsp; Technician / Diagnostician &amp;nbsp;|&amp;nbsp; Repair Authority &amp;nbsp;|&amp;nbsp; QA / Independent Tester &amp;nbsp;|&amp;nbsp; Configuration / Logistics Owner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;fontColor=#2d3748;" vertex="1" parent="1">
+          <mxGeometry x="120" y="95" width="1560" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- Summary chevron -->
+        <mxCell id="ch0" value="Receive" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="140" y="150" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ch1" value="Inspect" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="290" y="150" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ch2" value="Diagnose" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="150" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ch3" value="Repair / Replace" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="590" y="150" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ch4" value="Test" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="770" y="150" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ch5" value="Dispatch" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="920" y="150" width="140" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="values" value="Core values: Reliability · Traceability · Customer Support · Right Process · Right Tools · Right People" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;fontColor=#2c5282;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="150" width="560" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- Master 12-step flow title -->
+        <mxCell id="mTitle" value="Master End-to-End Flow (12 steps) — decision gates must not be bypassed" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=14;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="80" y="220" width="700" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Row 1: steps 1-6 -->
+        <mxCell id="s1" value="1. Field Return / RMA&#xa;&#xa;Fault report · S/N · config&#xa;symptom · conditions · accessories" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="60" y="260" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="2. Receipt &amp; Quarantine&#xa;&#xa;Verify identity/paperwork&#xa;Photograph · assign WO&#xa;ESD / safety controls" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="320" y="260" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="3. Incoming Inspection&#xa;&#xa;Damage · tampering · corrosion&#xa;Missing parts · seals · connectors&#xa;As-received condition record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="580" y="260" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="4. Accepted for&#xa;Diagnosis?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="255" width="150" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="5. Triage &amp; Fault&#xa;Reproduction&#xa;&#xa;History · confirm symptom&#xa;Classify system/LRU&#xa;Safe power-up check" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="260" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="6. Diagnosis &amp;&#xa;Root-Cause Analysis&#xa;&#xa;Approved tests · isolate&#xa;module/board/cable/SW&#xa;Capture evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1350" y="260" width="200" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e34" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s3" target="d4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e45" value="YES" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d4" target="s5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e56" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s5" target="s6"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Hold path from d4 -->
+        <mxCell id="hold" value="HOLD / Escalation&#xa;&#xa;Missing data · safety risk&#xa;Transit damage claim&#xa;Warranty / customer decision&#xa;Return unrepaired" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="840" y="400" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="e4h" value="NO" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d4" target="hold"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Row 2: steps 7-12 -->
+        <mxCell id="d7" value="7. Repair&#xa;Authorized /&#xa;Economic?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="150" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s8" value="8. Repair / Replacement&#xa;&#xa;Approved parts &amp; workmanship&#xa;Record P/N · S/N · rev · FW&#xa;Repair actions logged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="280" y="565" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="s9" value="9. Post-Repair Verification&#xa;&#xa;Repeat failed test first&#xa;Full applicable LRU test&#xa;Independent check if required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="540" y="565" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="s10" value="10. System Integration&#xa;&amp; Acceptance&#xa;&#xa;Reassemble · interfaces&#xa;Functional / performance&#xa;Env / burn-in as applicable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="800" y="565" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="d11" value="11. QA&#xa;Release&#xa;Gate?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="560" width="140" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s12" value="12. Outgoing Inspection&#xa;&amp; Dispatch&#xa;&#xa;Visual/config check · report&#xa;Labels · packing · ship&#xa;Close work order" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="565" width="210" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e67" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s6" target="d7">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1450" y="520" />
+              <mxPoint x="135" y="520" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e78" value="YES" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d7" target="s8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e89" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s8" target="s9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e910" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s9" target="s10"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1011" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s10" target="d11"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e1112" value="YES" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d11" target="s12"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- NO from d7 -->
+        <mxCell id="alt7" value="Replace / Escalate&#xa;&#xa;Approved replacement unit&#xa;OEM repair · customer auth&#xa;Beyond economical repair (BER)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="190" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e7alt" value="NO" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d7" target="alt7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ealt8" value="if replace authorized" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;dashed=1;strokeWidth=1.5;strokeColor=#6b46c1;fontSize=9;" edge="1" parent="1" source="alt7" target="s8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="380" y="770" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Loop from d11 back -->
+        <mxCell id="ncr" value="Nonconformance&#xa;Return to diagnosis /&#xa;repair loop · retest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="720" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e11n" value="NO" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d11" target="ncr"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="en6" value="rework" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;dashed=1;strokeWidth=1.5;strokeColor=#c53030;fontSize=9;" edge="1" parent="1" source="ncr" target="s6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1450" y="755" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Quality gates strip -->
+        <mxCell id="qgTitle" value="Quality Gates (enforcement)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=13;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="80" y="860" width="400" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="g1" value="G1 Receipt&#xa;accepted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="900" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" value="G2 Diagnosis&#xa;approved" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="900" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" value="G3 Repair&#xa;authorized" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="900" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" value="G4 Test&#xa;passed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="900" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" value="G5 QA&#xa;release" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="900" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="eg12" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="g1" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg23" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="g2" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg34" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="g3" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg45" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="g4" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="outcomes" value="Release outcomes: Repaired &amp; accepted · Replaced &amp; accepted · NFF with evidence · Returned unrepaired (customer/OEM) · Rejected / Scrapped (authorized)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#2d3748;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="900" width="680" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="note" value="See pages 02–06 for detailed subprocesses, decision matrix, records, status codes and life-cycle support controls." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#718096;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="80" y="980" width="800" height="28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-receipt" name="02 Field Return &amp; Receipt">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="Section A — Field Return Authorization &amp; Work Order" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#2b6cb0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="a1" value="Field raises fault&#xa;report / RMA request" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="Required data&#xa;P/N · S/N · rev · FW&#xa;symptom · conditions&#xa;logs · warranty" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;align=left;spacingLeft=6;" vertex="1" parent="1">
+          <mxGeometry x="240" y="60" width="170" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="Issue unique RMA /&#xa;return authorization&#xa;(if contractually required)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="70" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="Ship to repair centre&#xa;with packing list &amp;&#xa;accessories" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="670" y="70" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ea1" style="endArrow=block;endFill=1;strokeColor=#2b6cb0;" edge="1" parent="1" source="a1" target="a2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ea2" style="endArrow=block;endFill=1;strokeColor=#2b6cb0;" edge="1" parent="1" source="a2" target="a3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ea3" style="endArrow=block;endFill=1;strokeColor=#2b6cb0;" edge="1" parent="1" source="a3" target="a4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="t2" value="Section B — Receipt, Quarantine &amp; Incoming Inspection (G1)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#276749;" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b1" value="Receive shipment&#xa;Match packing list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="230" width="150" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="Photograph package&#xa;(esp. if damage visible)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="230" y="230" width="160" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="Verify identity vs RMA&#xa;P/N · S/N · accessories" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="430" y="230" width="160" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="Assign unique&#xa;Work Order + barcode/tag&#xa;Link RMA · asset · warranty" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="630" y="225" width="180" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="Route to Quarantine&#xa;ESD / safety controls" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="230" width="160" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="eb1" style="endArrow=block;endFill=1;strokeColor=#276749;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb2" style="endArrow=block;endFill=1;strokeColor=#276749;" edge="1" parent="1" source="b2" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb3" style="endArrow=block;endFill=1;strokeColor=#276749;" edge="1" parent="1" source="b3" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb4" style="endArrow=block;endFill=1;strokeColor=#276749;" edge="1" parent="1" source="b4" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="b6" value="Incoming Inspection Checklist&#xa;&#xa;• Physical damage / impact&#xa;• Tampering / seals&#xa;• Corrosion / moisture / liquid ingress&#xa;• Missing parts &amp; accessories&#xa;• Connectors, cables, interfaces&#xa;• Burnt / overheated evidence&#xa;• Unsafe power / energy hazards" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="340" width="280" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dSafe" value="Safe to&#xa;proceed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="380" y="370" width="130" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="b7" value="Do NOT power up if:&#xa;short · liquid ingress ·&#xa;damaged power/RF path ·&#xa;exposed conductors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="560" y="320" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b8" value="Engineering disposition&#xa;required before any&#xa;energization" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="800" y="330" width="180" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dG1" value="G1&#xa;Receipt&#xa;accepted?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="440" width="130" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ok1" value="Accepted for Diagnosis&#xa;Status: REC → TRI&#xa;Item tagged &amp; logged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9ae6b4;strokeColor=#22543d;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="455" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hold1" value="HOLD (quarantine)&#xa;&#xa;• Insufficient ID / paperwork&#xa;• Safety risk unresolved&#xa;• Transit damage claim&#xa;• Warranty / customer decision&#xa;• Do not silently merge assets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="400" width="220" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eb5" style="endArrow=block;endFill=1;strokeColor=#276749;" edge="1" parent="1" source="b5" target="b6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="930" y="310" />
+              <mxPoint x="180" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eb6" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="b6" target="dSafe"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="esN" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dSafe" target="b7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="es7" style="endArrow=block;endFill=1;strokeColor=#c53030;" edge="1" parent="1" source="b7" target="b8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="esY" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dSafe" target="dG1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="egY" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG1" target="ok1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="egN" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG1" target="hold1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8h" style="endArrow=block;endFill=1;dashed=1;strokeColor=#c53030;" edge="1" parent="1" source="b8" target="hold1"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="recBox" value="Mandatory G1 evidence&#xa;&#xa;RMA / work order · identity confirmation · as-received photos · condition report · safety/ESD status · acceptance or hold decision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="500" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="out1" value="Output → Item logged, tagged, and either accepted for diagnosis or held under controlled quarantine." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="580" y="575" width="660" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-diagnosis" name="03 Triage &amp; Diagnosis">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="Section C — Triage &amp; Fault Reproduction" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#975a16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="500" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c1" value="Review history&#xa;Prior repairs · config&#xa;Technical manuals" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="Screen for non-product causes&#xa;&#xa;Installation · power · cabling&#xa;Config / network · environment&#xa;External system conditions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="240" y="60" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="Reproduce fault&#xa;Controlled test setup&#xa;Approved limits only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="70" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="Record evidence&#xa;Instrument IDs · cal status&#xa;Setup · ambient · readings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="710" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ec1" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="c1" target="c2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ec2" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="c2" target="c3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ec3" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="c3" target="c4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="fcTitle" value="Fault Classification (assign one)" style="text;html=1;align=left;fontStyle=1;fontSize=13;fontColor=#975a16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="300" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="fc1" value="Confirmed&#xa;hardware fault" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="220" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc2" value="Config /&#xa;software issue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="180" y="220" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc3" value="Intermittent&#xa;(soak / stress)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="320" y="220" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc4" value="Installation /&#xa;environmental" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="220" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc5" value="No Fault Found&#xa;(NFF)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="600" y="220" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc6" value="Transit&#xa;damage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="740" y="220" width="110" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fc7" value="Indeterminate&#xa;→ OEM analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="870" y="220" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t2" value="Section D — Diagnosis &amp; Root-Cause Analysis (G2)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#975a16;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="d1" value="Fault tree /&#xa;symptom-to-test matrix" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="350" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" value="Non-invasive first&#xa;Logs · BIT · LEDs · alarms&#xa;FW / config review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="240" y="350" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="Isolate to smallest&#xa;replaceable assembly&#xa;(avoid unnecessary teardown)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="350" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" value="Known-good substitution&#xa;(compatible only)&#xa;Restore original after test" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="690" y="350" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ed1" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="d1" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ed2" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="d2" target="d3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ed3" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="d3" target="d4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="d5" value="Document diagnosis&#xa;&#xa;• Confirmed vs suspected cause&#xa;• Measurements &amp; failed test step&#xa;• Probable root cause&#xa;• Contributing factors&#xa;• Confidence level&#xa;• Recommended action" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="450" width="280" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dEsc" value="Escalate to OEM when&#xa;&#xa;• Proprietary calibration&#xa;• Sealed module / alignment&#xa;• High-energy / hazardous work&#xa;• Firmware signing required&#xa;• Schematics unavailable&#xa;• Safety-critical disposition" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="360" y="450" width="260" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dG2" value="G2&#xa;Diagnosis&#xa;approved?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="680" y="470" width="130" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ok2" value="Proceed to Repair vs&#xa;Replace Decision (G3)&#xa;Status: DIAG → AUTH" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9ae6b4;strokeColor=#22543d;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="455" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ng2" value="Continue diagnosis&#xa;or escalate OEM /&#xa;customer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="545" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ed4" style="endArrow=block;endFill=1;strokeColor=#975a16;" edge="1" parent="1" source="d4" target="d5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="785" y="430" />
+              <mxPoint x="180" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ed5" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="d5" target="dG2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg2y" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG2" target="ok2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg2n" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG2" target="ng2"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="tpTitle" value="Generic critical test points (adapt per product family)" style="text;html=1;align=left;fontStyle=1;fontSize=13;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="650" width="500" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="tpBox" value="Subsystem examples → Typical checks (use OEM/contract limits)&#xa;&#xa;Controller / Compute ········ POST/BIT · firmware · alarms · I/O · throughput&#xa;RF / Analog Front-End ······ Gain · output power · noise · spectral / linearity&#xa;Sensor / Receiver ··········· Sensitivity · stability · interface integrity&#xa;Motion / Actuator ··········· Direction · position accuracy · limits · torque&#xa;Power Supply ··············· Rails · ripple · regulation · protection · faults&#xa;Cables / Interfaces ········· Continuity · insertion loss / VSWR · torque&#xa;Integrated System ·········· End-to-end functional · config baseline · soak" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=12;fontFamily=Courier New;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="690" width="1030" height="180" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-repair" name="04 Repair vs Replace">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="Section E — Repair-versus-Replace Decision Matrix (G3)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#6b46c1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hdr" value="Decision factor" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#553c9a;strokeColor=#553c9a;fontColor=#ffffff;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="hdrR" value="Favour REPAIR when…" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#276749;strokeColor=#276749;fontColor=#ffffff;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="200" y="70" width="360" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="hdrX" value="Favour REPLACE / ESCALATE when…" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c53030;strokeColor=#c53030;fontColor=#ffffff;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="70" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r1a" value="Technical&#xa;feasibility" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="110" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r1b" value="Approved method exists; post-repair&#xa;performance can be verified" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="110" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r1c" value="No approved method; extensive damage;&#xa;sealed / untestable repair" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="110" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r2a" value="Availability" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r2b" value="Parts, tooling, software and trained&#xa;staff are available" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="160" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r2c" value="Parts obsolete; counterfeit risk;&#xa;lead time unacceptable; OEM-only" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="160" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r3a" value="Economics /&#xa;warranty" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r3b" value="Repair cost &amp; turnaround meet&#xa;contract and warranty conditions" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="210" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r3c" value="Exceeds threshold; replacement&#xa;faster/cheaper over life cycle" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="210" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r4a" value="Reliability" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="260" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r4b" value="Root cause correctable;&#xa;recurrence risk acceptable" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="260" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r4c" value="Repeated failure; latent damage;&#xa;reliability cannot be demonstrated" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="260" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="r5a" value="Configuration" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="310" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r5b" value="Repair preserves approved design&#xa;and full traceability" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="310" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r5c" value="Substitution changes form/fit/function,&#xa;firmware, performance or certification" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="310" width="400" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="noteAuth" value="Threshold must be customer/programme-approved. Do not substitute different P/N or firmware without engineering + configuration-control approval." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#c53030;fontSize=11;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="40" y="380" width="920" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dG3" value="G3 Repair&#xa;authorized?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="180" width="150" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="pathR" value="REPAIR path&#xa;Status: AUTH → REPR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="140" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="pathX" value="REPLACE / OEM / BER&#xa;Awaiting parts or approval&#xa;Status: PART / BER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="230" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="eg3y" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG3" target="pathR"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg3n" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG3" target="pathX"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="t2" value="Section F — Repair &amp; Replacement Controls" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#6b46c1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="450" width="500" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="f1" value="Approved WI +&#xa;ESD-safe bench +&#xa;calibrated tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="500" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="Execute repair or&#xa;install approved&#xa;replacement LRU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="500" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="Update firmware /&#xa;software under&#xa;config control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="500" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="Record as-found,&#xa;actions, old/new&#xa;P/N·S/N·rev·lot" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="500" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="f5" value="Reassemble with&#xa;proper torque,&#xa;cabling, grounding" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="840" y="500" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ef1" style="endArrow=block;endFill=1;strokeColor=#6b46c1;" edge="1" parent="1" source="f1" target="f2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ef2" style="endArrow=block;endFill=1;strokeColor=#6b46c1;" edge="1" parent="1" source="f2" target="f3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ef3" style="endArrow=block;endFill=1;strokeColor=#6b46c1;" edge="1" parent="1" source="f3" target="f4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ef4" style="endArrow=block;endFill=1;strokeColor=#6b46c1;" edge="1" parent="1" source="f4" target="f5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="fOut" value="Output → System / LRU reassembled and ready for post-repair verification. Sensitive keys/credentials stay under access control — never in general repair reports." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="610" width="960" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="caveat" value="Warranty / sealed / safety-critical items: opening or board-level repair may invalidate warranty or certification — obtain written authorization first." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="690" width="960" height="44" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-qa" name="05 Verification &amp; QA Release">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="Section G — Post-Repair Verification &amp; System Acceptance (G4)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#c53030;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="800" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g1" value="1. Retest the&#xa;originally failed&#xa;function first" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g2" value="2. Full applicable&#xa;LRU acceptance&#xa;sequence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="70" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g3" value="3. System integration&#xa;Interfaces · config&#xa;Functional / performance" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="70" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g4" value="4. Env / burn-in / soak&#xa;as contractually&#xa;applicable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="70" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="g5" value="5. Independent check&#xa;where procedure&#xa;requires it" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="70" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="eg1" style="endArrow=block;endFill=1;strokeColor=#c53030;" edge="1" parent="1" source="g1" target="g2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg2" style="endArrow=block;endFill=1;strokeColor=#c53030;" edge="1" parent="1" source="g2" target="g3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg3" style="endArrow=block;endFill=1;strokeColor=#c53030;" edge="1" parent="1" source="g3" target="g4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg4" style="endArrow=block;endFill=1;strokeColor=#c53030;" edge="1" parent="1" source="g4" target="g5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="dG4" value="G4 All&#xa;mandatory&#xa;tests pass?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="180" width="140" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="pass4" value="Proceed to QA Release&#xa;Status: TEST → QA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9ae6b4;strokeColor=#22543d;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="200" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="fail4" value="Open Nonconformance&#xa;Return to diagnosis/repair&#xa;Retest affected + impacted fns&#xa;Trend repeated failures" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="280" y="185" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="eg5d" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="g5" target="dG4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="950" y="160" />
+              <mxPoint x="630" y="160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="eg4y" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG4" target="pass4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg4n" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG4" target="fail4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="t2" value="Section H — QA Release Gate &amp; Outgoing Inspection (G5)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#c05621;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="h1" value="QA / authorized&#xa;independent review&#xa;of test record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="370" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="h2" value="Verify config, labels,&#xa;workmanship,&#xa;closed deviations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="370" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="h3" value="Confirm test equipment&#xa;calibration was valid&#xa;at time of test" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="370" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dG5" value="G5 QA&#xa;release?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="360" width="130" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="eh1" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="h1" target="h2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eh2" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="h2" target="h3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eh3" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="h3" target="dG5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="hold5" value="Do not ship&#xa;Correct record / test /&#xa;configuration gaps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="320" width="180" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ok5" value="Released for dispatch&#xa;Status: QA → DISP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9ae6b4;strokeColor=#22543d;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="420" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="eg5n" value="NO" style="endArrow=block;endFill=1;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG5" target="hold5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eg5y" value="YES" style="endArrow=block;endFill=1;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dG5" target="ok5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="t3" value="Section I — Outgoing Inspection &amp; Dispatch" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#c05621;" vertex="1" parent="1">
+          <mxGeometry x="40" y="510" width="500" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="i1" value="Final visual&#xa;Clean · fasteners · seals&#xa;labels · accessories" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="i2" value="Restore approved&#xa;configuration · record&#xa;FW / checksum / rev" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="560" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="i3" value="Issue release status&#xa;+ service report&#xa;+ test certificate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="450" y="560" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="i4" value="Pack: ESD · shock ·&#xa;moisture · connector&#xa;protection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="560" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="i5" value="Ship + update RMS&#xa;Close work order&#xa;Update customer records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="560" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ei1" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="i1" target="i2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ei2" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="i2" target="i3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ei3" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="i3" target="i4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ei4" style="endArrow=block;endFill=1;strokeColor=#c05621;" edge="1" parent="1" source="i4" target="i5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eok5" style="endArrow=block;endFill=1;dashed=1;strokeColor=#c05621;" edge="1" parent="1" source="ok5" target="i1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="950" y="520" />
+              <mxPoint x="120" y="520" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="relOut" value="Release statuses: Repaired &amp; accepted · Replaced &amp; accepted · NFF with evidence · Returned unrepaired · Rejected / Scrapped (authorized)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#2d3748;fontSize=11;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="680" width="1000" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="outI" value="Output → Repaired / dispositioned item shipped with full documentation and closed work order." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="750" width="1000" height="44" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-lcs" name="06 Status, Records &amp; LCS">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="Work-Order Status Codes (serviceability spine)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="st1" value="REC&#xa;Received" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st2" value="HOLD&#xa;Quarantine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st3" value="TRI&#xa;Triage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="280" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st4" value="DIAG&#xa;Diagnosis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st5" value="AUTH&#xa;Awaiting&#xa;approval" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st6" value="PART&#xa;Awaiting&#xa;parts/OEM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st7" value="REPR&#xa;Repair in&#xa;progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="760" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st8" value="TEST&#xa;Verify /&#xa;integrate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st9" value="QA&#xa;Release&#xa;gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st10" value="DISP&#xa;Ready to&#xa;ship" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#9ae6b4;strokeColor=#22543d;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="70" width="90" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="est1" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st1" target="st2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est2" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st2" target="st3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est3" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st3" target="st4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est4" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st4" target="st5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est5" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st5" target="st6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est6" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st6" target="st7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est7" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st7" target="st8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est8" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st8" target="st9"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="est9" style="endArrow=block;endFill=1;strokeColor=#4a5568;" edge="1" parent="1" source="st9" target="st10"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="stNFF" value="NFF — No fault found; evidence &amp; disposition required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="150" width="360" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="stBER" value="BER — Beyond economical repair; authorized disposition required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="150" width="400" height="36" as="geometry" />
+        </mxCell>
+
+        <mxCell id="svcTitle" value="Serviceability statuses (inventory / fleet)" style="text;html=1;align=left;fontStyle=1;fontSize=13;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="400" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="sv1" value="Serviceable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="120" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="sv2" value="Unserviceable —&#xa;awaiting diagnosis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="180" y="245" width="130" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="sv3" value="Awaiting parts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="330" y="250" width="120" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="sv4" value="Awaiting OEM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="470" y="250" width="110" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="sv5" value="Awaiting customer&#xa;approval" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="600" y="245" width="130" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="sv6" value="BER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feb2b2;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="750" y="250" width="80" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="sv7" value="Quarantined" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="850" y="250" width="110" height="36" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t2" value="Minimum Records &amp; Forms" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="320" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="recBox" value="• RMA / Field Fault Report — customer/site, asset ID, P/N/S/N, symptom, conditions, logs, warranty&#xa;• Receiving &amp; Incoming Inspection — WO, package/accessories, photos, damage, identity, safety/ESD, accept/hold&#xa;• Diagnostic Worksheet — setup, instruments/cal IDs, FW/config, steps, readings, reproduced?, classification&#xa;• Repair / Replacement Record — root cause, approval, actions, old/new P/N/S/N, SW/config changes, tech/date&#xa;• Functional / Performance Test Report — procedure rev, limits+source, actual values, pass/fail, retests, sign-off&#xa;• Nonconformance / Corrective Action — failure, containment, root cause, CAPA, trend, closure authority&#xa;• Release &amp; Dispatch Record — QA release, final status, certificate, packing, ship-to, tracking, WO closure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=12;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="780" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="equip" value="Typical test equipment (calibrated)&#xa;&#xa;DMM · Bench PSU · Oscilloscope&#xa;Spectrum / Network Analyzer&#xa;Signal generator · Power meter&#xa;Attenuators / couplers / loads&#xa;Product-specific fixtures &amp; SW&#xa;ESD workstation · mechanical tools&#xa;&#xa;Record equipment ID + cal due&#xa;date on every test record." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="860" y="360" width="280" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t3" value="Life-Cycle Support &amp; Fleet Controls" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="570" width="500" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lcs1" value="Installed-base register&#xa;System ↔ config baseline&#xa;LRU ↔ P/N·S/N·rev·FW·site&#xa;+ full repair history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="620" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lcs2" value="Fleet KPIs&#xa;Failure rate · MTTR · TAT&#xa;NFF rate · repeat failure&#xa;Repair yield · obsolescence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="270" y="620" width="200" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lcs3" value="Spares policy&#xa;Repairables · consumables&#xa;Long-lead / obsolete&#xa;Min/max from history+lead time" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="500" y="620" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="lcs4" value="Technology migration&#xa;Separate legacy vs new config&#xa;Pilot before fleet rollout&#xa;End-of-support plan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="750" y="620" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t4" value="Suggested Service-Level Metrics (set contractually)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="740" width="600" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="sla" value="Receipt acknowledgement · Triage time · Repair turnaround (excl. customer/OEM holds) · First-pass yield · Repeat failure window · NFF rate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="785" width="1100" height="44" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t5" value="Roles (RACI snapshot)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=16;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="860" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="roleBox" value="Receiving / Stores — shipment check, receipt ID, photos, quarantine&#xa;Repair Coordinator — validate RMA, create WO, prioritize, customer comms&#xa;Technician / Diagnostician — safe inspection, reproduce fault, tests, evidence, propose repair&#xa;Repair Authority — approve method, deviations, substitutions, OEM escalation&#xa;QA / Independent Tester — compliance, nonconformities, authorize release&#xa;Configuration / Logistics — BOM, FW baseline, S/N history, spares, dispatch records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=12;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="900" width="1100" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="qgRules" value="Quality gate rules (never bypass)&#xa;1. Accept only with valid RMA / authorization&#xa;2. Verify correct diagnosis before repair&#xa;3. Use approved parts / LRUs only&#xa;4. Follow ESD and safety procedures&#xa;5. Pass all mandatory functional / performance tests&#xa;6. Maintain full traceability and records" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=12;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="360" width="320" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="impl" value="Implementation checklist (pre-go-live)&#xa;&#xa;Approve owners, safety rules, OEM/contract docs · Controlled forms · LRU-specific test procedures &amp; limits · Train &amp; authorize staff · ESD quarantine + diagnostic + test + finished-goods areas · Pilot on representative returns · Audit first cases for completeness &amp; independent QA release" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;align=left;spacingLeft=12;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="570" width="320" height="200" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
