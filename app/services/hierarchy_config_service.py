@@ -159,6 +159,40 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
                 "because it has no child nodes"
             )
 
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for index, node in enumerate(nodes):
+        raw_gid = node.get("sibling_group_id")
+        gid = str(raw_gid).strip() if raw_gid else ""
+        raw_gname = node.get("sibling_group_name")
+        gname = str(raw_gname).strip() if raw_gname else ""
+        if not gid:
+            node["sibling_group_id"] = None
+            node["sibling_group_name"] = None
+            continue
+        if not gname:
+            raise HierarchyConfigError(
+                f"Node[{index}] sibling_group_name is required when sibling_group_id is set"
+            )
+        node["sibling_group_id"] = gid
+        node["sibling_group_name"] = gname
+        groups.setdefault(gid, []).append(node)
+
+    for gid, members in groups.items():
+        if len(members) < 2:
+            raise HierarchyConfigError(
+                f"Sibling group '{gid}' must contain at least two nodes"
+            )
+        parent_keys = {(m.get("parent_client_key") or None) for m in members}
+        if len(parent_keys) != 1:
+            raise HierarchyConfigError(
+                f"Sibling group '{gid}' members must share the same parent"
+            )
+        names = {(m.get("sibling_group_name") or "").strip() for m in members}
+        if len(names) != 1:
+            raise HierarchyConfigError(
+                f"Sibling group '{gid}' members must share the same group name"
+            )
+
     try:
         validate_config_nodes_entity_list(session, nodes)
     except EntityListError as exc:
@@ -220,6 +254,10 @@ def _replace_children(
                 raise HierarchyConfigError(
                     f"Parent '{parent_key}' must be created before child '{client_key}'"
                 )
+        raw_gid = node.get("sibling_group_id")
+        sibling_group_id = str(raw_gid).strip() if raw_gid else None
+        raw_gname = node.get("sibling_group_name")
+        sibling_group_name = str(raw_gname).strip() if raw_gname else None
         db_node = HierarchyConfigNode(
             configuration_id=config.id,
             level=str(node["level"]).strip().lower(),
@@ -230,6 +268,8 @@ def _replace_children(
             client_key=client_key,
             parent_id=parent_id,
             inventory_source=normalize_inventory_source(node.get("inventory_source")),
+            sibling_group_id=sibling_group_id or None,
+            sibling_group_name=sibling_group_name or None,
         )
         session.add(db_node)
         session.flush()
@@ -358,6 +398,8 @@ def update_configuration(
                     "inventory_source": normalize_inventory_source(
                         getattr(n, "inventory_source", None)
                     ),
+                    "sibling_group_id": getattr(n, "sibling_group_id", None),
+                    "sibling_group_name": getattr(n, "sibling_group_name", None),
                 }
                 for n in config.nodes
             ]
@@ -497,6 +539,8 @@ def configuration_to_dict(config: HierarchyConfiguration) -> dict[str, Any]:
                 "inventory_source": normalize_inventory_source(
                     getattr(n, "inventory_source", None)
                 ),
+                "sibling_group_id": getattr(n, "sibling_group_id", None),
+                "sibling_group_name": getattr(n, "sibling_group_name", None),
             }
             for n in nodes
         ],

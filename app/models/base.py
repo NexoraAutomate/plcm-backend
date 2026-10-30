@@ -1428,6 +1428,9 @@ class HierarchyConfigNodeCommon(SQLModel):
     sort_order: int = 0
     client_key: Optional[str] = Field(default=None, max_length=64)
     inventory_source: str = Field(default="turnkey", max_length=32)
+    # Optional visual/org grouping among siblings (same parent); not a hierarchy level.
+    sibling_group_id: Optional[str] = Field(default=None, max_length=64, index=True)
+    sibling_group_name: Optional[str] = Field(default=None, max_length=255)
 
 
 class HierarchyConfigNodeBase(HierarchyConfigNodeCommon):

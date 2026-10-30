@@ -68,6 +68,20 @@ def find_entity_list_entry(
     return None
 
 
+def other_levels_for_name(session: Session, name: str) -> list[str]:
+    """Return Entity List levels (other than empty) where this name is registered."""
+    normalized = _normalize_name(name).lower()
+    if not normalized:
+        return []
+    found: list[str] = []
+    for level in ("system", "subsystem", "module", "unit", "component"):
+        for entry in list_entity_list_entries(session, hierarchy_type=level):
+            if entry.name.strip().lower() == normalized:
+                found.append(level)
+                break
+    return found
+
+
 def require_entity_list_name(
     session: Session,
     *,
@@ -85,10 +99,21 @@ def require_entity_list_name(
     )
     if entry is None:
         level = hierarchy_type.strip().lower()
-        detail = (
-            f"'{name.strip()}' is not a registered {level}. "
-            "Add it in Settings → Definitions → Entity List."
-        )
+        elsewhere = [
+            lv for lv in other_levels_for_name(session, name) if lv != level
+        ]
+        if elsewhere:
+            detail = (
+                f"'{name.strip()}' is not a registered {level}; "
+                f"it is registered as {', '.join(elsewhere)}. "
+                "Change the node’s level in the configuration tree, or update "
+                "Settings → Definitions → Entity List."
+            )
+        else:
+            detail = (
+                f"'{name.strip()}' is not a registered {level}. "
+                "Add it in Settings → Definitions → Entity List."
+            )
         raise EntityListError(detail)
     return entry
 

@@ -1625,6 +1625,8 @@ class HierarchyConfigNodeIn(SQLModel):
     abbreviation: Optional[str] = None
     sort_order: int = 0
     inventory_source: str = "turnkey"
+    sibling_group_id: Optional[str] = None
+    sibling_group_name: Optional[str] = None
 
 
 class HierarchyConfigurationCreate(SQLModel):
@@ -1669,6 +1671,8 @@ class HierarchyConfigNodeRead(SQLModel):
     abbreviation: Optional[str] = None
     sort_order: int = 0
     inventory_source: str = "turnkey"
+    sibling_group_id: Optional[str] = None
+    sibling_group_name: Optional[str] = None
 
     class Config:
         orm_mode = True
