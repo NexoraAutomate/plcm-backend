@@ -312,6 +312,7 @@ class OrderCommon(SQLModel):
     po_number: Optional[str] = None
     order_date: date
     delivery_date: Optional[date] = None
+    production_support_date: Optional[date] = None
 
     total_value: Optional[Decimal] = None
     currency: str = "PKR"

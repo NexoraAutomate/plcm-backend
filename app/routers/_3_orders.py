@@ -1,4 +1,5 @@
-from typing import List, Optional
+from datetime import date, datetime
+from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlmodel import Session, select
 from app.database import get_session
@@ -16,11 +17,44 @@ from app.models.helpers import _generate_Entity_Code
 entity_config = ENTITY_CONFIG.get("order")
 
 router = APIRouter()
+
+
+def _as_date(value: Union[date, datetime, None]) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _normalize_production_support(
+    delivery_date: Union[date, datetime, None],
+    production_support_date: Union[date, datetime, None],
+) -> Optional[date]:
+    delivery = _as_date(delivery_date)
+    support = _as_date(production_support_date)
+    if support is None:
+        return None
+    if delivery is None:
+        return None
+    if support < delivery:
+        raise HTTPException(
+            status_code=400,
+            detail="Production support date must be on or after the delivery date",
+        )
+    return support
+
+
 # ===================== ORDER ENDPOINTS =====================
 
 @router.post("/orders/", response_model=schemas.OrderRead, tags=["orders"])
 def create_order(order: schemas.OrderCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_orders"))):
-    db_order = Order(**order.model_dump())
+    payload = order.model_dump()
+    payload["production_support_date"] = _normalize_production_support(
+        payload.get("delivery_date"),
+        payload.get("production_support_date"),
+    )
+    db_order = Order(**payload)
     db_order.order_number = _generate_Entity_Code(session, Order)
     session.add(db_order)
     session.flush()
@@ -115,7 +149,18 @@ def update_order(order_id: int, order: schemas.OrderUpdate, session: Session = D
     db_order = session.get(Order, order_id)
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
-    for k, v in order.model_dump(exclude_unset=True).items():
+    updates = order.model_dump(exclude_unset=True)
+    next_delivery = updates["delivery_date"] if "delivery_date" in updates else db_order.delivery_date
+    next_support = (
+        updates["production_support_date"]
+        if "production_support_date" in updates
+        else db_order.production_support_date
+    )
+    if "delivery_date" in updates and _as_date(next_delivery) is None:
+        updates["production_support_date"] = None
+        next_support = None
+    updates["production_support_date"] = _normalize_production_support(next_delivery, next_support)
+    for k, v in updates.items():
         setattr(db_order, k, v)
     session.add(db_order)
     session.flush()
