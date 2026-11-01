@@ -442,6 +442,7 @@ def _extract_instance_fields(data: dict) -> dict:
         "location_rack": data.pop("location_rack", None),
         "added_date": data.pop("added_date", None),
         "shelf_life_expires_at": data.pop("shelf_life_expires_at", None),
+        "warranty_expires_at": data.pop("warranty_expires_at", None),
         "picture_url": data.pop("picture_url", None),
         "installation_date": data.pop("installation_date", None),
         "installed_by_id": data.pop("installed_by_id", None),
@@ -548,6 +549,7 @@ def create_inventory(
     data["location_cabinet"] = None
     data["location_rack"] = None
     data["shelf_life_expires_at"] = None
+    data["warranty_expires_at"] = None
     data["picture_url"] = None
     data["installation_date"] = None
     data["installed_by_id"] = None
@@ -636,6 +638,9 @@ def list_inventory(
     inventory_source: Optional[str] = Query(
         None, description="turnkey | build (build_from_children)"
     ),
+    expiry: Optional[str] = Query(
+        None, description="expiring | expired (shelf life or warranty)"
+    ),
     sort_by: str | None = None,
     sort_order: str | None = None,
     session: Session = Depends(get_session),
@@ -647,6 +652,7 @@ def list_inventory(
         search=search,
         stock=stock,
         inventory_source=inventory_source,
+        expiry=expiry,
     )
     items = paginated_query(
         session,
@@ -687,6 +693,9 @@ def list_inventory_ids(
     inventory_source: Optional[str] = Query(
         None, description="turnkey | build (build_from_children)"
     ),
+    expiry: Optional[str] = Query(
+        None, description="expiring | expired (shelf life or warranty)"
+    ),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
 ):
@@ -697,6 +706,7 @@ def list_inventory_ids(
         search=search,
         stock=stock,
         inventory_source=inventory_source,
+        expiry=expiry,
     )
     stmt = select(Inventory.id)
     if where is not None:
@@ -1706,6 +1716,7 @@ def update_inventory(
         "location_rack",
         "added_date",
         "shelf_life_expires_at",
+        "warranty_expires_at",
         "picture_url",
         "installation_date",
         "installed_by_id",

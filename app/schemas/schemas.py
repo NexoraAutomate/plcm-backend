@@ -1058,6 +1058,7 @@ class InventoryInstanceUpdate(SQLModel):
     location_rack: Optional[str] = None
     added_date: Optional[datetime] = None
     shelf_life_expires_at: Optional[datetime] = None
+    warranty_expires_at: Optional[datetime] = None
     picture_url: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None
@@ -1441,6 +1442,7 @@ class InventoryUpdate(SQLModel):
     holder_user_id: Optional[int] = None
     added_date: Optional[datetime] = None
     shelf_life_expires_at: Optional[datetime] = None
+    warranty_expires_at: Optional[datetime] = None
     picture_url: Optional[str] = None
     installation_date: Optional[datetime] = None
     installed_by_id: Optional[int] = None

@@ -210,6 +210,7 @@ def create_inventory_instance(
     location_rack: Optional[str] = None,
     added_date: Optional[datetime] = None,
     shelf_life_expires_at: Optional[datetime] = None,
+    warranty_expires_at: Optional[datetime] = None,
     picture_url: Optional[str] = None,
     installation_date: Optional[datetime] = None,
     installed_by_id: Optional[int] = None,
@@ -250,6 +251,7 @@ def create_inventory_instance(
         location_rack=location_rack,
         added_date=added_date or datetime.now(timezone.utc),
         shelf_life_expires_at=shelf_life_expires_at,
+        warranty_expires_at=warranty_expires_at,
         picture_url=picture_url,
         installation_date=installation_date,
         installed_by_id=installed_by_id,
@@ -337,6 +339,7 @@ def materialize_legacy_inventory_instances(
                 or inventory.name,
                 location=(inventory.location or "").strip() or "Warehouse",
                 shelf_life_expires_at=inventory.shelf_life_expires_at,
+                warranty_expires_at=inventory.warranty_expires_at,
                 picture_url=inventory.picture_url,
                 installation_date=inventory.installation_date,
                 installed_by_id=inventory.installed_by_id,
@@ -815,6 +818,7 @@ def _clear_parent_instance_fields(inventory: Inventory) -> None:
     inventory.holder_user_id = None
     inventory.location = None
     inventory.shelf_life_expires_at = None
+    inventory.warranty_expires_at = None
     inventory.picture_url = None
     inventory.installation_date = None
     inventory.installed_by_id = None
@@ -867,6 +871,7 @@ def backfill_legacy_inventory_instances(session: Session) -> int:
                 location=location,
                 added_date=inventory.added_date,
                 shelf_life_expires_at=inventory.shelf_life_expires_at,
+                warranty_expires_at=inventory.warranty_expires_at,
                 picture_url=inventory.picture_url,
                 installation_date=inventory.installation_date,
                 installed_by_id=inventory.installed_by_id,

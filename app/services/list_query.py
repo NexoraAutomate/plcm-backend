@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import and_, func, or_
@@ -174,6 +175,43 @@ def inventory_source_where(inventory_source: Optional[str]) -> Any:
     return None
 
 
+def inventory_expiry_where(expiry: Optional[str], *, warn_days: int = 30) -> Any:
+    """Filter catalog rows with shelf-life or warranty dates that are expired/expiring."""
+    from app.models.tables import Inventory, InventoryInstance
+
+    kind = (expiry or "").strip().lower()
+    if not kind or kind == "all":
+        return None
+
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=max(0, warn_days))
+
+    def _date_match(column: Any) -> Any:
+        if kind == "expired":
+            return and_(column.is_not(None), column < now)
+        if kind in ("expiring", "expiring_soon"):
+            return and_(column.is_not(None), column >= now, column <= horizon)
+        if kind in ("attention", "expiry_attention"):
+            return and_(column.is_not(None), column <= horizon)
+        return None
+
+    shelf_parent = _date_match(Inventory.shelf_life_expires_at)
+    warranty_parent = _date_match(Inventory.warranty_expires_at)
+    shelf_instance = _date_match(InventoryInstance.shelf_life_expires_at)
+    warranty_instance = _date_match(InventoryInstance.warranty_expires_at)
+    clauses = [c for c in (shelf_parent, warranty_parent) if c is not None]
+    instance_clauses = [c for c in (shelf_instance, warranty_instance) if c is not None]
+    if not clauses and not instance_clauses:
+        return None
+    if instance_clauses:
+        clauses.append(
+            Inventory.id.in_(
+                select(InventoryInstance.inventory_id).where(or_(*instance_clauses))
+            )
+        )
+    return or_(*clauses) if len(clauses) > 1 else clauses[0]
+
+
 def inventory_list_where(
     *,
     scope: Any = None,
@@ -181,6 +219,7 @@ def inventory_list_where(
     search: Optional[str] = None,
     stock: Optional[str] = None,
     inventory_source: Optional[str] = None,
+    expiry: Optional[str] = None,
 ) -> Any:
     type_filter = None
     if inventory_type:
@@ -193,6 +232,7 @@ def inventory_list_where(
         inventory_search_where(search),
         inventory_stock_where(stock),
         inventory_source_where(inventory_source),
+        inventory_expiry_where(expiry),
     )
 
 
