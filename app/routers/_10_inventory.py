@@ -639,7 +639,10 @@ def list_inventory(
         None, description="turnkey | build (build_from_children)"
     ),
     expiry: Optional[str] = Query(
-        None, description="expiring | expired (shelf life or warranty)"
+        None, description="Shelf life: attention | expiring | expired"
+    ),
+    warranty: Optional[str] = Query(
+        None, description="Warranty: attention | expiring | expired"
     ),
     sort_by: str | None = None,
     sort_order: str | None = None,
@@ -653,6 +656,7 @@ def list_inventory(
         stock=stock,
         inventory_source=inventory_source,
         expiry=expiry,
+        warranty=warranty,
     )
     items = paginated_query(
         session,
@@ -694,7 +698,10 @@ def list_inventory_ids(
         None, description="turnkey | build (build_from_children)"
     ),
     expiry: Optional[str] = Query(
-        None, description="expiring | expired (shelf life or warranty)"
+        None, description="Shelf life: attention | expiring | expired"
+    ),
+    warranty: Optional[str] = Query(
+        None, description="Warranty: attention | expiring | expired"
     ),
     session: Session = Depends(get_session),
     current_user: User = Depends(require_permission("view_inventory")),
@@ -707,6 +714,7 @@ def list_inventory_ids(
         stock=stock,
         inventory_source=inventory_source,
         expiry=expiry,
+        warranty=warranty,
     )
     stmt = select(Inventory.id)
     if where is not None:

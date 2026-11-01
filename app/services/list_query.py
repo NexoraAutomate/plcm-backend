@@ -175,41 +175,98 @@ def inventory_source_where(inventory_source: Optional[str]) -> Any:
     return None
 
 
-def inventory_expiry_where(expiry: Optional[str], *, warn_days: int = 30) -> Any:
-    """Filter catalog rows with shelf-life or warranty dates that are expired/expiring."""
+def _inventory_date_attention_where(
+    *,
+    date_kind: Optional[str],
+    column: Any,
+    warn_days: int = 30,
+) -> Any:
+    kind = (date_kind or "").strip().lower()
+    if not kind or kind == "all" or column is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    horizon = now + timedelta(days=max(0, warn_days))
+    if kind == "expired":
+        return and_(column.is_not(None), column < now)
+    if kind in ("expiring", "expiring_soon"):
+        return and_(column.is_not(None), column >= now, column <= horizon)
+    if kind in ("attention", "expiry_attention"):
+        return and_(column.is_not(None), column <= horizon)
+    return None
+
+
+def _warehouse_instance_scope() -> Any:
+    """Issued / installed-verified units are outside warehouse life-cycle attention."""
+    from app.models.base import IssuanceStatus, ItemStatus
+    from app.models.tables import InventoryInstance, InventoryIssuance, Status
+
+    open_issuance = (
+        IssuanceStatus.ISSUED.value,
+        IssuanceStatus.RETURN_PENDING.value,
+    )
+    issued_or_verified = (
+        ItemStatus.ISSUED.value,
+        ItemStatus.INSTALLATION_IN_PROGRESS.value,
+        ItemStatus.UNDER_TESTING_REVIEW.value,
+        ItemStatus.INSTALLED_VERIFIED.value,
+    )
+    open_issued_instance_ids = select(InventoryIssuance.inventory_instance_id).where(
+        InventoryIssuance.inventory_instance_id.is_not(None),
+        InventoryIssuance.status.in_(open_issuance),
+    )
+    excluded_status_ids = select(Status.id).where(
+        Status.status_type == "inventory",
+        Status.status_name.in_(issued_or_verified),
+    )
+    return and_(
+        InventoryInstance.id.notin_(open_issued_instance_ids),
+        or_(
+            InventoryInstance.status_id.is_(None),
+            InventoryInstance.status_id.notin_(excluded_status_ids),
+        ),
+    )
+
+
+def inventory_expiry_where(
+    expiry: Optional[str],
+    *,
+    field: str = "both",
+    warn_days: int = 30,
+) -> Any:
+    """Filter catalog rows by shelf-life and/or warranty dates on warehouse stock."""
     from app.models.tables import Inventory, InventoryInstance
 
     kind = (expiry or "").strip().lower()
     if not kind or kind == "all":
         return None
 
-    now = datetime.now(timezone.utc)
-    horizon = now + timedelta(days=max(0, warn_days))
-
-    def _date_match(column: Any) -> Any:
-        if kind == "expired":
-            return and_(column.is_not(None), column < now)
-        if kind in ("expiring", "expiring_soon"):
-            return and_(column.is_not(None), column >= now, column <= horizon)
-        if kind in ("attention", "expiry_attention"):
-            return and_(column.is_not(None), column <= horizon)
-        return None
-
-    shelf_parent = _date_match(Inventory.shelf_life_expires_at)
-    warranty_parent = _date_match(Inventory.warranty_expires_at)
-    shelf_instance = _date_match(InventoryInstance.shelf_life_expires_at)
-    warranty_instance = _date_match(InventoryInstance.warranty_expires_at)
-    clauses = [c for c in (shelf_parent, warranty_parent) if c is not None]
-    instance_clauses = [c for c in (shelf_instance, warranty_instance) if c is not None]
-    if not clauses and not instance_clauses:
-        return None
-    if instance_clauses:
-        clauses.append(
-            Inventory.id.in_(
-                select(InventoryInstance.inventory_id).where(or_(*instance_clauses))
-            )
+    scope = _warehouse_instance_scope()
+    mode = (field or "both").strip().lower()
+    clauses: list[Any] = []
+    if mode in ("shelf_life", "shelf", "both", "any"):
+        shelf = _inventory_date_attention_where(
+            date_kind=kind,
+            column=InventoryInstance.shelf_life_expires_at,
+            warn_days=warn_days,
         )
-    return or_(*clauses) if len(clauses) > 1 else clauses[0]
+        if shelf is not None:
+            clauses.append(shelf)
+    if mode in ("warranty", "both", "any"):
+        warranty = _inventory_date_attention_where(
+            date_kind=kind,
+            column=InventoryInstance.warranty_expires_at,
+            warn_days=warn_days,
+        )
+        if warranty is not None:
+            clauses.append(warranty)
+    if not clauses:
+        return None
+
+    date_match = or_(*clauses) if len(clauses) > 1 else clauses[0]
+    return Inventory.id.in_(
+        select(InventoryInstance.inventory_id).where(and_(scope, date_match))
+    )
 
 
 def inventory_list_where(
@@ -220,6 +277,7 @@ def inventory_list_where(
     stock: Optional[str] = None,
     inventory_source: Optional[str] = None,
     expiry: Optional[str] = None,
+    warranty: Optional[str] = None,
 ) -> Any:
     type_filter = None
     if inventory_type:
@@ -232,7 +290,8 @@ def inventory_list_where(
         inventory_search_where(search),
         inventory_stock_where(stock),
         inventory_source_where(inventory_source),
-        inventory_expiry_where(expiry),
+        inventory_expiry_where(expiry, field="shelf_life"),
+        inventory_expiry_where(warranty, field="warranty"),
     )
 
 
