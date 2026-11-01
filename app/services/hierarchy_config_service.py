@@ -431,7 +431,6 @@ def set_available(
     if not config:
         raise HierarchyConfigError("Configuration not found")
     config.is_available = is_available
-    config.version = int(config.version or 1) + 1
     config.updated_at = _now()
     session.add(config)
     session.commit()

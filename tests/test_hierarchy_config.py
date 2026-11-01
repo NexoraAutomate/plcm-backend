@@ -150,6 +150,13 @@ def test_create_two_configs_and_available_filter(session: Session, unique_code: 
                 "nodes": [{"client_key": "s1", "level": "system", "name": "Power"}],
             },
         )
+        assert b.version == 1
+        retired = set_available(session, b.id, False)
+        assert retired.is_available is False
+        assert retired.version == 1
+        restored = set_available(session, b.id, True)
+        assert restored.is_available is True
+        assert restored.version == 1
         set_available(session, b.id, False)
         available_codes = {c.code for c in list_configurations(session, available_only=True)}
         assert code_a in available_codes
