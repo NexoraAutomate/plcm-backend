@@ -459,12 +459,14 @@ class OrderRead(OrderBase):
 class OrderUpdate(SQLModel):
     customer_id: Optional[int] = None
     order_number: Optional[str] = None
+    title: Optional[str] = None
     status_id: Optional[int] = None
     description: Optional[str] = None
     contract_number: Optional[str] = None
     po_number: Optional[str] = None
     order_date: Optional[datetime] = None
     delivery_date: Optional[datetime] = None
+    production_support_date: Optional[datetime] = None
     total_value: Optional[Decimal] = None
     currency: Optional[str] = None
     project_manager: Optional[str] = None
