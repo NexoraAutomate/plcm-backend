@@ -1629,6 +1629,8 @@ class HierarchyConfigNodeIn(SQLModel):
     inventory_source: str = "turnkey"
     sibling_group_id: Optional[str] = None
     sibling_group_name: Optional[str] = None
+    sibling_group_parent_id: Optional[str] = None
+    sibling_group_parent_name: Optional[str] = None
 
 
 class HierarchyConfigurationCreate(SQLModel):
@@ -1675,6 +1677,8 @@ class HierarchyConfigNodeRead(SQLModel):
     inventory_source: str = "turnkey"
     sibling_group_id: Optional[str] = None
     sibling_group_name: Optional[str] = None
+    sibling_group_parent_id: Optional[str] = None
+    sibling_group_parent_name: Optional[str] = None
 
     class Config:
         orm_mode = True

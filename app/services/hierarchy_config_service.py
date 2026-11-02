@@ -165,23 +165,36 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
         gid = str(raw_gid).strip() if raw_gid else ""
         raw_gname = node.get("sibling_group_name")
         gname = str(raw_gname).strip() if raw_gname else ""
+        raw_gparent = node.get("sibling_group_parent_id")
+        gparent = str(raw_gparent).strip() if raw_gparent else ""
+        raw_gpname = node.get("sibling_group_parent_name")
+        gpname = str(raw_gpname).strip() if raw_gpname else ""
         if not gid:
             node["sibling_group_id"] = None
             node["sibling_group_name"] = None
+            node["sibling_group_parent_id"] = None
+            node["sibling_group_parent_name"] = None
             continue
         if not gname:
             raise HierarchyConfigError(
                 f"Node[{index}] sibling_group_name is required when sibling_group_id is set"
             )
+        if gparent and not gpname:
+            raise HierarchyConfigError(
+                f"Node[{index}] sibling_group_parent_name is required when "
+                "sibling_group_parent_id is set"
+            )
+        if not gparent:
+            gpname = ""
         node["sibling_group_id"] = gid
         node["sibling_group_name"] = gname
+        node["sibling_group_parent_id"] = gparent or None
+        node["sibling_group_parent_name"] = gpname or None
         groups.setdefault(gid, []).append(node)
 
+    nest_parent_by_group: dict[str, str | None] = {}
+    nest_parent_name_by_group: dict[str, str | None] = {}
     for gid, members in groups.items():
-        if len(members) < 2:
-            raise HierarchyConfigError(
-                f"Sibling group '{gid}' must contain at least two nodes"
-            )
         parent_keys = {(m.get("parent_client_key") or None) for m in members}
         if len(parent_keys) != 1:
             raise HierarchyConfigError(
@@ -192,6 +205,73 @@ def _validate_nodes(session: Session, nodes: list[dict[str, Any]]) -> None:
             raise HierarchyConfigError(
                 f"Sibling group '{gid}' members must share the same group name"
             )
+        nest_parents = {
+            (m.get("sibling_group_parent_id") or None) for m in members
+        }
+        if len(nest_parents) != 1:
+            raise HierarchyConfigError(
+                f"Sibling group '{gid}' members must share the same nested parent group"
+            )
+        nest_parent = next(iter(nest_parents))
+        nest_parent_by_group[gid] = nest_parent
+        if nest_parent:
+            if nest_parent == gid:
+                raise HierarchyConfigError(
+                    f"Sibling group '{gid}' cannot nest inside itself"
+                )
+            parent_names = {
+                (m.get("sibling_group_parent_name") or "").strip() for m in members
+            }
+            if len(parent_names) != 1 or not next(iter(parent_names)):
+                raise HierarchyConfigError(
+                    f"Sibling group '{gid}' members must share the same nested parent name"
+                )
+            nest_parent_name_by_group[gid] = next(iter(parent_names))
+
+    children_by_parent: dict[str, set[str]] = {}
+    for gid, nest_parent in nest_parent_by_group.items():
+        if not nest_parent:
+            continue
+        children_by_parent.setdefault(nest_parent, set()).add(gid)
+
+    # Virtual outer groups (parent id with no direct leaf members) need >= 2 children.
+    for parent_id, child_ids in children_by_parent.items():
+        if parent_id in groups:
+            continue
+        if len(child_ids) < 2:
+            raise HierarchyConfigError(
+                f"Nested parent group '{parent_id}' must contain at least two nested groups"
+            )
+        names = {
+            nest_parent_name_by_group.get(cid) for cid in child_ids
+        }
+        if len(names) != 1 or not next(iter(names)):
+            raise HierarchyConfigError(
+                f"Nested parent group '{parent_id}' must have a consistent name"
+            )
+
+    for gid, members in groups.items():
+        # A group is valid with >= 2 slots where a slot is a direct leaf member
+        # or a nested child group (so an outer group may hold only subgroups).
+        slots = len(members) + len(children_by_parent.get(gid, set()))
+        if slots < 2:
+            raise HierarchyConfigError(
+                f"Sibling group '{gid}' must contain at least two nodes or nested groups"
+            )
+
+    # Reject cycles in nested group parent chain
+    for gid in groups:
+        seen: set[str] = set()
+        cur: str | None = gid
+        while cur:
+            if cur in seen:
+                raise HierarchyConfigError(
+                    f"Sibling group nesting cycle detected at '{gid}'"
+                )
+            seen.add(cur)
+            members = groups.get(cur) or []
+            raw = members[0].get("sibling_group_parent_id") if members else None
+            cur = str(raw).strip() if raw else None
 
     try:
         validate_config_nodes_entity_list(session, nodes)
@@ -258,6 +338,10 @@ def _replace_children(
         sibling_group_id = str(raw_gid).strip() if raw_gid else None
         raw_gname = node.get("sibling_group_name")
         sibling_group_name = str(raw_gname).strip() if raw_gname else None
+        raw_gparent = node.get("sibling_group_parent_id")
+        sibling_group_parent_id = str(raw_gparent).strip() if raw_gparent else None
+        raw_gpname = node.get("sibling_group_parent_name")
+        sibling_group_parent_name = str(raw_gpname).strip() if raw_gpname else None
         db_node = HierarchyConfigNode(
             configuration_id=config.id,
             level=str(node["level"]).strip().lower(),
@@ -270,6 +354,10 @@ def _replace_children(
             inventory_source=normalize_inventory_source(node.get("inventory_source")),
             sibling_group_id=sibling_group_id or None,
             sibling_group_name=sibling_group_name or None,
+            sibling_group_parent_id=sibling_group_parent_id or None,
+            sibling_group_parent_name=(
+                sibling_group_parent_name if sibling_group_parent_id else None
+            ),
         )
         session.add(db_node)
         session.flush()
@@ -400,6 +488,9 @@ def update_configuration(
                     ),
                     "sibling_group_id": getattr(n, "sibling_group_id", None),
                     "sibling_group_name": getattr(n, "sibling_group_name", None),
+                    "sibling_group_parent_id": getattr(
+                        n, "sibling_group_parent_id", None
+                    ),
                 }
                 for n in config.nodes
             ]
@@ -540,6 +631,9 @@ def configuration_to_dict(config: HierarchyConfiguration) -> dict[str, Any]:
                 ),
                 "sibling_group_id": getattr(n, "sibling_group_id", None),
                 "sibling_group_name": getattr(n, "sibling_group_name", None),
+                "sibling_group_parent_id": getattr(
+                    n, "sibling_group_parent_id", None
+                ),
             }
             for n in nodes
         ],

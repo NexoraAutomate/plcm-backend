@@ -202,8 +202,14 @@ INVENTORY_COST_COLUMN_DDL = [
     ("bulk_quote_cost", "NUMERIC(18, 2)"),
 ]
 
+# Alembic h9b0c1d2e3 — warranty dates on inventory / instances.
+INVENTORY_WARRANTY_COLUMN_DDL = [
+    ("warranty_expires_at", "TIMESTAMP WITHOUT TIME ZONE"),
+]
+
 INVENTORY_INSTANCE_COST_COLUMN_DDL = [
     ("unit_cost", "NUMERIC(18, 2)"),
+    ("warranty_expires_at", "TIMESTAMP WITHOUT TIME ZONE"),
 ]
 
 HIERARCHY_OEM_NAME_DDL = [
@@ -212,6 +218,10 @@ HIERARCHY_OEM_NAME_DDL = [
 
 HIERARCHY_CONFIG_NODE_COLUMN_DDL = [
     ("inventory_source", "VARCHAR(32) DEFAULT 'turnkey' NOT NULL"),
+    ("sibling_group_id", "VARCHAR(64)"),
+    ("sibling_group_name", "VARCHAR(255)"),
+    ("sibling_group_parent_id", "VARCHAR(64)"),
+    ("sibling_group_parent_name", "VARCHAR(255)"),
 ]
 
 ASSEMBLED_INVENTORY_TABLE_DDL = """
@@ -642,6 +652,7 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing("status", STATUS_COLUMN_DDL)
     _add_columns_if_missing("project", PROJECT_COLUMN_DDL)
     _add_columns_if_missing("inventory", INVENTORY_COST_COLUMN_DDL)
+    _add_columns_if_missing("inventory", INVENTORY_WARRANTY_COLUMN_DDL)
     _add_columns_if_missing("inventoryinstance", INVENTORY_INSTANCE_COST_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
     _add_columns_if_missing(

@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 from pathlib import Path
@@ -6,6 +7,8 @@ from sqlalchemy import text
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from app.models.tables import *  # Ensure all models are imported so they are registered with SQLModel
+
+logger = logging.getLogger(__name__)
 
 dotenv_path = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path)
@@ -47,12 +50,24 @@ def is_database_restore_in_progress() -> bool:
         return _restore_in_progress
 
 def init_db() -> None:
-    """Create any missing tables from SQLModel metadata (idempotent)."""
+    """Create any missing tables from SQLModel metadata (idempotent).
+
+    Note: create_all only creates *new tables*. It does not add/alter columns on
+    existing tables — use Alembic (`alembic upgrade head`) or schema_bootstrap for that.
+    """
     with engine.connect() as conn:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS public"))
         conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        db_name = conn.execute(text("SELECT current_database()")).scalar()
         conn.commit()
+    before = set(SQLModel.metadata.tables)
     SQLModel.metadata.create_all(engine)
+    logger.info(
+        "init_db: connected to database %r; ensure %d model table(s) exist "
+        "(create_all does not alter existing columns)",
+        db_name,
+        len(before),
+    )
 
 def close_db() -> None:
     """Dispose engine (cleanup)."""

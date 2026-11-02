@@ -1435,6 +1435,12 @@ class HierarchyConfigNodeCommon(SQLModel):
     # Optional visual/org grouping among siblings (same parent); not a hierarchy level.
     sibling_group_id: Optional[str] = Field(default=None, max_length=64, index=True)
     sibling_group_name: Optional[str] = Field(default=None, max_length=255)
+    # When set, this node's group is nested inside another same-tier sibling group.
+    sibling_group_parent_id: Optional[str] = Field(
+        default=None, max_length=64, index=True
+    )
+    # Name of the nested parent group (needed when the parent has no direct leaf members).
+    sibling_group_parent_name: Optional[str] = Field(default=None, max_length=255)
 
 
 class HierarchyConfigNodeBase(HierarchyConfigNodeCommon):
