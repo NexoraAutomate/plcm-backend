@@ -951,13 +951,18 @@ STRUCTURAL_FIELDS = frozenset(
 )
 
 
-def guard_structural_update(project: Project, update_data: dict[str, Any]) -> None:
-    """After approval, freeze config + core counts unless Admin reopens (not Spec 02)."""
+def guard_structural_update(
+    project: Project,
+    update_data: dict[str, Any],
+    *,
+    actor: User | None = None,
+) -> None:
+    """After approval, only Admin may edit the project (including structural fields)."""
     if not is_structural_frozen(project):
         return
-    touched = STRUCTURAL_FIELDS.intersection(update_data.keys())
-    if touched:
+    if actor is not None and has_workflow_role(_role_names(actor), WorkflowRole.ADMIN):
+        return
+    if update_data:
         raise ProjectWorkflowError(
-            "Structural fields are frozen after approval: "
-            + ", ".join(sorted(touched))
+            "Only Admin can edit a project after it has been approved"
         )

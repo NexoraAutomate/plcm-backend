@@ -748,7 +748,7 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
     update_data = project.model_dump(exclude_unset=True)
     update_data.pop("progress", None)
     try:
-        guard_structural_update(db_project, update_data)
+        guard_structural_update(db_project, update_data, actor=current_user)
         if status_is_completion_target(session, update_data.get("status_id")):
             assert_completion_allowed(session, db_project)
     except ProjectWorkflowError as exc:
