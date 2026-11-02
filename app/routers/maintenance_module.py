@@ -36,9 +36,16 @@ from app.services.configuration_history import (
     create_configuration_history_for_resolve,
     get_hardware_part_serial,
 )
-from app.models.base import FaultyEntityStatus, FaultType, ResolutionType
+from app.models.base import CaseStatus, FaultyEntityStatus, FaultType, ResolutionType
 
 router = APIRouter()
+
+# Active cases that block opening another case for the same hardware entity.
+OPEN_CASE_STATUSES = (
+    CaseStatus.OPEN,
+    CaseStatus.UNDER_INSPECTION,
+    CaseStatus.UNDER_REPAIR,
+)
 
 
 from app.schemas.schemas import MaintenanceUserRead
@@ -96,6 +103,27 @@ def create_maintenance_case(
     """
     project= session.get(Project, payload.project_id)
     payload.project_name = project.name if project else "Undefined"
+
+    # Block a second open/active case for the same hardware (same serial via entity).
+    if payload.entity_id is not None and payload.entity_type:
+        entity_type_norm = str(payload.entity_type).strip().lower()
+        existing_open = session.exec(
+            select(MaintenanceCase).where(
+                MaintenanceCase.entity_id == payload.entity_id,
+                func.lower(MaintenanceCase.entity_type) == entity_type_norm,
+                MaintenanceCase.status.in_(OPEN_CASE_STATUSES),
+            )
+        ).first()
+        if existing_open:
+            case_ref = existing_open.case_number or f"#{existing_open.id}"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"An open maintenance case already exists for this serial number "
+                    f"({case_ref}). Close or resolve it before opening a new case."
+                ),
+            )
+
     data = payload.model_dump()
     data["reported_by"] = data.get("reported_by") or current_user.id
     # resolved_at is set only when engineers resolve the case
