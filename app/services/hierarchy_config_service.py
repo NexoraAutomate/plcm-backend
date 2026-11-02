@@ -491,6 +491,9 @@ def update_configuration(
                     "sibling_group_parent_id": getattr(
                         n, "sibling_group_parent_id", None
                     ),
+                    "sibling_group_parent_name": getattr(
+                        n, "sibling_group_parent_name", None
+                    ),
                 }
                 for n in config.nodes
             ]
@@ -633,6 +636,9 @@ def configuration_to_dict(config: HierarchyConfiguration) -> dict[str, Any]:
                 "sibling_group_name": getattr(n, "sibling_group_name", None),
                 "sibling_group_parent_id": getattr(
                     n, "sibling_group_parent_id", None
+                ),
+                "sibling_group_parent_name": getattr(
+                    n, "sibling_group_parent_name", None
                 ),
             }
             for n in nodes
