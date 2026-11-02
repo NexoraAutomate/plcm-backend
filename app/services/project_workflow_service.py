@@ -237,6 +237,65 @@ def _require_available_config(
     return config
 
 
+def _normalize_hierarchy_config_ids_by_flight(
+    session: Session,
+    *,
+    default_config_id: int,
+    product_type: str,
+    sdls_counts_by_flight: list[int],
+    raw_matrix: Any,
+) -> list[list[int]]:
+    """Build a config-id matrix aligned to SDLS counts; default every cell to project config."""
+    flight_count = len(sdls_counts_by_flight)
+    default_id = int(default_config_id)
+
+    if raw_matrix is None or raw_matrix == []:
+        matrix = [
+            [default_id for _ in range(int(count))]
+            for count in sdls_counts_by_flight
+        ]
+    elif not isinstance(raw_matrix, (list, tuple)):
+        raise ProjectWorkflowError("hierarchy_config_ids_by_flight must be a list")
+    else:
+        if len(raw_matrix) != flight_count:
+            raise ProjectWorkflowError(
+                "hierarchy_config_ids_by_flight must contain one list per flight"
+            )
+        matrix = []
+        for flight_index, row in enumerate(raw_matrix):
+            expected = int(sdls_counts_by_flight[flight_index])
+            if not isinstance(row, (list, tuple)):
+                raise ProjectWorkflowError(
+                    "hierarchy_config_ids_by_flight rows must be lists of configuration ids"
+                )
+            if len(row) != expected:
+                raise ProjectWorkflowError(
+                    "hierarchy_config_ids_by_flight row length must match SDLS count for each flight"
+                )
+            normalized_row: list[int] = []
+            for cell in row:
+                try:
+                    config_id = int(cell) if cell not in (None, "") else default_id
+                except (TypeError, ValueError) as exc:
+                    raise ProjectWorkflowError(
+                        "hierarchy_config_ids_by_flight must contain configuration ids"
+                    ) from exc
+                if config_id <= 0:
+                    config_id = default_id
+                normalized_row.append(config_id)
+            matrix.append(normalized_row)
+
+    # Validate every referenced config (including defaults) is available for product_type.
+    seen: set[int] = set()
+    for row in matrix:
+        for config_id in row:
+            if config_id in seen:
+                continue
+            _require_available_config(session, config_id, product_type)
+            seen.add(config_id)
+    return matrix
+
+
 def _can_bootstrap_existing_project(actor: User) -> bool:
     """Admin, PD, and HM may register existing-hardware projects."""
     names = _role_names(actor)
@@ -434,6 +493,13 @@ def create_draft_project(
     sdls_per_flight = max(sdls_counts_by_flight)
 
     config = _require_available_config(session, int(config_id), product_type)
+    hierarchy_config_ids_by_flight = _normalize_hierarchy_config_ids_by_flight(
+        session,
+        default_config_id=int(config.id),
+        product_type=product_type,
+        sdls_counts_by_flight=sdls_counts_by_flight,
+        raw_matrix=payload.get("hierarchy_config_ids_by_flight"),
+    )
     draft_status_id = get_project_status_id(
         session, ProjectWorkflowStatus.DRAFT.value
     )
@@ -457,6 +523,8 @@ def create_draft_project(
     owner_id = int(payload.get("owner_id") or assigned_hm_id)
     start_date = ensure_utc(payload.get("start_date")) or _now()
     end_date = ensure_utc(payload.get("end_date"))
+    if end_date is not None and end_date.date() < start_date.date():
+        raise ProjectWorkflowError("End date cannot be earlier than start date")
     order_id = payload.get("order_id")
     if order_id in (0, "", None):
         order_id = None
@@ -478,6 +546,7 @@ def create_draft_project(
         flight_count=flight_count,
         sdls_per_flight=sdls_per_flight,
         sdls_counts_by_flight=sdls_counts_by_flight,
+        hierarchy_config_ids_by_flight=hierarchy_config_ids_by_flight,
         assigned_hm_id=assigned_hm_id,
         is_existing_project=is_existing,
         created_by_id=actor.id,
@@ -567,15 +636,27 @@ def create_draft_projects_by_flight(
     if any(count < 1 for count in sdls_counts_by_flight):
         raise ProjectWorkflowError("sdls_counts_by_flight values must be >= 1")
 
+    raw_config_matrix = payload.get("hierarchy_config_ids_by_flight")
     projects: list[Project] = []
     try:
         for flight_number, sdls_count in enumerate(sdls_counts_by_flight, start=1):
+            flight_index = flight_number - 1
+            flight_config_row = None
+            if isinstance(raw_config_matrix, (list, tuple)) and flight_index < len(
+                raw_config_matrix
+            ):
+                flight_config_row = raw_config_matrix[flight_index]
             flight_payload = {
                 **payload,
                 "name": f"{name} - Flight {flight_number}",
                 "flight_count": 1,
                 "sdls_per_flight": sdls_count,
                 "sdls_counts_by_flight": [sdls_count],
+                "hierarchy_config_ids_by_flight": (
+                    [list(flight_config_row)]
+                    if isinstance(flight_config_row, (list, tuple))
+                    else None
+                ),
             }
             projects.append(
                 create_draft_project(
@@ -865,6 +946,7 @@ STRUCTURAL_FIELDS = frozenset(
         "flight_count",
         "sdls_per_flight",
         "sdls_counts_by_flight",
+        "hierarchy_config_ids_by_flight",
     }
 )
 

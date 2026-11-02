@@ -206,6 +206,11 @@ class ProjectCommon(SQLModel):
     sdls_counts_by_flight: Optional[list[int]] = Field(
         default=None, sa_column=Column(JSON, nullable=True)
     )
+    # Parallel to sdls_counts_by_flight: one hierarchy_config_id per SDLS under each flight.
+    # Omit/null → every SDLS uses project.hierarchy_config_id.
+    hierarchy_config_ids_by_flight: Optional[list[list[int]]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
     assigned_hm_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     approved_by_id: Optional[int] = Field(default=None, foreign_key="user.id")

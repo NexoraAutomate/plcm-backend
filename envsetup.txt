@@ -1,0 +1,1 @@
+"C:\Project files\Jul-2026\plcm-backend\.venv\Scripts\activate.bat"

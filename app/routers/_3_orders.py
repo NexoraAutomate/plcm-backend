@@ -45,11 +45,23 @@ def _normalize_production_support(
     return support
 
 
+def _validate_total_value(total_value) -> None:
+    if total_value is None:
+        return
+    try:
+        value = float(total_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Total value must be a positive number")
+    if value <= 0:
+        raise HTTPException(status_code=400, detail="Total value must be a positive number")
+
+
 # ===================== ORDER ENDPOINTS =====================
 
 @router.post("/orders/", response_model=schemas.OrderRead, tags=["orders"])
 def create_order(order: schemas.OrderCreate, session: Session = Depends(get_session), current_user: User = Depends(require_permission("create_orders"))):
     payload = order.model_dump()
+    _validate_total_value(payload.get("total_value"))
     payload["production_support_date"] = _normalize_production_support(
         payload.get("delivery_date"),
         payload.get("production_support_date"),
@@ -150,6 +162,8 @@ def update_order(order_id: int, order: schemas.OrderUpdate, session: Session = D
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
     updates = order.model_dump(exclude_unset=True)
+    if "total_value" in updates:
+        _validate_total_value(updates.get("total_value"))
     next_delivery = updates["delivery_date"] if "delivery_date" in updates else db_order.delivery_date
     next_support = (
         updates["production_support_date"]
@@ -221,4 +235,14 @@ def list_order_projects(order_id: int, session: Session = Depends(get_session)):
     order = session.get(Order, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return order.projects
+    # Explicit ProjectRead mapping so hierarchy config + SDLS arrays are always present.
+    results: list[schemas.ProjectRead] = []
+    for project in order.projects or []:
+        status_name = project.status.status_name if project.status else None
+        results.append(
+            schemas.ProjectRead(
+                **project.model_dump(),
+                status_name=status_name,
+            )
+        )
+    return results

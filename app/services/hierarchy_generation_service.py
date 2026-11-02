@@ -290,20 +290,50 @@ def generate_project_hierarchy(
             "Project flight_count and SDLS counts are required"
         )
 
-    config = session.get(HierarchyConfiguration, project.hierarchy_config_id)
-    if not config:
+    default_config = session.get(HierarchyConfiguration, project.hierarchy_config_id)
+    if not default_config:
         raise ProjectWorkflowError("Hierarchy configuration not found")
 
-    template_nodes = _sorted_template_nodes(list(config.nodes or []))
-    system_nodes = [
-        n
-        for n in template_nodes
-        if str(n.level).lower() == HierarchyConfigLevel.SYSTEM.value
-    ]
-    if not system_nodes:
-        raise ProjectWorkflowError(
-            "Hierarchy configuration has no System-level template nodes"
-        )
+    def _template_for_config(config: HierarchyConfiguration) -> list[HierarchyConfigNode]:
+        nodes = _sorted_template_nodes(list(config.nodes or []))
+        system_nodes = [
+            n
+            for n in nodes
+            if str(n.level).lower() == HierarchyConfigLevel.SYSTEM.value
+        ]
+        if not system_nodes:
+            raise ProjectWorkflowError(
+                f"Hierarchy configuration '{config.name}' has no System-level template nodes"
+            )
+        return nodes
+
+    config_cache: dict[int, HierarchyConfiguration] = {
+        int(default_config.id): default_config
+    }
+    template_cache: dict[int, list[HierarchyConfigNode]] = {
+        int(default_config.id): _template_for_config(default_config)
+    }
+
+    def _resolve_config(config_id: int) -> tuple[HierarchyConfiguration, list[HierarchyConfigNode]]:
+        cid = int(config_id) if config_id else int(default_config.id)
+        if cid not in config_cache:
+            loaded = session.get(HierarchyConfiguration, cid)
+            if not loaded:
+                raise ProjectWorkflowError(
+                    f"Hierarchy configuration id {cid} not found for SDLS generation"
+                )
+            config_cache[cid] = loaded
+            template_cache[cid] = _template_for_config(loaded)
+        return config_cache[cid], template_cache[cid]
+
+    def _product_type_for_config(config: HierarchyConfiguration) -> str:
+        codes = [str(pt.code) for pt in (config.product_types or []) if getattr(pt, "code", None)]
+        project_type = str(project.product_type or "").strip()
+        if project_type and project_type in codes:
+            return project_type
+        if codes:
+            return codes[0]
+        return project_type
 
     flight_count = int(project.flight_count)
     sdls_counts_by_flight = list(
@@ -316,6 +346,24 @@ def generate_project_hierarchy(
         raise ProjectWorkflowError(
             "Project SDLS counts must contain one positive value for each flight"
         )
+
+    raw_config_matrix = list(project.hierarchy_config_ids_by_flight or [])
+    config_matrix: list[list[int]] = []
+    for flight_index, sdls_count in enumerate(sdls_counts_by_flight):
+        row = (
+            list(raw_config_matrix[flight_index])
+            if flight_index < len(raw_config_matrix)
+            and isinstance(raw_config_matrix[flight_index], (list, tuple))
+            else []
+        )
+        normalized: list[int] = []
+        for sdls_offset in range(int(sdls_count)):
+            if sdls_offset < len(row) and row[sdls_offset]:
+                normalized.append(int(row[sdls_offset]))
+            else:
+                normalized.append(int(default_config.id))
+        config_matrix.append(normalized)
+
     actor_id = int(actor.id)
     role = _actor_role(actor)
     transition_role = None if automated else role
@@ -349,13 +397,16 @@ def generate_project_hierarchy(
 
         sdls_count = int(sdls_counts_by_flight[offset])
         for s_idx in range(1, sdls_count + 1):
+            sdls_config, template_nodes = _resolve_config(
+                config_matrix[offset][s_idx - 1]
+            )
             sdls_name = f"SDLS-{s_idx}"
             sdls = Sdls(
                 name=sdls_name,
                 code=f"F{f_idx:02d}-S{s_idx:02d}",
                 sequence=s_idx,
                 flight_id=int(flight.id),
-                product_type=project.product_type,
+                product_type=_product_type_for_config(sdls_config),
                 description=f"Generated SDLS {s_idx} under {flight.code}",
             )
             session.add(sdls)

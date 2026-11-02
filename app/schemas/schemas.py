@@ -489,6 +489,7 @@ class ProjectRead(ProjectBase):
     flight_count: Optional[int] = None
     sdls_per_flight: Optional[int] = None
     sdls_counts_by_flight: Optional[List[int]] = None
+    hierarchy_config_ids_by_flight: Optional[List[List[int]]] = None
     assigned_hm_id: Optional[int] = None
     created_by_id: Optional[int] = None
     approved_by_id: Optional[int] = None
@@ -518,6 +519,7 @@ class ProjectUpdate(SQLModel):
     flight_count: Optional[int] = None
     sdls_per_flight: Optional[int] = None
     sdls_counts_by_flight: Optional[List[int]] = None
+    hierarchy_config_ids_by_flight: Optional[List[List[int]]] = None
     assigned_hm_id: Optional[int] = None
     is_existing_project: Optional[bool] = None
 
@@ -535,6 +537,7 @@ class ProjectDraftCreate(SQLModel):
     flight_count: int = Field(ge=1)
     sdls_per_flight: Optional[int] = Field(default=None, ge=1)
     sdls_counts_by_flight: Optional[List[int]] = None
+    hierarchy_config_ids_by_flight: Optional[List[List[int]]] = None
     is_existing_project: bool = False
 
 

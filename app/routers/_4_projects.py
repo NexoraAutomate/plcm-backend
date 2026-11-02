@@ -761,6 +761,18 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, session: Ses
         if k in ("start_date", "end_date"):
             v = ensure_utc(v)
         setattr(db_project, k, v)
+
+    next_start = db_project.start_date
+    next_end = db_project.end_date
+    if next_start is not None and next_end is not None:
+        start_day = next_start.date() if hasattr(next_start, "date") else next_start
+        end_day = next_end.date() if hasattr(next_end, "date") else next_end
+        if end_day < start_day:
+            raise HTTPException(
+                status_code=400,
+                detail="End date cannot be earlier than start date",
+            )
+
     session.add(db_project)
     session.flush()
 
