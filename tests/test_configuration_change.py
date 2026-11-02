@@ -331,7 +331,7 @@ def test_sealed_project_rejects_in_place_config_update(
         session, admin_user, [f"Alt-{uuid.uuid4().hex[:5]}"], f"ALT-{uuid.uuid4().hex[:6]}"
     )
     try:
-        with pytest.raises(ProjectWorkflowError, match="frozen"):
+        with pytest.raises(ProjectWorkflowError, match="Only Admin can edit"):
             guard_structural_update(
                 project, {"hierarchy_config_id": int(other.id)}
             )
@@ -364,7 +364,7 @@ def test_config_change_flow_creates_successor_and_frees_inventory(
         _reserve(session, project.id, systems[names[1]], serials[1], admin_user)
         _issue(session, systems[names[1]], developer_user, admin_user)
 
-        with pytest.raises(ProjectWorkflowError, match="frozen"):
+        with pytest.raises(ProjectWorkflowError, match="Only Admin can edit"):
             guard_structural_update(project, {"hierarchy_config_id": int(target.id)})
 
         cr = request_config_change(session, int(project.id), actor=admin_user)
