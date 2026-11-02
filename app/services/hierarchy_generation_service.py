@@ -485,8 +485,8 @@ def generate_project_hierarchy(
         "project_id": int(project.id),
         "status": project_status_name(project)
         or ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
-        "config_code": config.code,
-        "config_name": config.name,
+        "config_code": default_config.code,
+        "config_name": default_config.name,
         "product_type": project.product_type or "",
         "counts": counts,
         "shortages_created": shortages_created,
