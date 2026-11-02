@@ -27,7 +27,16 @@ from app.models.tables import User
 from app.schemas.Maintennance import EntityLookupRead
 from app.models.base import EntityType, ActionType
 from app.schemas.Maintennance import *
-from app.models.helpers import _generate_case_number, _cascade_fault_up,_SR_SEARCH_MODELS, _collect_descendants,_create_suspect_fes, _clear_healthy_fes, _resolve_ancestors
+from app.models.helpers import (
+    _generate_case_number,
+    _cascade_fault_up,
+    _SR_SEARCH_MODELS,
+    _collect_descendants,
+    _create_suspect_fes,
+    _clear_healthy_fes,
+    _resolve_ancestors,
+    _ENTITY_MODEL_MAP,
+)
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.list_query import text_search
@@ -521,6 +530,119 @@ def list_faulty_entities(
         FaultyEntityRead.model_validate(row).model_copy(update={"actions": []})
         for row in rows
     ]
+
+
+def _lookup_entity_oem_name(
+    session: Session,
+    entity_type: str | EntityType | None,
+    entity_id: int | None,
+) -> Optional[str]:
+    if entity_type is None or entity_id is None:
+        return None
+    try:
+        et = (
+            entity_type
+            if isinstance(entity_type, EntityType)
+            else EntityType(str(entity_type).lower().strip())
+        )
+    except ValueError:
+        return None
+    entry = _ENTITY_MODEL_MAP.get(et)
+    if not entry:
+        return None
+    model_cls, _, _ = entry
+    row = session.get(model_cls, entity_id)
+    if not row:
+        return None
+    oem = getattr(row, "oem_name", None)
+    if oem is None:
+        return None
+    trimmed = str(oem).strip()
+    return trimmed or None
+
+
+@router.get(
+    "/faulty-entities/product-fault-history/",
+    response_model=ProductFaultHistoryRead,
+    tags=["faulty-entities"],
+)
+def get_product_fault_history(
+    part_number: str,
+    oem_name: Optional[str] = None,
+    limit: int = 200,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_faulty_entities")),
+):
+    """
+    Fault history for the same product (part number), aggregated by OEM.
+
+    Returns same-OEM vs different-OEM counts relative to `oem_name` (current
+    entity OEM), plus a chronological history list for drill-down.
+    """
+    pn = (part_number or "").strip()
+    if not pn:
+        raise HTTPException(status_code=400, detail="part_number is required")
+
+    current_oem = (oem_name or "").strip() or None
+    capped = max(1, min(limit, 500))
+
+    records = session.exec(
+        select(FaultyEntity)
+        .where(FaultyEntity.part_number == pn)
+        .order_by(FaultyEntity.identified_at.desc())
+        .limit(capped)
+    ).all()
+
+    history: list[ProductFaultHistoryItem] = []
+    same_oem = 0
+    different_oem = 0
+    unknown_oem = 0
+    oem_cache: dict[tuple[str, int], Optional[str]] = {}
+
+    for row in records:
+        cache_key = (str(row.entity_type).lower(), int(row.entity_id))
+        if cache_key not in oem_cache:
+            oem_cache[cache_key] = _lookup_entity_oem_name(
+                session, row.entity_type, row.entity_id
+            )
+        row_oem = oem_cache[cache_key]
+
+        same: Optional[bool] = None
+        if current_oem and row_oem:
+            same = row_oem.casefold() == current_oem.casefold()
+            if same:
+                same_oem += 1
+            else:
+                different_oem += 1
+        elif current_oem and not row_oem:
+            unknown_oem += 1
+        elif not current_oem and row_oem:
+            unknown_oem += 1
+        else:
+            unknown_oem += 1
+
+        item = ProductFaultHistoryItem.model_validate(row).model_copy(
+            update={
+                "actions": [],
+                "oem_name": row_oem,
+                "same_oem": same,
+            }
+        )
+        history.append(item)
+
+    last = history[0] if history else None
+    return ProductFaultHistoryRead(
+        part_number=pn,
+        current_oem=current_oem,
+        same_oem_fault_count=same_oem,
+        different_oem_fault_count=different_oem,
+        unknown_oem_fault_count=unknown_oem,
+        total_fault_count=len(history),
+        last_fault_at=last.identified_at if last else None,
+        last_fault_id=last.id if last else None,
+        history=history,
+    )
+
 
 @router.get(
     "/faulty-entities/{fe_id}/",

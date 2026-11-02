@@ -70,6 +70,30 @@ class FaultyEntityRead(FaultyEntityBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProductFaultHistoryItem(FaultyEntityRead):
+    """Faulty-entity row enriched with the hierarchy OEM at lookup time."""
+    oem_name: Optional[str] = None
+    same_oem: Optional[bool] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProductFaultHistoryRead(SQLModel):
+    """
+    Aggregate fault history for a product (part number), split by OEM.
+    Used by maintenance entity stocking detail → Fault History tab.
+    """
+    part_number: str
+    current_oem: Optional[str] = None
+    same_oem_fault_count: int = 0
+    different_oem_fault_count: int = 0
+    unknown_oem_fault_count: int = 0
+    total_fault_count: int = 0
+    last_fault_at: Optional[datetime] = None
+    last_fault_id: Optional[int] = None
+    history: List[ProductFaultHistoryItem] = []
+
+
 class SuspectChildrenPayload(SQLModel):
     """
     POST /maintenance-cases/{case_id}/suspect-children/
