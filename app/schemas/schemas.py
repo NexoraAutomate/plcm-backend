@@ -1843,6 +1843,13 @@ class InventoryShortageRead(SQLModel):
         orm_mode = True
 
 
+class InventoryShortageReconcileRead(SQLModel):
+    """Result of catch-up FCFS against warehouse stock already on hand."""
+
+    fulfillments: List[FCFSFulfillmentRead] = Field(default_factory=list)
+    fulfilled_count: int = 0
+
+
 class InventoryShortageNoticeRead(SQLModel):
     id: int
     user_id: int

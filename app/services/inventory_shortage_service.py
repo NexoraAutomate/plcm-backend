@@ -47,6 +47,7 @@ from app.services.inventory_reservation_service import (
 from app.services.inventory_service import (
     create_inventory_instance,
     find_inventory_catalog_group,
+    materialize_legacy_inventory_instances,
     normalize_part_number,
 )
 
@@ -881,15 +882,27 @@ def mark_all_shortage_notices_read(session: Session, user_id: int) -> int:
 def _shortage_matches_inventory(
     shortage: InventoryShortage, inventory: Inventory
 ) -> bool:
+    """Match waiting shortages to newly received stock.
+
+    IM may add stock via Add Inventory (not the shortage receive dialog). In that
+    path the catalog part number can differ from the hierarchy/shell PN stored on
+    the shortage, so identity is also matched by inventory id and by
+    name + inventory type (LRU).
+    """
+    if shortage.inventory_id is not None and inventory.id is not None:
+        if int(shortage.inventory_id) == int(inventory.id):
+            return True
+
     sn = normalize_part_number(shortage.part_number)
     pn = normalize_part_number(inventory.part_number)
-    if sn and pn:
-        return sn == pn
-    if shortage.inventory_id and inventory.id:
-        return int(shortage.inventory_id) == int(inventory.id)
+    if sn and pn and sn == pn:
+        return True
+
     lru = (shortage.lru_name or "").strip().lower()
     name = (inventory.name or "").strip().lower()
-    return bool(lru) and lru == name and shortage.target_entity_type == inventory.inventory_type
+    shortage_type = (shortage.target_entity_type or "").strip().lower()
+    inventory_type = (inventory.inventory_type or "").strip().lower()
+    return bool(lru) and bool(name) and lru == name and shortage_type == inventory_type
 
 
 def _open_shortages_for_inventory(
@@ -904,6 +917,105 @@ def _open_shortages_for_inventory(
         .order_by(InventoryShortage.requested_at.asc(), InventoryShortage.id.asc())
     ).all()
     return [row for row in rows if _shortage_matches_inventory(row, inventory)]
+
+
+def _inventory_has_free_instance(session: Session, inventory: Inventory) -> bool:
+    instances = materialize_legacy_inventory_instances(session, inventory)
+    return any(is_instance_free_for_project_reserve(session, inst) for inst in instances)
+
+
+def resolve_inventory_for_shortage(
+    session: Session, shortage: InventoryShortage
+) -> Optional[Inventory]:
+    """Find warehouse stock that can fulfill this shortage (id, name+type, or PN)."""
+    if shortage.inventory_id is not None:
+        inv = session.get(Inventory, int(shortage.inventory_id))
+        if inv is not None:
+            return inv
+
+    name = (shortage.lru_name or "").strip()
+    entity_type = (shortage.target_entity_type or "").strip().lower()
+    if name and entity_type:
+        # Prefer name+type without PN — catalog PN often differs from hierarchy PN.
+        by_name = list(
+            session.exec(
+                select(Inventory).where(
+                    Inventory.inventory_type == entity_type,
+                    func.lower(Inventory.name) == name.lower(),
+                )
+            ).all()
+        )
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            with_free = [
+                row for row in by_name if _inventory_has_free_instance(session, row)
+            ]
+            if with_free:
+                return with_free[0]
+            return by_name[0]
+        by_group = find_inventory_catalog_group(
+            session,
+            name=name,
+            inventory_type=entity_type,
+            part_number=shortage.part_number,
+        )
+        if by_group is not None:
+            return by_group
+
+    pn = normalize_part_number(shortage.part_number)
+    if pn:
+        return session.exec(
+            select(Inventory).where(func.lower(Inventory.part_number) == pn)
+        ).first()
+    return None
+
+
+def reconcile_open_shortages_with_available_stock(
+    session: Session,
+    *,
+    actor: User,
+) -> list[dict[str, Any]]:
+    """Catch-up FCFS: reserve free warehouse units against waiting shortages.
+
+    Used when IM already added stock via Add Inventory (or before matching was
+    fixed) and shortages remain open despite available inventory.
+    """
+    open_rows = list_shortages(
+        session,
+        statuses=list(ACTIVE_SHORTAGE_STATUSES),
+    )
+    if not open_rows:
+        return []
+
+    inventory_by_id: dict[int, Inventory] = {}
+    for shortage in open_rows:
+        inventory = resolve_inventory_for_shortage(session, shortage)
+        if inventory is None or inventory.id is None:
+            continue
+        inventory_by_id[int(inventory.id)] = inventory
+
+    fulfillments: list[dict[str, Any]] = []
+    for inventory in inventory_by_id.values():
+        instances = materialize_legacy_inventory_instances(session, inventory)
+        free_instances = [
+            inst
+            for inst in instances
+            if is_instance_free_for_project_reserve(session, inst)
+        ]
+        for instance in free_instances:
+            waiting = _open_shortages_for_inventory(session, inventory)
+            if not waiting:
+                break
+            fulfillments.extend(
+                match_and_auto_reserve_on_receipt(
+                    session,
+                    inventory,
+                    actor=actor,
+                    instance=instance,
+                )
+            )
+    return fulfillments
 
 
 def _ensure_instance_available(
@@ -973,6 +1085,10 @@ def match_and_auto_reserve_on_receipt(
 
         shortage.qty_short = max(0, int(shortage.qty_short) - apply_qty)
         shortage.fulfilled_reservation_id = reservation.id
+        if shortage.inventory_id is None and inventory.id is not None:
+            shortage.inventory_id = int(inventory.id)
+        if not (shortage.part_number or "").strip() and (inventory.part_number or "").strip():
+            shortage.part_number = inventory.part_number
         shortage.updated_at = _now()
         if shortage.qty_short <= 0:
             shortage.status = ShortageStatus.FULFILLED.value

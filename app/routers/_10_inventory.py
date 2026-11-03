@@ -1499,6 +1499,31 @@ def list_inventory_shortages(
 
 
 @router.post(
+    "/inventory/shortages/reconcile/",
+    response_model=schemas.InventoryShortageReconcileRead,
+    tags=["inventory"],
+)
+def reconcile_inventory_shortages(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("inventory.receive")),
+):
+    """Catch-up FCFS when stock was added via Add Inventory but shortages stayed open."""
+    from app.services.inventory_shortage_service import (
+        reconcile_open_shortages_with_available_stock,
+    )
+
+    _require_can_receive_stock(current_user)
+    fulfillments = reconcile_open_shortages_with_available_stock(
+        session, actor=current_user
+    )
+    session.commit()
+    return schemas.InventoryShortageReconcileRead(
+        fulfillments=[schemas.FCFSFulfillmentRead(**row) for row in fulfillments],
+        fulfilled_count=len(fulfillments),
+    )
+
+
+@router.post(
     "/inventory/shortages/{shortage_id}/receive/",
     response_model=schemas.InventoryRead,
     tags=["inventory"],

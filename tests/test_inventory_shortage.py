@@ -392,6 +392,47 @@ def test_wrong_pn_does_not_clear_unrelated_shortage(session: Session, admin_user
     _cleanup(session, [project], cfg, other)
 
 
+def test_add_inventory_same_name_different_pn_autofulfills(
+    session: Session, admin_user: User
+):
+    """Routine Add Inventory should FCFS-fulfill even when catalog PN ≠ shortage PN."""
+    sys_name = f"Comm-{uuid.uuid4().hex[:6]}"
+    project, cfg = _ready_project(session, admin_user, system_name=sys_name)
+    target = _first_system(session, project)
+    with pytest.raises(InventoryShortageCreated) as caught:
+        reserve_inventory(
+            session,
+            project.id,
+            {"target_entity_type": "system", "target_entity_id": int(target.id)},
+            actor=admin_user,
+        )
+    shortage = session.get(InventoryShortage, caught.value.shortage.id)
+    assert shortage
+    # Simulate hierarchy/shell PN on the shortage vs a different catalog PN on receipt.
+    shortage.part_number = f"PN-SHELL-{uuid.uuid4().hex[:6]}"
+    shortage.inventory_id = None
+    session.add(shortage)
+    session.commit()
+
+    inv = _stock_for_system(
+        session,
+        name=sys_name,
+        serials=["SN-ADD-INV-1"],
+        part_number=f"PN-CATALOG-{uuid.uuid4().hex[:6]}",
+    )
+    session.refresh(inv)
+    fulfillments = match_and_auto_reserve_on_receipt(
+        session, inv, actor=admin_user, instance=inv.instances[0]
+    )
+    assert len(fulfillments) == 1
+    session.refresh(shortage)
+    assert shortage.status == ShortageStatus.FULFILLED.value
+    assert shortage.qty_short == 0
+    assert shortage.inventory_id == inv.id
+    assert list_project_reservations(session, project.id, active_only=True)
+    _cleanup(session, [project], cfg, inv)
+
+
 def test_partial_receipt_decrements_qty(session: Session, admin_user: User):
     sys_name = f"Comm-{uuid.uuid4().hex[:6]}"
     project, cfg = _ready_project(session, admin_user, system_name=sys_name)
