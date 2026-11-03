@@ -20,7 +20,10 @@ from app.schemas import schemas
 from app.routers.auth import get_current_user, require_permission, require_role
 from app.auth import check_permission, is_inventory_manager
 from app.services.audit_service import write_audit_log
-from app.services.inventory_stock_seed import seed_inventory_stock_multiplier
+from app.services.inventory_stock_seed import (
+    get_inventory_seed_options,
+    run_inventory_test_seed,
+)
 from app.services.pagination import paginated_query
 from app.services.list_query import inventory_list_where
 from app.services.entity_list_service import (
@@ -746,6 +749,44 @@ def _filtered_inventory_items(
     return list(session.exec(stmt).all())
 
 
+@router.get(
+    "/inventory/seed-test-stock/options/",
+    response_model=schemas.InventorySeedOptionsRead,
+    tags=["inventory"],
+)
+def get_seed_test_stock_options(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Admin-only: missing shortage items + inventory groups available for seeding."""
+    _ = current_user
+    options = get_inventory_seed_options(session)
+    return schemas.InventorySeedOptionsRead(
+        missing_shortages=[
+            schemas.InventorySeedMissingShortageRead(
+                shortage_ids=item.shortage_ids,
+                lru_name=item.lru_name,
+                inventory_type=item.inventory_type,
+                part_number=item.part_number,
+                qty_short_total=item.qty_short_total,
+                existing_inventory_id=item.existing_inventory_id,
+                existing_quantity=item.existing_quantity,
+            )
+            for item in options.missing_shortages
+        ],
+        inventory_groups=[
+            schemas.InventorySeedCatalogOptionRead(
+                inventory_id=item.inventory_id,
+                name=item.name,
+                inventory_type=item.inventory_type,
+                part_number=item.part_number,
+                quantity=item.quantity,
+            )
+            for item in options.inventory_groups
+        ],
+    )
+
+
 @router.post(
     "/inventory/seed-test-stock/",
     response_model=schemas.InventoryStockSeedRead,
@@ -756,10 +797,11 @@ def seed_test_inventory_stock(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_role("Admin")),
 ):
-    """Admin-only: add multiplier × current qty for each stock group (test data).
+    """Admin-only test seed: bootstrap missing shortages and/or multiply stock.
 
-    Defaults: location R1/C1/R1, quote/unit cost 10, no shelf life/warranty,
-    same part number, serials continue from last used.
+    User chooses which shortage items / inventory groups, multiplier, cost, and
+    location. Bootstrap adds exactly 1 unit per missing shortage catalog item
+    (no auto-reserve) so the next multiply tranche can use those inventory rows.
     """
     if not payload.dry_run and (payload.confirm or "").strip().upper() != "SEED":
         raise HTTPException(
@@ -767,8 +809,10 @@ def seed_test_inventory_stock(
             detail='Confirmation required: set confirm to "SEED" to apply',
         )
     try:
-        result = seed_inventory_stock_multiplier(
+        result = run_inventory_test_seed(
             session,
+            bootstrap_missing_shortages=payload.bootstrap_missing_shortages,
+            multiply_stock=payload.multiply_stock,
             multiplier=payload.multiplier,
             unit_cost=payload.unit_cost,
             location_room=payload.location_room,
@@ -777,6 +821,7 @@ def seed_test_inventory_stock(
             dry_run=payload.dry_run,
             actor=current_user,
             inventory_ids=payload.inventory_ids,
+            shortage_ids=payload.shortage_ids,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -788,6 +833,9 @@ def seed_test_inventory_stock(
             actor=current_user,
             resource_type="inventory",
             details=(
+                f"bootstrap={payload.bootstrap_missing_shortages} "
+                f"bootstrap_units={result.bootstrap_units_added} "
+                f"multiply={payload.multiply_stock} "
                 f"multiplier={result.multiplier} groups={result.groups_processed} "
                 f"units_added={result.units_added} location={result.location}"
             ),
@@ -814,6 +862,21 @@ def seed_test_inventory_stock(
                 skipped_reason=g.skipped_reason,
             )
             for g in result.groups
+        ],
+        bootstrap_created_groups=result.bootstrap_created_groups,
+        bootstrap_units_added=result.bootstrap_units_added,
+        bootstrap_skipped=result.bootstrap_skipped,
+        bootstrap_items=[
+            schemas.InventoryStockSeedBootstrapItemRead(
+                shortage_ids=item.shortage_ids,
+                lru_name=item.lru_name,
+                inventory_type=item.inventory_type,
+                part_number=item.part_number,
+                inventory_id=item.inventory_id,
+                action=item.action,
+                reason=item.reason,
+            )
+            for item in result.bootstrap_items
         ],
     )
 

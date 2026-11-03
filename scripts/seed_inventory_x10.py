@@ -36,7 +36,7 @@ from app.services.inventory_stock_seed import (  # noqa: E402
     DEFAULT_RACK,
     DEFAULT_ROOM,
     DEFAULT_UNIT_COST,
-    seed_inventory_stock_multiplier,
+    run_inventory_test_seed,
 )
 
 
@@ -79,12 +79,29 @@ def main() -> None:
     parser.add_argument(
         "--ids",
         default="",
-        help="Optional comma-separated inventory group ids to limit the seed",
+        help="Optional comma-separated inventory group ids to limit multiply",
+    )
+    parser.add_argument(
+        "--bootstrap-shortages",
+        action="store_true",
+        help="Also add 1 unit for each active shortage missing from inventory",
+    )
+    parser.add_argument(
+        "--multiply-only",
+        action="store_true",
+        help="Skip shortage bootstrap (default when --bootstrap-shortages is off)",
+    )
+    parser.add_argument(
+        "--bootstrap-only",
+        action="store_true",
+        help="Only bootstrap missing shortages; do not multiply stock",
     )
     args = parser.parse_args()
 
     if args.multiplier < 1:
         raise SystemExit("multiplier must be at least 1")
+    if args.bootstrap_only and args.multiply_only:
+        raise SystemExit("Choose at most one of --bootstrap-only / --multiply-only")
 
     inventory_ids = None
     raw_ids = (args.ids or "").strip()
@@ -94,9 +111,17 @@ def main() -> None:
         except ValueError as exc:
             raise SystemExit(f"Invalid --ids value: {args.ids}") from exc
 
+    bootstrap = bool(args.bootstrap_shortages or args.bootstrap_only)
+    multiply = not args.bootstrap_only
+    if args.multiply_only:
+        bootstrap = False
+        multiply = True
+
     with Session(engine) as session:
-        result = seed_inventory_stock_multiplier(
+        result = run_inventory_test_seed(
             session,
+            bootstrap_missing_shortages=bootstrap,
+            multiply_stock=multiply,
             multiplier=args.multiplier,
             unit_cost=args.unit_cost,
             location_room=args.room,
@@ -113,7 +138,18 @@ def main() -> None:
     print(f"Location: {result.location}")
     print(f"Unit / quote cost: {result.unit_cost}")
     print(
-        f"Groups processed={result.groups_processed} "
+        f"Bootstrap: created_groups={result.bootstrap_created_groups} "
+        f"units={result.bootstrap_units_added} skipped={result.bootstrap_skipped}"
+    )
+    for item in result.bootstrap_items:
+        print(
+            f"  shortage {item.lru_name} ({item.inventory_type}) "
+            f"→ {item.action}"
+            + (f" #{item.inventory_id}" if item.inventory_id else "")
+            + (f" ({item.reason})" if item.reason else "")
+        )
+    print(
+        f"Multiply: groups_processed={result.groups_processed} "
         f"skipped={result.groups_skipped} "
         f"units_added={result.units_added}"
     )

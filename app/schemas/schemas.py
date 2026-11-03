@@ -1189,8 +1189,14 @@ class InventoryShortageReceiveRequest(SQLModel):
 
 
 class InventoryStockSeedRequest(SQLModel):
-    """Admin test-data seed: multiply each stock group's quantity."""
+    """Admin test-data seed: bootstrap missing shortages and/or multiply stock.
 
+    Stock selection is user-defined via inventory_ids / shortage_ids and
+    multiplier / cost / location fields.
+    """
+
+    bootstrap_missing_shortages: bool = False
+    multiply_stock: bool = True
     multiplier: int = Field(default=10, ge=1, le=100)
     unit_cost: Decimal = Field(default=Decimal("10"), ge=0)
     location_room: str = Field(default="R1", max_length=64)
@@ -1198,6 +1204,7 @@ class InventoryStockSeedRequest(SQLModel):
     location_rack: str = Field(default="R1", max_length=64)
     dry_run: bool = False
     inventory_ids: Optional[List[int]] = None
+    shortage_ids: Optional[List[int]] = None
     confirm: str = Field(
         default="",
         description='Must be "SEED" when dry_run is false',
@@ -1214,6 +1221,16 @@ class InventoryStockSeedGroupRead(SQLModel):
     skipped_reason: Optional[str] = None
 
 
+class InventoryStockSeedBootstrapItemRead(SQLModel):
+    shortage_ids: List[int] = Field(default_factory=list)
+    lru_name: str
+    inventory_type: str
+    part_number: Optional[str] = None
+    inventory_id: Optional[int] = None
+    action: str
+    reason: Optional[str] = None
+
+
 class InventoryStockSeedRead(SQLModel):
     multiplier: int
     groups_processed: int
@@ -1223,6 +1240,39 @@ class InventoryStockSeedRead(SQLModel):
     unit_cost: Decimal
     dry_run: bool = False
     groups: List[InventoryStockSeedGroupRead] = Field(default_factory=list)
+    bootstrap_created_groups: int = 0
+    bootstrap_units_added: int = 0
+    bootstrap_skipped: int = 0
+    bootstrap_items: List[InventoryStockSeedBootstrapItemRead] = Field(
+        default_factory=list
+    )
+
+
+class InventorySeedMissingShortageRead(SQLModel):
+    shortage_ids: List[int] = Field(default_factory=list)
+    lru_name: str
+    inventory_type: str
+    part_number: Optional[str] = None
+    qty_short_total: int = 0
+    existing_inventory_id: Optional[int] = None
+    existing_quantity: int = 0
+
+
+class InventorySeedCatalogOptionRead(SQLModel):
+    inventory_id: int
+    name: str
+    inventory_type: str
+    part_number: Optional[str] = None
+    quantity: int = 0
+
+
+class InventorySeedOptionsRead(SQLModel):
+    missing_shortages: List[InventorySeedMissingShortageRead] = Field(
+        default_factory=list
+    )
+    inventory_groups: List[InventorySeedCatalogOptionRead] = Field(
+        default_factory=list
+    )
 
 
 class InventoryRead(InventoryBase):
