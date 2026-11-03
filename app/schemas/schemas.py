@@ -1179,6 +1179,50 @@ class InventoryShortageReceiveRequest(SQLModel):
     unit_costs: Optional[List[Decimal]] = None
     bulk_quote_cost: Optional[Decimal] = None
     currency: Optional[str] = None
+    description: Optional[str] = None
+    oem_name: Optional[str] = None
+    original_part_number: Optional[str] = None
+    original_serial_number: Optional[str] = None
+    added_date: Optional[datetime] = None
+    shelf_life_expires_at: Optional[datetime] = None
+    warranty_expires_at: Optional[datetime] = None
+
+
+class InventoryStockSeedRequest(SQLModel):
+    """Admin test-data seed: multiply each stock group's quantity."""
+
+    multiplier: int = Field(default=10, ge=1, le=100)
+    unit_cost: Decimal = Field(default=Decimal("10"), ge=0)
+    location_room: str = Field(default="R1", max_length=64)
+    location_cabinet: str = Field(default="C1", max_length=64)
+    location_rack: str = Field(default="R1", max_length=64)
+    dry_run: bool = False
+    inventory_ids: Optional[List[int]] = None
+    confirm: str = Field(
+        default="",
+        description='Must be "SEED" when dry_run is false',
+    )
+
+
+class InventoryStockSeedGroupRead(SQLModel):
+    inventory_id: int
+    name: str
+    part_number: Optional[str] = None
+    previous_quantity: int
+    units_added: int
+    new_quantity: int
+    skipped_reason: Optional[str] = None
+
+
+class InventoryStockSeedRead(SQLModel):
+    multiplier: int
+    groups_processed: int
+    groups_skipped: int
+    units_added: int
+    location: str
+    unit_cost: Decimal
+    dry_run: bool = False
+    groups: List[InventoryStockSeedGroupRead] = Field(default_factory=list)
 
 
 class InventoryRead(InventoryBase):

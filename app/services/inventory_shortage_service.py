@@ -141,7 +141,15 @@ def _suggested_inventory_identifiers(
                 )
             ).all()
         )
+        existing_serials.extend(
+            session.exec(
+                select(InventoryInstance.original_serial_number).where(
+                    InventoryInstance.inventory_id == inventory.id
+                )
+            ).all()
+        )
         existing_serials.append(inventory.serial_number)
+        existing_serials.append(inventory.original_serial_number)
 
     definitions = session.exec(select(AppDefinitions).limit(1)).first()
     if definitions is None:
@@ -573,6 +581,13 @@ def receive_shortage_stock(
     unit_costs: Optional[list] = None,
     bulk_quote_cost=None,
     currency: Optional[str] = None,
+    description: Optional[str] = None,
+    oem_name: Optional[str] = None,
+    original_part_number: Optional[str] = None,
+    original_serial_number: Optional[str] = None,
+    added_date=None,
+    shelf_life_expires_at=None,
+    warranty_expires_at=None,
 ) -> tuple[Inventory, list[dict[str, Any]]]:
     """Receive stock from the shortage list and immediately run FCFS fulfillment."""
     shortage = session.get(InventoryShortage, shortage_id)
@@ -611,6 +626,16 @@ def receive_shortage_stock(
         serials = [suggested_serial_number]
     if not resolved_part_number and not (inventory and inventory.part_number):
         raise InventoryShortageError("Part number is required for inventory stock")
+    resolved_part_compare = (
+        resolved_part_number
+        or (inventory.part_number if inventory else None)
+        or ""
+    ).strip().lower()
+    for serial in serials:
+        if serial.lower() == resolved_part_compare:
+            raise InventoryShortageError(
+                "Serial number must be different from the part number"
+            )
 
     room = (location_room or "").strip() or None
     cabinet = (location_cabinet or "").strip() or None
@@ -634,6 +659,19 @@ def receive_shortage_stock(
     resolved_currency = (currency or (inventory.currency if inventory else None) or "PKR")
     resolved_currency = str(resolved_currency).strip().upper() or "PKR"
 
+    resolved_description = (description or "").strip() or None
+    resolved_oem_name = (oem_name or "").strip() or None
+    resolved_original_part = (original_part_number or "").strip() or None
+    resolved_original_serial = (original_serial_number or "").strip() or None
+    if (
+        resolved_original_serial
+        and resolved_part_compare
+        and resolved_original_serial.lower() == resolved_part_compare
+    ):
+        raise InventoryShortageError(
+            "Supplier serial number must be different from the part number"
+        )
+
     if inventory is None:
         inventory = Inventory(
             name=requested_name,
@@ -644,6 +682,11 @@ def receive_shortage_stock(
             holder_user_id=int(actor.id),
             currency=resolved_currency,
             bulk_quote_cost=bulk_quote_cost,
+            description=resolved_description,
+            oem_name=resolved_oem_name,
+            original_part_number=resolved_original_part,
+            shelf_life_expires_at=shelf_life_expires_at,
+            warranty_expires_at=warranty_expires_at,
         )
         session.add(inventory)
         session.flush()
@@ -655,6 +698,12 @@ def receive_shortage_stock(
     inventory.currency = resolved_currency
     if bulk_quote_cost is not None:
         inventory.bulk_quote_cost = bulk_quote_cost
+    if resolved_description and not (inventory.description or "").strip():
+        inventory.description = resolved_description
+    if resolved_oem_name and not (inventory.oem_name or "").strip():
+        inventory.oem_name = resolved_oem_name
+    if resolved_original_part and not (inventory.original_part_number or "").strip():
+        inventory.original_part_number = resolved_original_part
     shortage.inventory_id = inventory.id
     if not shortage.part_number and inventory.part_number:
         shortage.part_number = inventory.part_number
@@ -693,6 +742,11 @@ def receive_shortage_stock(
             location_rack=rack,
             holder_user_id=int(actor.id),
             unit_cost=receipt_costs[index],
+            added_date=added_date,
+            shelf_life_expires_at=shelf_life_expires_at,
+            warranty_expires_at=warranty_expires_at,
+            original_part_number=resolved_original_part,
+            original_serial_number=resolved_original_serial or serial,
         )
         created_instances.append(instance)
     session.commit()

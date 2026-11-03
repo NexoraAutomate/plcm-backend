@@ -17,8 +17,10 @@ from app.models.tables import (
     EntityAttachment,
 )
 from app.schemas import schemas
-from app.routers.auth import get_current_user, require_permission
+from app.routers.auth import get_current_user, require_permission, require_role
 from app.auth import check_permission, is_inventory_manager
+from app.services.audit_service import write_audit_log
+from app.services.inventory_stock_seed import seed_inventory_stock_multiplier
 from app.services.pagination import paginated_query
 from app.services.list_query import inventory_list_where
 from app.services.entity_list_service import (
@@ -744,6 +746,78 @@ def _filtered_inventory_items(
     return list(session.exec(stmt).all())
 
 
+@router.post(
+    "/inventory/seed-test-stock/",
+    response_model=schemas.InventoryStockSeedRead,
+    tags=["inventory"],
+)
+def seed_test_inventory_stock(
+    payload: schemas.InventoryStockSeedRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Admin-only: add multiplier × current qty for each stock group (test data).
+
+    Defaults: location R1/C1/R1, quote/unit cost 10, no shelf life/warranty,
+    same part number, serials continue from last used.
+    """
+    if not payload.dry_run and (payload.confirm or "").strip().upper() != "SEED":
+        raise HTTPException(
+            status_code=400,
+            detail='Confirmation required: set confirm to "SEED" to apply',
+        )
+    try:
+        result = seed_inventory_stock_multiplier(
+            session,
+            multiplier=payload.multiplier,
+            unit_cost=payload.unit_cost,
+            location_room=payload.location_room,
+            location_cabinet=payload.location_cabinet,
+            location_rack=payload.location_rack,
+            dry_run=payload.dry_run,
+            actor=current_user,
+            inventory_ids=payload.inventory_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not payload.dry_run:
+        write_audit_log(
+            session,
+            action="inventory_seed_test_stock",
+            actor=current_user,
+            resource_type="inventory",
+            details=(
+                f"multiplier={result.multiplier} groups={result.groups_processed} "
+                f"units_added={result.units_added} location={result.location}"
+            ),
+            commit=False,
+        )
+        session.commit()
+
+    return schemas.InventoryStockSeedRead(
+        multiplier=result.multiplier,
+        groups_processed=result.groups_processed,
+        groups_skipped=result.groups_skipped,
+        units_added=result.units_added,
+        location=result.location,
+        unit_cost=result.unit_cost,
+        dry_run=payload.dry_run,
+        groups=[
+            schemas.InventoryStockSeedGroupRead(
+                inventory_id=g.inventory_id,
+                name=g.name,
+                part_number=g.part_number,
+                previous_quantity=g.previous_quantity,
+                units_added=g.units_added,
+                new_quantity=g.new_quantity,
+                skipped_reason=g.skipped_reason,
+            )
+            for g in result.groups
+        ],
+    )
+
+
 @router.get("/inventory/export-csv/", tags=["inventory"])
 def export_inventory_csv(
     inventory_type: Optional[str] = Query(None),
@@ -1457,6 +1531,13 @@ def receive_inventory_shortage(
             unit_costs=body.unit_costs,
             bulk_quote_cost=body.bulk_quote_cost,
             currency=body.currency,
+            description=body.description,
+            oem_name=body.oem_name,
+            original_part_number=body.original_part_number,
+            original_serial_number=body.original_serial_number,
+            added_date=body.added_date,
+            shelf_life_expires_at=body.shelf_life_expires_at,
+            warranty_expires_at=body.warranty_expires_at,
         )
     except InventoryShortageError as exc:
         raise HTTPException(
