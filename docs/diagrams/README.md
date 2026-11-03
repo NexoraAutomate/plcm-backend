@@ -6,6 +6,7 @@
 |------|-------------|
 | [Hierarchy_Inventory_Management_Workflow.drawio](./Hierarchy_Inventory_Management_Workflow.drawio) | Hierarchy & inventory management (multi-page) |
 | [Maintenance_Faulty_Item_Return_Repair_Lifecycle.drawio](./Maintenance_Faulty_Item_Return_Repair_Lifecycle.drawio) | Generic faulty-item return, repair & acceptance lifecycle (multi-page) |
+| [PLCM_Maintenance_Occurrence_Replacement_Workflow.drawio](./PLCM_Maintenance_Occurrence_Replacement_Workflow.drawio) | PLCM Occurrence Report + parallel ME replacement / IE inspection (augments existing maintenance) |
 
 ---
 
@@ -47,6 +48,40 @@ Generic product-agnostic maintenance lifecycle derived from `docs/VSAT_Faulty_It
 | Records & forms | §8 Minimum Records and Forms |
 | Life-cycle / fleet controls | §10 Life-Cycle Support and Fleet-Level Controls |
 | SLA metrics | §11 Suggested Service-Level Targets |
+
+---
+
+## PLCM — Occurrence Report + Parallel Replacement / Inspection
+
+Product-specific augmentation of the live PLCM maintenance module. **Does not replace** soft-fix, tree investigation, IM rework, warranty claims, or delivery-close. Adds Occurrence Report UX and a dual track after fault confirmation: immediate same-spec replacement (ME/PD/IM/FSE) in parallel with faulty return inspection (IM/PD/IE).
+
+### Pages
+
+1. **01 Overview & Principles** — Augment-only rules, role map (FSE/ME/PD/IM/IE), master chevron, existing vs new mapping  
+2. **02 Occurrence Report** — Form fields (occurrence date ≠ recorded date, named attachments, FSE officers dialog), Outcome + Fault Type list, Soft/NFF/Inconclusive/Fault branches  
+3. **03 Dual-Track Split** — Track A immediate replacement vs Track B faulty return; case close gate  
+4. **04 Replacement & AIT (ME)** — Role swimlanes ME/PD/IM/FSE, AIT approve/reject loop, Track A sub-statuses, gap fills  
+5. **05 Faulty Inspection (IE)** — Reception → IE assign → inspection → warranty / discard / repair → PD verify → restock  
+6. **06 Statuses, Badges & Gaps** — CaseStatus spine preserved; sub-statuses; Replaced/Discarded/RED notify; notification matrix; missing-functionality backlog  
+
+### Mapping to existing code
+
+| Diagram concept | Existing PLCM anchor |
+|-----------------|----------------------|
+| Occurrence Report | UI “Onsite visit outcome” / `onsite-outcome/` API |
+| Fault Type list | `FaultType` enum (already includes Electrical…Other) |
+| Soft fix | `soft_fix` + `resolve_soft_fixed` |
+| Immediate replace | Extends `resolution_type=replaced` + stock issue |
+| Faulty return | Extends `create_returned_unit_rework` / IM inspect queue |
+| Warranty | Existing OEM claim statuses |
+| Discard | Existing discard/trash; **new** Discarded badge display |
+| Roles PD/IM | Existing workflow roles; ME/FSE/IE to seed |
+
+### Specification & conformance pack
+
+Step-by-step FSD, unit/functional/system tests, conformance matrix, and verification loop:
+
+[`docs/specs/maintenance-occurrence-replacement/`](../specs/maintenance-occurrence-replacement/README.md)
 
 ---
 

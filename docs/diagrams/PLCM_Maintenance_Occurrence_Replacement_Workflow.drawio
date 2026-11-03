@@ -1,0 +1,578 @@
+<mxfile host="app.diagrams.net" agent="PLCM-Maintenance-Workflow" version="22.1.0" type="device" pages="6">
+  <diagram id="page-overview" name="01 Overview &amp; Principles">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t1" value="PLCM Maintenance Augmentation — Occurrence Report + Parallel Replacement / Inspection" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="80" y="20" width="1640" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="t1b" value="Augments existing maintenance case flow. Does not replace soft-fix, tree investigation, IM rework queue, warranty claim, or delivery-close paths already in PLCM." style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#4a5568;" vertex="1" parent="1">
+          <mxGeometry x="80" y="56" width="1640" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="princ" value="Design principles&#xa;• Augment only — keep CaseStatus (open → under_inspection → under_repair → resolved → closed)&#xa;• Dual-track after fault confirmation: Track A Replacement (do not wait for faulty return) + Track B Faulty return/inspection (starts on reception)&#xa;• New actors ME / FSE / IE sit beside existing PD / IM; existing permissions remain&#xa;• Red “Replacement case open” on Project / Order / Flight / SDLS until AIT pass + case closed&#xa;• Badges: Replaced (new S/N) · Discarded (trash, never reusable)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;align=left;spacingLeft=12;spacingTop=8;fontSize=12;fontColor=#2c5282;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="820" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="roles" value="Role map (new + existing)&#xa;&#xa;FSE — Field Service Engineer: onsite presence, Occurrence Report, site replace/integrate with ME&#xa;ME — Maintenance Engineer (NEW): owns replacement request → IM issue → site AIT → PD notify&#xa;PD — Project Director: approve replacement, assign ME/IE, Approve/Reject AIT, verify repair tests&#xa;IM — Inventory Manager: issue replacement S/N, receive faulty, issue to IE, discard/trash, restock repaired&#xa;IE — Inspection Engineer (NEW): inspect faulty, warranty vs discard vs repair, update investigation status&#xa;&#xa;Existing roles HM / Admin / Dev unchanged. Legacy role “Maintenance” remains notify target until ME is seeded." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;align=left;spacingLeft=12;spacingTop=8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="100" width="820" height="160" as="geometry" />
+        </mxCell>
+
+        <!-- Chevron -->
+        <mxCell id="c0" value="1 Case open&#xa;(existing)" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="300" width="150" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="2 Occurrence&#xa;Report" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="200" y="300" width="150" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="3 Fault&#xa;confirm" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="300" width="140" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="4A Immediate&#xa;replacement" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="470" y="300" width="170" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="4B Faulty&#xa;return (parallel)" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="630" y="300" width="170" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="5 AIT / PD&#xa;gate" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="790" y="300" width="140" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c6" value="6 Inspect /&#xa;Repair / Discard" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="300" width="170" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="7 Close&#xa;case" style="shape=chevron;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="300" width="140" height="56" as="geometry" />
+        </mxCell>
+
+        <!-- Master flow boxes -->
+        <mxCell id="mTitle" value="Master flow (logical) — existing steps grey; new / modified blue-purple" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=14;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="700" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="s1" value="Case open&#xa;(existing)&#xa;&#xa;Lookup S/N · project gate&#xa;production-support check" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="60" y="430" width="190" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="Occurrence Report&#xa;(rename onsite)&#xa;&#xa;Occurrence date ≠ recorded&#xa;Attachments (named)&#xa;FSE officers + roles&#xa;Outcome + Fault type" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="290" y="430" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" value="Outcome&#xa;branch?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="430" width="140" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="Soft fix / NFF&#xa;&#xa;Soft fix → resolve soft_fixed&#xa;NFF → confirm close/resolve&#xa;Inconclusive → keep open" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="730" y="430" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="Fault identified&#xa;&#xa;Confirm via email / letter / call&#xa;Start Track A immediately&#xa;Tree investigation continues&#xa;(existing) in parallel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="980" y="430" width="220" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="Dual track&#xa;&#xa;A: ME replacement + AIT&#xa;B: Faulty → IM → IE&#xa;Close when both complete&#xa;(AIT pass + inspect closed)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="430" width="220" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s2" target="d3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e34" value="Soft / NFF /&#xa;Inconclusive" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d3" target="s4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e35" value="Fault&#xa;identified" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" edge="1" parent="1" source="d3" target="s5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e56" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="s5" target="s6"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="leg" value="Legend&#xa;Grey = existing preserved&#xa;Blue = Occurrence Report UI&#xa;Purple = Replacement track (ME)&#xa;Green = Inspection / close&#xa;Yellow = decision&#xa;Red = AIT / dual-track gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffaf0;strokeColor=#dd6b20;align=left;spacingLeft=10;fontSize=11;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="60" y="580" width="220" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="map" value="How this maps onto existing PLCM&#xa;&#xa;• Occurrence Report replaces UI label “Onsite visit outcome” / button “Record onsite outcome” — API can keep onsite_* fields + add occurrence_date, attachments[], officers[]&#xa;• Fault types already exist as FaultType enum (Electrical, Mechanical, Environmental, Hardware, Manufacturing Defect, Physical Damage, Software, Unclassified, Wear, Other) — surface on Occurrence Report&#xa;• Track A uses / extends resolution_type=replaced + stock issue; adds ME request + PD approve + AIT loop before case close&#xa;• Track B uses / extends returned_unit rework + IM inspect queue; adds PD→IE assignment and “Inspection under process” / “Repair under progress” sub-statuses&#xa;• Soft fix path unchanged (resolve_soft_fixed). NFF adds explicit confirm-to-close dialog (new UX on existing resolution_type=no_fault_found)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fafc;strokeColor=#718096;align=left;spacingLeft=12;spacingTop=8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="580" width="1160" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pages" value="Pages: 01 Overview · 02 Occurrence Report · 03 Dual-track split · 04 Replacement / AIT (ME) · 05 Faulty inspection (IE) · 06 Statuses, badges, gaps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a365d;strokeColor=#1a365d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="760" width="1470" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-occurrence" name="02 Occurrence Report">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="ot" value="Occurrence Report (formerly Onsite visit outcome)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="200" y="20" width="1400" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="otb" value="Recorded after case open. Captures field event facts separately from system audit timestamps." style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#4a5568;" vertex="1" parent="1">
+          <mxGeometry x="200" y="56" width="1400" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- Form panel -->
+        <mxCell id="form" value="Occurrence Report form fields" style="swimlane;fontStyle=1;startSize=28;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="520" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="f1" value="1. Occurrence Date (user) — when the field event happened&#xa;2. Recorded Date/Time (system) — onsite_recorded_at (immutable)&#xa;3. Recorded By (system) — onsite_recorded_by_id&#xa;4. Outcome (required) — see dropdown&#xa;5. Fault Type (required if fault / optional otherwise) — see list&#xa;6. Soft-fix method — only if Soft fix (existing)&#xa;7. Notes / narrative&#xa;8. Attachments[] — each: file + user-defined name&#xa;   (tests, reports, emails, letters, photos)&#xa;9. Field officers[] — dialog: name/user + onsite role&#xa;10. Confirmation channel (if fault) — email / letter / call&#xa;    + reference id / attachment link" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="form">
+          <mxGeometry x="10" y="40" width="500" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="Button: Record Occurrence Report&#xa;(was: Record onsite outcome)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2b6cb0;strokeColor=#2b6cb0;fontColor=#ffffff;fontStyle=1;fontSize=12;" vertex="1" parent="form">
+          <mxGeometry x="80" y="340" width="340" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="Preserve existing API fields; add occurrence_date,&#xa;attachments[{name,file}], officers[{user_id,role_onsite}],&#xa;fault_type on report, confirmation_channel." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ebf8ff;strokeColor=#3182ce;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="form">
+          <mxGeometry x="20" y="400" width="480" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Outcome dropdown -->
+        <mxCell id="outBox" value="Outcome dropdown (existing + NFF)" style="swimlane;fontStyle=1;startSize=28;fillColor=#fefcbf;strokeColor=#975a16;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="590" y="100" width="360" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="o1" value="• Soft fix (existing soft_fix)&#xa;• PN / hardware fault (existing fault_identified)&#xa;• Inconclusive (existing)&#xa;• No Fault Found (NEW outcome value&#xa;  OR map to resolution NFF with prompt)&#xa;&#xa;After save:&#xa;Soft fix → auto resolve soft_fixed (keep)&#xa;NFF → modal: Close / resolve case as NFF?&#xa;  Yes → resolve + close path&#xa;  No → leave case open with NFF note&#xa;Inconclusive → case stays open&#xa;Fault identified → enable Track A CTA" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="outBox">
+          <mxGeometry x="10" y="36" width="340" height="250" as="geometry" />
+        </mxCell>
+
+        <!-- Fault type -->
+        <mxCell id="ftBox" value="Fault Type (from product list / FaultType enum)" style="swimlane;fontStyle=1;startSize=28;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="100" width="360" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ft1" value="1. Electrical&#xa;2. Mechanical&#xa;3. Environmental&#xa;4. Hardware&#xa;5. Manufacturing Defect&#xa;6. Physical Damage&#xa;7. Software&#xa;8. Unclassified (default)&#xa;9. Wear&#xa;10. Other&#xa;&#xa;Shown alongside Outcome when&#xa;fault_identified (and optionally NFF&#xa;classification). Matches attached UI list." style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="ftBox">
+          <mxGeometry x="10" y="36" width="340" height="250" as="geometry" />
+        </mxCell>
+
+        <!-- FSE dialog -->
+        <mxCell id="fse" value="Field officers dialog (FSE+)" style="swimlane;fontStyle=1;startSize=28;fillColor=#c6f6d5;strokeColor=#276749;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="590" y="430" width="360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="fse1" value="Open dialog → Add officer rows:&#xa;• User (directory) or free-text guest&#xa;• Designated onsite role&#xa;  e.g. Lead FSE, FSE, Customer Rep,&#xa;  Observer, ME (if already on site)&#xa;• Optional contact / phone&#xa;&#xa;At least one FSE recommended when&#xa;outcome = fault_identified.&#xa;Stored on case for audit &amp; later&#xa;site-replace coordination with ME." style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="fse">
+          <mxGeometry x="10" y="36" width="340" height="230" as="geometry" />
+        </mxCell>
+
+        <!-- Attachments -->
+        <mxCell id="att" value="Named attachments" style="swimlane;fontStyle=1;startSize=28;fillColor=#feebc8;strokeColor=#c05621;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="980" y="430" width="360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="att1" value="Each upload requires a Display Name&#xa;defined by the user, e.g.:&#xa;• “Customer fault email 03-Nov”&#xa;• “AIT pretest PDF”&#xa;• “Supplier letter”&#xa;&#xa;Types: test reports, emails, letters,&#xa;photos, logs. Reusable later as&#xa;evidence for warranty / IE / PD AIT gate.&#xa;&#xa;Missing (gap fill): attachment category&#xa;tag + virus-scan / size limits (ops)." style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="att">
+          <mxGeometry x="10" y="36" width="340" height="230" as="geometry" />
+        </mxCell>
+
+        <!-- Flow after record -->
+        <mxCell id="af" value="After Record Occurrence Report" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=14;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="650" width="400" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="dOut" value="Outcome?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="700" width="140" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="aSoft" value="Soft fix&#xa;→ resolve soft_fixed&#xa;(existing)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="700" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="aNff" value="No Fault Found&#xa;→ Confirm close/resolve?&#xa;Yes: NFF + closed&#xa;No: note only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="700" width="180" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="aInc" value="Inconclusive&#xa;→ stay Open&#xa;further visit / data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="680" y="700" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="aFlt" value="Fault identified&#xa;→ CTA: Request immediate&#xa;replacement (Track A)&#xa;+ continue investigation tree" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="700" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eo1" value="Soft" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;" edge="1" parent="1" source="dOut" target="aSoft"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo2" value="NFF" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;" edge="1" parent="1" source="dOut" target="aNff"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo3" value="Inc." style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#4a5568;fontSize=10;" edge="1" parent="1" source="dOut" target="aInc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eo4" value="Fault" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;fontSize=10;" edge="1" parent="1" source="dOut" target="aFlt"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-dual" name="03 Dual-Track Split">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="dt" value="After fault confirmation — Dual track (do not wait for faulty item)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="120" y="20" width="1560" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="dtb" value="Replacement ships immediately from SUPARCO stock (same specs). Faulty item return is parallel and may start later on client reception." style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#4a5568;" vertex="1" parent="1">
+          <mxGeometry x="120" y="56" width="1560" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="start" value="Fault confirmed&#xa;(Occurrence Report + email/letter/call evidence)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="680" y="100" width="320" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Track A -->
+        <mxCell id="ta" value="TRACK A — Immediate Replacement (ME-led)" style="swimlane;fontStyle=1;startSize=32;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="40" y="220" width="820" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="ta1" value="ME creates Replacement Request&#xa;linked to maintenance case + entity S/N" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="40" y="50" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ta2" value="PD reviews &amp; Approves&#xa;Assigns / confirms ME" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="420" y="50" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ta3" value="ME → Request IM to ISSUE&#xa;same-spec fresh inventory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="40" y="140" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ta4" value="IM ships replacement S/N&#xa;→ RED notification on Project / Order / Flight / SDLS&#xa;→ entity shows new S/N + badge Replaced&#xa;→ faulty auto-queued for IM return on arrival" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="ta">
+          <mxGeometry x="420" y="130" width="360" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ta5" value="ME + FSE visit customer site&#xa;Replace / repair / integrate equipment" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="40" y="250" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ta6" value="ME notifies PD:&#xa;Shipment / AIT in Progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="420" y="250" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ta7" value="PD waits for Integration / Testing results&#xa;Approve OR Reject replacement" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;" vertex="1" parent="ta">
+          <mxGeometry x="40" y="340" width="340" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ta8" value="Reject → notify IM + issue NEW replacement&#xa;to SAME ME → loop until AIT pass&#xa;Approve → patch delivered / Track A complete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#6b46c1;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="ta">
+          <mxGeometry x="420" y="340" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ta9" value="See page 04 for full Replacement / AIT detail + stock-shortage &amp; abort gaps" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#553c9a;fontStyle=2;" vertex="1" parent="ta">
+          <mxGeometry x="40" y="450" width="700" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eta12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta1" target="ta2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta2" target="ta3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta34" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta3" target="ta4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta45" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta4" target="ta5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta56" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta5" target="ta6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta67" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta6" target="ta7"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eta78" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;" edge="1" parent="ta" source="ta7" target="ta8"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Track B -->
+        <mxCell id="tb" value="TRACK B — Faulty Return &amp; Inspection (parallel)" style="swimlane;fontStyle=1;startSize=32;fillColor=#c6f6d5;strokeColor=#276749;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="900" y="220" width="820" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="tb1" value="Faulty item in transit from customer&#xa;(may start AFTER Track A already shipping)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#276749;fontSize=11;" vertex="1" parent="tb">
+          <mxGeometry x="40" y="50" width="360" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tb2" value="IM records Reception Date&#xa;Notify PD: Faulty item received" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#276749;fontSize=11;" vertex="1" parent="tb">
+          <mxGeometry x="420" y="50" width="360" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tb3" value="PD assigns Inspection Engineer (IE)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#276749;fontSize=11;" vertex="1" parent="tb">
+          <mxGeometry x="40" y="140" width="360" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="tb4" value="IE requests IM handover → IM issues faulty to IE&#xa;Status → Inspection under process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#276749;fontSize=11;" vertex="1" parent="tb">
+          <mxGeometry x="420" y="140" width="360" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tb5" value="IE disposition:&#xa;Irreparable → warranty? claim : discard&#xa;Repairable → Repair under progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="tb">
+          <mxGeometry x="40" y="230" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="tb6" value="Repair path: IE repairs → PD verifies tests&#xa;→ mark repaired + reports → IM restock&#xa;Discard path: IM trash → badge Discarded&#xa;Warranty path: ship to supplier (existing claim)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fff4;strokeColor=#276749;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="tb">
+          <mxGeometry x="420" y="230" width="360" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="tb7" value="Track B complete when item restocked, discarded,&#xa;or warranty claim closed. See page 05." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#276749;fontStyle=2;" vertex="1" parent="tb">
+          <mxGeometry x="40" y="360" width="700" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="tb8" value="Augments existing create_returned_unit_rework on replace — reception can lag shipment." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="tb">
+          <mxGeometry x="40" y="420" width="740" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="etb12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;" edge="1" parent="tb" source="tb1" target="tb2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="etb23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;" edge="1" parent="tb" source="tb2" target="tb3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="etb34" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;" edge="1" parent="tb" source="tb3" target="tb4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="etb45" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;" edge="1" parent="tb" source="tb4" target="tb5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="etb56" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;" edge="1" parent="tb" source="tb5" target="tb6"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="esA" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#6b46c1;" edge="1" parent="1" source="start" target="ta">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="200" />
+              <mxPoint x="450" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="esB" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=3;strokeColor=#276749;" edge="1" parent="1" source="start" target="tb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="200" />
+              <mxPoint x="1310" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="join" value="CASE CLOSE GATE&#xa;Track A AIT Approved (patch delivered) AND Track B terminal (restocked / discarded / warranty closed)&#xa;OR Soft/NFF early exit without dual track. Existing delivery-confirm close still allowed when applicable." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a365d;strokeColor=#1a365d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="200" y="780" width="1280" height="70" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-replace" name="04 Replacement &amp; AIT (ME)">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="rt" value="Track A detail — Maintenance Engineer replacement &amp; AIT loop" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="200" y="20" width="1500" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- Swimlanes by role -->
+        <mxCell id="laneME" value="ME" style="swimlane;horizontal=0;startSize=40;fillColor=#faf5ff;strokeColor=#6b46c1;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1720" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="lanePD" value="PD" style="swimlane;horizontal=0;startSize=40;fillColor=#fffaf0;strokeColor=#c05621;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="1720" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="laneIM" value="IM" style="swimlane;horizontal=0;startSize=40;fillColor=#ebf8ff;strokeColor=#2b6cb0;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="1720" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="laneFSE" value="FSE" style="swimlane;horizontal=0;startSize=40;fillColor=#f0fff4;strokeColor=#276749;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="1720" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- ME steps -->
+        <mxCell id="me1" value="1. Create&#xa;Replacement&#xa;Request" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="60" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me2" value="4. Request IM&#xa;ISSUE stock&#xa;(same specs)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="520" y="40" width="130" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me3" value="6. Take custody&#xa;of replacement&#xa;from IM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="820" y="40" width="130" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me4" value="7. Notify PD&#xa;Shipment/AIT&#xa;in Progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="1000" y="40" width="130" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me5" value="9. Site replace&#xa;+ integrate&#xa;w/ FSE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="1180" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me6" value="10. Upload AIT&#xa;test results&#xa;/ attachments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="1360" y="40" width="130" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="me7" value="12b. If Rejected&#xa;receive NEW unit&#xa;repeat 6–10" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;fontStyle=1;" vertex="1" parent="laneME">
+          <mxGeometry x="1540" y="40" width="140" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- PD steps -->
+        <mxCell id="pd1" value="2. Review request&#xa;Approve / Reject&#xa;Assign ME" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;fontStyle=1;" vertex="1" parent="lanePD">
+          <mxGeometry x="220" y="40" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="pd2" value="8. Wait for AIT&#xa;results" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;fontStyle=1;" vertex="1" parent="lanePD">
+          <mxGeometry x="1000" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="pd3" value="11. Approve /&#xa;Reject based on&#xa;test results" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;fontStyle=1;" vertex="1" parent="lanePD">
+          <mxGeometry x="1360" y="30" width="140" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- IM steps -->
+        <mxCell id="im1" value="3. Stock check&#xa;same P/N specs&#xa;(gap: shortage)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;fontStyle=1;" vertex="1" parent="laneIM">
+          <mxGeometry x="380" y="40" width="130" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="im2" value="5. ISSUE S/N&#xa;Ship to ME/site&#xa;Update hierarchy&#xa;Replaced badge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;fontStyle=1;" vertex="1" parent="laneIM">
+          <mxGeometry x="680" y="30" width="140" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="im3" value="RED notify&#xa;Project/Order/&#xa;Flight/SDLS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;fontStyle=1;" vertex="1" parent="laneIM">
+          <mxGeometry x="840" y="40" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="im4" value="12a. On Reject&#xa;issue next&#xa;replacement S/N&#xa;to same ME" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;fontStyle=1;" vertex="1" parent="laneIM">
+          <mxGeometry x="1540" y="30" width="140" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- FSE -->
+        <mxCell id="fseA" value="Onsite with ME: remove faulty (if still present), install replacement,&#xa;support integration / customer handover. Officers list from Occurrence Report." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="laneFSE">
+          <mxGeometry x="60" y="30" width="520" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="fseB" value="Customer reception ack for delivered patch&#xa;(gap fill — recommended)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="laneFSE">
+          <mxGeometry x="1180" y="30" width="280" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Status strip -->
+        <mxCell id="stTitle" value="Suggested Track A sub-statuses (store on replacement_request; do not break CaseStatus)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontStyle=1;fontSize=13;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="720" width="900" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="st1" value="replacement_requested" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="760" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st2" value="pd_approved" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="210" y="760" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st3" value="im_issue_pending" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="350" y="760" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st4" value="shipped_replaced_badge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="500" y="760" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st5" value="ait_in_progress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="670" y="760" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st6" value="ait_approved /&#xa;ait_rejected→loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="820" y="760" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st7" value="patch_delivered" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#276749;strokeColor=#276749;fontColor=#fff;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="980" y="760" width="130" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gapsA" value="Gap fills (recommended, keep optional until productized)&#xa;• Stock shortage / no matching S/N → escalate PD/HM; hold Track A; do not fake issue&#xa;• PD reject of request (pre-issue) vs AIT reject (post-install) — separate reasons&#xa;• Failed replacement unit disposition (return to IM quarantine) before next issue&#xa;• Abort Track A if later NFF proven — cancel request, clear red notification, keep audit&#xa;• ME reassignment if unavailable&#xa;• Link Occurrence attachments as evidence on Replacement Request&#xa;• Config history / hierarchy S/N swap — reuse existing replace resolution mechanics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#c53030;align=left;spacingLeft=12;spacingTop=8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="840" width="1720" height="140" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-inspect" name="05 Faulty Inspection (IE)">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="it" value="Track B detail — Faulty item reception, IE inspection, warranty / discard / repair" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="100" y="20" width="1600" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="itb" value="Augments existing returned-unit rework + IM inspect outcomes (repairable | reusable | scrapped) + OEM warranty claims." style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#4a5568;" vertex="1" parent="1">
+          <mxGeometry x="100" y="56" width="1600" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="b1" value="Faulty auto-queued&#xa;when replacement&#xa;shipped (Track A)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="Customer ships&#xa;faulty item" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="110" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="IM: Reception Date&#xa;+ notify PD" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="110" width="160" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b4" value="PD assigns IE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="110" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b5" value="IE requests&#xa;handover from IM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="110" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b6" value="IM issues faulty&#xa;to IE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="110" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="b7" value="Status:&#xa;Inspection under&#xa;process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="110" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eb12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b1" target="b2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b2" target="b3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb34" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b3" target="b4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb45" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b4" target="b5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb56" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b5" target="b6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="eb67" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b6" target="b7"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="dRep" value="Repairable?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="600" y="260" width="150" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="eb7d" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="b7" target="dRep">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1265" y="240" />
+              <mxPoint x="675" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Irreparable branch -->
+        <mxCell id="dWar" value="Under&#xa;warranty?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="200" y="260" width="140" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="w1" value="YES — Ship to supplier&#xa;OEM warranty claim&#xa;(existing claim statuses)&#xa;IE/IM update tracking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="420" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="w2" value="NO / expired — IE comments&#xa;Send back to IM to DISCARD&#xa;IM → trash&#xa;Badge: Discarded (never reuse)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="300" y="420" width="240" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="en1" value="NO" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dRep" target="dWar"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ew1" value="Warranty" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#6b46c1;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dWar" target="w1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="ew2" value="Expired" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dWar" target="w2"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Repairable branch -->
+        <mxCell id="r1" value="Status: Repair under progress&#xa;IE notifies actual issue / root cause&#xa;(maps under_repair)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#feebc8;strokeColor=#c05621;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="860" y="260" width="280" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="IE completes repair&#xa;+ test evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="380" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r3" value="PD verifies tests&#xa;Approve / Reject repair" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fefcbf;strokeColor=#975a16;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="370" width="150" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="r4" value="Approve → mark repaired&#xa;+ test reports → IM restock&#xa;for future projects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c6f6d5;strokeColor=#276749;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="280" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r5" value="Reject → remain Repair under&#xa;progress / rework loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7d7;strokeColor=#c53030;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="400" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ey1" value="YES" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="dRep" target="r1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="er12" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="r1" target="r2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="er23" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#2d3748;" edge="1" parent="1" source="r2" target="r3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="er34" value="Pass" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#276749;fontSize=10;fontStyle=1;" edge="1" parent="1" source="r3" target="r4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="er35" value="Fail" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#c53030;fontSize=10;fontStyle=1;" edge="1" parent="1" source="r3" target="r5"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="closeB" value="Track B terminal → contributes to case close gate (with Track A AIT approve). Maintenance case closed when both tracks done (or early Soft/NFF)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1a365d;strokeColor=#1a365d;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="200" y="560" width="1280" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mapB" value="Existing mapping&#xa;• create_returned_unit_rework on replace → keep; add reception_date + awaiting_arrival state&#xa;• Inspect outcomes repairable/reusable/scrapped → IE drives; IM executes discard/trash&#xa;• Scrapped + active warranty → OEM claim (existing); expired → Discarded badge (NEW display; backend discard already exists)&#xa;• CaseStatus under_inspection / under_repair remain the case-level spine; IE statuses are sub-workflow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#edf2f7;strokeColor=#4a5568;align=left;spacingLeft=12;spacingTop=8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="640" width="1680" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gapsB" value="Gap fills&#xa;• Faulty never returned — timeout SLA + PD escalation; Track A may still close with caveat flag&#xa;• Reusable (no fault / soft damage) → restock without full repair (existing reusable outcome)&#xa;• Warranty return from OEM (accepted/rejected) → restock or discard&#xa;• Chain-of-custody scan (QR) at IM receive / IE issue — optional&#xa;• IE cannot discard directly — only recommend; IM confirms trash (segregation of duties)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff5f5;strokeColor=#c53030;align=left;spacingLeft=12;spacingTop=8;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="790" width="1680" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="page-status" name="06 Statuses, Badges &amp; Gaps">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="stt" value="Statuses, notifications, badges &amp; missing functionality summary" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=20;fontColor=#1a365d;" vertex="1" parent="1">
+          <mxGeometry x="120" y="20" width="1560" height="36" as="geometry" />
+        </mxCell>
+
+        <mxCell id="caseBox" value="CaseStatus (UNCHANGED spine)" style="swimlane;fontStyle=1;startSize=28;fillColor=#e2e8f0;strokeColor=#4a5568;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="560" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="case1" value="open → under_inspection → under_repair → resolved → closed&#xa;&#xa;Occurrence Report typically while open.&#xa;Track A/B run under open/under_inspection/under_repair.&#xa;resolved/closed only after close gate (or Soft/NFF)." style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="caseBox">
+          <mxGeometry x="10" y="40" width="540" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="repBox" value="Replacement request sub-status (NEW)" style="swimlane;fontStyle=1;startSize=28;fillColor=#e9d8fd;strokeColor=#6b46c1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="620" y="80" width="560" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="rep1" value="replacement_requested → pd_approved | pd_rejected&#xa;→ im_issue_pending → shipped (Replaced badge ON)&#xa;→ ait_in_progress → ait_approved | ait_rejected&#xa;→ (reject loop) → patch_delivered → track_a_closed" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="repBox">
+          <mxGeometry x="10" y="40" width="540" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="insBox" value="Inspection sub-status (NEW / mapped)" style="swimlane;fontStyle=1;startSize=28;fillColor=#c6f6d5;strokeColor=#276749;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="80" width="520" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ins1" value="awaiting_faulty_arrival → received&#xa;→ ie_assigned → issued_to_ie&#xa;→ inspection_under_process&#xa;→ repair_under_progress | warranty_claim | discard_pending&#xa;→ restocked | discarded | claim_closed" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="insBox">
+          <mxGeometry x="10" y="40" width="500" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="badgeBox" value="Badges &amp; UI signals" style="swimlane;fontStyle=1;startSize=28;fillColor=#fed7d7;strokeColor=#c53030;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="310" width="840" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="badge1" value="• RED notification chip on Project / Order / Flight / SDLS while replacement case open (priority=high; new event type e.g. replacement_case_open)&#xa;• Replaced — on entity / inventory / hierarchy everywhere new S/N is shown after issue/ship&#xa;• Discarded — inventory table row after IM trash (never selectable for reserve/issue)&#xa;• Existing: Replaced on faulty-entity resolve; hierarchy R{n} sequence — keep&#xa;• Clear RED notification when Track A patch_delivered OR aborted" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="badgeBox">
+          <mxGeometry x="10" y="40" width="820" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="roleBox" value="Roles to seed / wire" style="swimlane;fontStyle=1;startSize=28;fillColor=#feebc8;strokeColor=#c05621;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="900" y="310" width="820" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="role1" value="NEW: MaintenanceEngineer (ME), FieldServiceEngineer (FSE), InspectionEngineer (IE)&#xa;EXISTING: ProjectDirector (PD), InventoryManager (IM), Maintenance (legacy notify), Admin&#xa;&#xa;Permissions (additive):&#xa;ME — create/advance replacement request, AIT upload, site actions&#xa;IE — request handover, inspection disposition, repair updates&#xa;FSE — contribute Occurrence Report officers; site assist&#xa;PD — approve replacement, assign ME/IE, AIT &amp; repair gates&#xa;IM — issue/receive/discard/restock (existing + custody)" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="roleBox">
+          <mxGeometry x="10" y="40" width="800" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="notify" value="Notification matrix (high = red)" style="swimlane;fontStyle=1;startSize=28;fillColor=#bee3f8;strokeColor=#2b6cb0;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="1680" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="notify1" value="Event → Audience (priority)&#xa;occurrence_recorded → PD, ME (normal)&#xa;replacement_requested → PD (high)&#xa;replacement_approved / ME assigned → ME, IM (high)&#xa;replacement_shipped / S/N swapped → Project/Order/Flight/SDLS watchers (high RED), ME, FSE&#xa;ait_in_progress → PD (normal)&#xa;ait_approved / ait_rejected → ME, IM (high on reject)&#xa;faulty_received → PD (high)&#xa;ie_assigned / issued_to_ie → IE, IM (normal)&#xa;inspection_disposition → PD (normal)&#xa;discard_completed → PD, IM (normal)&#xa;repaired_restocked → PD, IM (normal)&#xa;case_closed → watchers (normal)" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=11;verticalAlign=top;" vertex="1" parent="notify">
+          <mxGeometry x="10" y="36" width="1660" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="miss" value="Missing functionality added for logical completeness (implementation backlog)" style="swimlane;fontStyle=1;startSize=28;fillColor=#fff5f5;strokeColor=#c53030;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="790" width="1680" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="miss1" value="1. Occurrence Date vs Recorded Date; named attachments; FSE officers dialog; Fault Type on report; NFF confirm-close modal&#xa;2. ME / FSE / IE roles + Replacement Request entity linked to maintenance case (parallel to, not replacing, faulty-entity resolve)&#xa;3. Dual-track board on case detail (Track A + Track B progress)&#xa;4. Immediate ship without waiting for faulty; auto awaiting_faulty_arrival rework&#xa;5. RED replacement-open notification on hierarchy entities; Replaced + Discarded badges&#xa;6. AIT Approve/Reject loop with failed-unit return to IM before next issue&#xa;7. Stock shortage escalation; ME reassignment; abort replacement if NFF later&#xa;8. Customer reception ack for patch; faulty-never-returned SLA&#xa;9. Segregation: IE recommends discard; IM executes trash&#xa;10. Preserve soft_fix, tree investigation, warranty claim statuses, delivery close — no regressions&#xa;11. Optional: attachment category tags; QR custody at receive/issue; OEM return restock path&#xa;12. Spelling in UI: prefer “Occurrence Report” (correct English) while matching product language if “Occurance” is mandated" style="text;html=1;strokeColor=none;fillColor=none;align=left;spacingLeft=10;fontSize=12;verticalAlign=top;" vertex="1" parent="miss">
+          <mxGeometry x="10" y="36" width="1660" height="230" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
