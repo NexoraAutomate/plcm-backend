@@ -20,7 +20,10 @@ class User(UserBase, table=True):
     )
     status_changes: List["EntityStatusHistory"] = Relationship(back_populates="changed_by_user")
     maintenances: List["MaintenanceLog"] = Relationship(back_populates="performed_by_user")
-    reported_cases: List["MaintenanceCase"] = Relationship(back_populates="reported_by_user")
+    reported_cases: List["MaintenanceCase"] = Relationship(
+        back_populates="reported_by_user",
+        sa_relationship_kwargs={"foreign_keys": "[MaintenanceCase.reported_by]"},
+    )
     maintenance_actions: List["MaintenanceAction"] = Relationship(back_populates="performed_by_user")
     deliveries: List["MaintenanceDelivery"] = Relationship(back_populates="delivered_by_user")
     identified_faults: List["FaultyEntity"] = Relationship(back_populates="identified_by_user")
@@ -536,7 +539,10 @@ class MaintenanceCase(MaintenanceCaseBase, table=True):
 
     # Relationships
     project:          Optional[Project]           = Relationship(back_populates="maintenance_cases")
-    reported_by_user: Optional[User]              = Relationship(back_populates="reported_cases")
+    reported_by_user: Optional[User]              = Relationship(
+        back_populates="reported_cases",
+        sa_relationship_kwargs={"foreign_keys": "[MaintenanceCase.reported_by]"},
+    )
     faulty_entities:  List["FaultyEntity"]        = Relationship(back_populates="case", 
                                          sa_relationship_kwargs={
                                             "cascade": "all, delete-orphan",
