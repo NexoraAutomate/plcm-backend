@@ -441,6 +441,9 @@ class InventoryItemRequest(InventoryItemRequestBase, table=True):
     requested_by: Optional[User] = Relationship(
         sa_relationship_kwargs={"foreign_keys": "[InventoryItemRequest.requested_by_user_id]"},
     )
+    marked_back_by: Optional[User] = Relationship(
+        sa_relationship_kwargs={"foreign_keys": "[InventoryItemRequest.marked_back_by_user_id]"},
+    )
 
 
 class InventoryReworkCase(InventoryReworkCaseBase, table=True):

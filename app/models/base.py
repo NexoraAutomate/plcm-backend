@@ -833,6 +833,7 @@ class ItemRequestStatus(str, Enum):
     PENDING = "pending"
     ISSUED = "issued"
     CANCELLED = "cancelled"
+    MARKED_BACK = "marked_back"
 
 
 class InventoryItemRequestBase(SQLModel):
@@ -858,6 +859,11 @@ class InventoryItemRequestBase(SQLModel):
         default=None, foreign_key="inventoryissuance.id", index=True
     )
     notes: Optional[str] = None
+    mark_back_reason: Optional[str] = None
+    marked_back_at: Optional[datetime] = None
+    marked_back_by_user_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

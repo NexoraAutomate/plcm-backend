@@ -368,9 +368,60 @@ def issue_item_request(
     return row
 
 
+def mark_back_item_request(
+    session: Session,
+    request_id: int,
+    *,
+    actor: User,
+    reason: str,
+) -> InventoryItemRequest:
+    """IM returns a pending request so the developer can fix and request again."""
+    cleaned = (reason or "").strip()
+    if not cleaned:
+        raise ItemRequestError("Mark-back reason is required")
+
+    row = session.get(InventoryItemRequest, request_id)
+    if not row:
+        raise ItemRequestError("Issue request not found")
+    if row.status != ItemRequestStatus.PENDING.value:
+        raise ItemRequestError("Issue request is not pending")
+
+    now = _now()
+    row.status = ItemRequestStatus.MARKED_BACK.value
+    row.mark_back_reason = cleaned
+    row.marked_back_at = now
+    row.marked_back_by_user_id = int(actor.id)
+    row.updated_at = now
+    session.add(row)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="item_request_marked_back",
+        title="Issue request marked back",
+        message=cleaned,
+        href="/my-assignments",
+        priority="high",
+        actor=actor,
+        extra_user_ids=[int(row.assigned_developer_id)],
+        project_id=row.project_id,
+        entity_type="item_request",
+        entity_id=row.id,
+    )
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 def item_request_to_dict(session: Session, row: InventoryItemRequest) -> dict[str, Any]:
     developer = session.get(User, row.assigned_developer_id)
     requester = session.get(User, row.requested_by_user_id)
+    marked_back_by = (
+        session.get(User, row.marked_back_by_user_id)
+        if row.marked_back_by_user_id
+        else None
+    )
     inventory = row.inventory or session.get(Inventory, row.inventory_id)
     target_name = None
     try:
@@ -410,6 +461,10 @@ def item_request_to_dict(session: Session, row: InventoryItemRequest) -> dict[st
         "issued_at": row.issued_at,
         "issued_issuance_id": row.issued_issuance_id,
         "notes": row.notes,
+        "mark_back_reason": row.mark_back_reason,
+        "marked_back_at": row.marked_back_at,
+        "marked_back_by_user_id": row.marked_back_by_user_id,
+        "marked_back_by_name": _user_display(marked_back_by),
     }
 
 

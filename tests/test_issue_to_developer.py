@@ -51,6 +51,7 @@ from app.services.item_request_service import (
     create_bulk_item_requests,
     create_item_request,
     issue_item_request,
+    mark_back_item_request,
 )
 from app.services.project_workflow_service import (
     approve_project,
@@ -881,6 +882,90 @@ def test_release_reservation_clears_developer_assignment(
         if row["project_id"] == project.id
     ]
     assert work == []
+
+    _cleanup(session, project, cfg, inv)
+
+
+def test_mark_back_allows_developer_to_request_again(
+    session: Session, admin_user: User, developer_user: User
+):
+    sys_name = f"MarkBack-{uuid.uuid4().hex[:6]}"
+    for name, hierarchy_type in ((sys_name, "system"), ("RF", "subsystem")):
+        if not find_entity_list_entry(
+            session, name=name, hierarchy_type=hierarchy_type
+        ):
+            session.add(
+                Hierarchy(
+                    id=get_next_hierarchy_id(session),
+                    name=name,
+                    hierarchy_type=hierarchy_type,
+                    abbreviation=name[:4].upper(),
+                )
+            )
+    session.commit()
+    sync_hierarchy_id_sequence(session)
+    project, cfg = _ready_project(session, admin_user, system_name=sys_name)
+    inv = _stock_for_system(session, name=sys_name, serials=["SN-MARKBACK-1"])
+    systems = session.exec(select(System).where(System.project_id == project.id)).all()
+    target = systems[0]
+
+    assign_developer(
+        session, "system", int(target.id), int(developer_user.id), actor=admin_user
+    )
+    reserve_inventory(
+        session,
+        project.id,
+        {
+            "target_entity_type": "system",
+            "target_entity_id": int(target.id),
+            "serial_number": "SN-MARKBACK-1",
+        },
+        actor=admin_user,
+    )
+
+    req = create_item_request(
+        session, entity_type="system", entity_id=int(target.id), actor=developer_user
+    )
+    assert req.status == ItemRequestStatus.PENDING.value
+
+    with pytest.raises(ItemRequestError, match="required"):
+        mark_back_item_request(session, int(req.id), actor=admin_user, reason="  ")
+
+    marked = mark_back_item_request(
+        session,
+        int(req.id),
+        actor=admin_user,
+        reason="Serial mismatch on reserved unit",
+    )
+    assert marked.status == ItemRequestStatus.MARKED_BACK.value
+    assert marked.mark_back_reason == "Serial mismatch on reserved unit"
+    assert marked.marked_back_by_user_id == admin_user.id
+    assert marked.marked_back_at is not None
+
+    work = [
+        row
+        for row in list_assigned_work(session, int(developer_user.id))
+        if row["entity_type"] == "system" and row["entity_id"] == int(target.id)
+    ]
+    assert len(work) == 1
+    assert work[0]["can_request"] is True
+    assert work[0]["request_status"] == "none"
+    assert work[0]["last_mark_back_reason"] == "Serial mismatch on reserved unit"
+
+    again = create_item_request(
+        session, entity_type="system", entity_id=int(target.id), actor=developer_user
+    )
+    assert again.id != req.id
+    assert again.status == ItemRequestStatus.PENDING.value
+
+    work_after = [
+        row
+        for row in list_assigned_work(session, int(developer_user.id))
+        if row["entity_type"] == "system" and row["entity_id"] == int(target.id)
+    ]
+    assert work_after[0]["can_request"] is False
+    assert work_after[0]["request_status"] == "pending"
+    assert work_after[0]["last_mark_back_reason"] is None
 
     _cleanup(session, project, cfg, inv)
 

@@ -35,6 +35,7 @@ from app.services.item_request_service import (
     issue_item_request,
     item_request_to_dict,
     list_item_requests,
+    mark_back_item_request,
 )
 from app.services.item_rework_service import (
     ItemReworkError,
@@ -299,6 +300,31 @@ def issue_pending_item_request(
             signature_type=payload.signature_type,
             signature_payload=payload.signature_payload,
             notes=payload.notes,
+        )
+        return schemas.ItemIssueRequestRead.model_validate(
+            item_request_to_dict(session, row)
+        )
+    except ItemRequestError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-requests/{request_id}/mark-back/",
+    response_model=schemas.ItemIssueRequestRead,
+    tags=["item-requests"],
+)
+def mark_back_pending_item_request(
+    request_id: int,
+    payload: schemas.ItemIssueRequestMarkBackBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_can_issue_user),
+):
+    try:
+        row = mark_back_item_request(
+            session,
+            request_id,
+            actor=current_user,
+            reason=payload.notes,
         )
         return schemas.ItemIssueRequestRead.model_validate(
             item_request_to_dict(session, row)

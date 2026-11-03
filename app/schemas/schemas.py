@@ -2096,6 +2096,8 @@ class DeveloperAssignedWorkRead(SQLModel):
     issued: bool = False
     can_request: bool = False
     pending_request_id: Optional[int] = None
+    last_mark_back_reason: Optional[str] = None
+    last_mark_back_at: Optional[datetime] = None
     issuance_id: Optional[int] = None
     item_status: Optional[str] = None
     test_result: Optional[str] = None
@@ -2318,6 +2320,10 @@ class ItemIssueRequestIssueBody(SQLModel):
     notes: Optional[str] = None
 
 
+class ItemIssueRequestMarkBackBody(SQLModel):
+    notes: str
+
+
 class ItemIssueRequestRead(SQLModel):
     id: int
     project_id: int
@@ -2346,6 +2352,10 @@ class ItemIssueRequestRead(SQLModel):
     issued_at: Optional[datetime] = None
     issued_issuance_id: Optional[int] = None
     notes: Optional[str] = None
+    mark_back_reason: Optional[str] = None
+    marked_back_at: Optional[datetime] = None
+    marked_back_by_user_id: Optional[int] = None
+    marked_back_by_name: Optional[str] = None
 
     class Config:
         orm_mode = True

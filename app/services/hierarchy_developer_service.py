@@ -320,6 +320,18 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     InventoryItemRequest.status == ItemRequestStatus.PENDING.value,
                 )
             ).first()
+            last_mark_back = session.exec(
+                select(InventoryItemRequest)
+                .where(
+                    InventoryItemRequest.target_entity_type == et,
+                    InventoryItemRequest.target_entity_id == eid,
+                    InventoryItemRequest.status == ItemRequestStatus.MARKED_BACK.value,
+                )
+                .order_by(
+                    InventoryItemRequest.marked_back_at.desc(),
+                    InventoryItemRequest.id.desc(),
+                )
+            ).first()
             project_id = _project_id_for_entity(session, et, entity)
             project_name = None
             if project_id:
@@ -344,6 +356,13 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     inst = session.get(InventoryInstance, case.current_instance_id)
                     if inst is not None:
                         serial_number = inst.serial_number
+            # Show mark-back reason only while the developer can re-request
+            # (no open pending request and item not yet issued).
+            show_mark_back = (
+                last_mark_back is not None
+                and not issued
+                and pending is None
+            )
             rows.append(
                 {
                     "entity_type": et,
@@ -364,6 +383,12 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     "issued": issued,
                     "can_request": reserved and not issued and pending is None,
                     "pending_request_id": pending.id if pending else None,
+                    "last_mark_back_reason": (
+                        last_mark_back.mark_back_reason if show_mark_back else None
+                    ),
+                    "last_mark_back_at": (
+                        last_mark_back.marked_back_at if show_mark_back else None
+                    ),
                     **progress,
                 }
             )
