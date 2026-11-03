@@ -40,12 +40,23 @@ from app.models.helpers import (
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.list_query import text_search
-from app.models.tables import MaintenanceCase, FaultyEntity, MaintenanceAction, MaintenanceDelivery, Project
+from app.models.tables import (
+    MaintenanceCase,
+    FaultyEntity,
+    MaintenanceAction,
+    MaintenanceDelivery,
+    Project,
+    InventoryReworkCase,
+    OemWarrantyClaim,
+    Inventory,
+    InventoryInstance,
+)
 from app.services.configuration_history import (
     create_configuration_history_for_resolve,
     get_hardware_part_serial,
 )
 from app.models.base import CaseStatus, FaultyEntityStatus, FaultType, ResolutionType
+from app.services import maintenance_field_service as field_svc
 
 router = APIRouter()
 
@@ -60,12 +71,51 @@ OPEN_CASE_STATUSES = (
 from app.schemas.schemas import MaintenanceUserRead
 
 
+def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> ReturnedUnitRead:
+    inventory = session.get(Inventory, rework.inventory_id) if rework.inventory_id else None
+    instance = (
+        session.get(InventoryInstance, rework.current_instance_id)
+        if rework.current_instance_id
+        else None
+    )
+    pd = session.get(User, rework.investigating_pd_id) if rework.investigating_pd_id else None
+    expires = None
+    if instance and getattr(instance, "warranty_expires_at", None):
+        expires = instance.warranty_expires_at
+    elif inventory and getattr(inventory, "warranty_expires_at", None):
+        expires = inventory.warranty_expires_at
+    return ReturnedUnitRead(
+        id=int(rework.id),
+        maintenance_case_id=rework.maintenance_case_id,
+        faulty_entity_id=rework.faulty_entity_id,
+        investigating_pd_id=rework.investigating_pd_id,
+        investigating_pd_name=(pd.full_name or pd.username) if pd else None,
+        project_id=rework.project_id,
+        inventory_id=rework.inventory_id,
+        part_number=(
+            (instance.configuration_item if instance else None)
+            or (inventory.part_number if inventory else None)
+        ),
+        serial_number=instance.serial_number if instance else None,
+        status=rework.status,
+        stage=rework.stage,
+        disposition=rework.disposition,
+        notes=rework.notes,
+        opened_at=rework.opened_at,
+        updated_at=rework.updated_at,
+        warranty_expires_at=expires,
+        warranty_active=field_svc.warranty_active(expires) if expires else False,
+        oem_name=inventory.oem_name if inventory else None,
+    )
+
+
 def _build_case_read(
     session: Session,
     case: MaintenanceCase,
     *,
     project: Project | None = None,
     reporter: User | None = None,
+    include_field_service: bool = True,
 ) -> MaintenanceCaseRead:
     if project is None:
         project = session.get(Project, case.project_id)
@@ -78,7 +128,49 @@ def _build_case_read(
     )
     case_read.faulty_entities = []
     case_read.deliveries = []
+    if include_field_service:
+        returned = field_svc.list_case_returned_units(session, int(case.id))
+        case_read.returned_units = [
+            _serialize_returned_unit(session, row) for row in returned
+        ]
+        claims = session.exec(
+            select(OemWarrantyClaim)
+            .where(OemWarrantyClaim.maintenance_case_id == case.id)
+            .order_by(OemWarrantyClaim.id.desc())
+        ).all()
+        case_read.warranty_claims = [
+            OemWarrantyClaimRead.model_validate(claim) for claim in claims
+        ]
+    else:
+        case_read.returned_units = []
+        case_read.warranty_claims = []
     return case_read
+
+
+@router.get(
+    "/projects/{project_id}/production-support/",
+    response_model=ProductionSupportPreview,
+    tags=["maintenance-cases"],
+)
+def get_project_production_support(
+    project_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    order = field_svc.resolve_order_for_project(session, project_id)
+    snap_date, in_support = field_svc.compute_production_support(
+        order.production_support_date if order else None
+    )
+    return ProductionSupportPreview(
+        project_id=project_id,
+        order_id=order.id if order else None,
+        production_support_date=snap_date,
+        in_production_support=in_support,
+        requires_override=in_support is False,
+    )
 
 
 @router.post("/maintenance-cases/",
@@ -111,7 +203,15 @@ def create_maintenance_case(
         }
     """
     project= session.get(Project, payload.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
     payload.project_name = project.name if project else "Undefined"
+
+    support_fields = field_svc.apply_support_gate_on_create(
+        session,
+        project_id=payload.project_id,
+        support_override_reason=payload.support_override_reason,
+    )
 
     # Block a second open/active case for the same hardware (same serial via entity).
     if payload.entity_id is not None and payload.entity_type:
@@ -137,6 +237,7 @@ def create_maintenance_case(
     data["reported_by"] = data.get("reported_by") or current_user.id
     # resolved_at is set only when engineers resolve the case
     data["resolved_at"] = None
+    data.update(support_fields)
     case = MaintenanceCase(case_number=_generate_case_number(session),**data)
     print("-----------------------------------------------------------case Created:---------------------------------------------------------", case)
     session.add(case)
@@ -233,6 +334,7 @@ def list_maintenance_cases(
             case,
             project=projects.get(case.project_id),
             reporter=users.get(case.reported_by) if case.reported_by else None,
+            include_field_service=False,
         )
         for case in cases
     ]
@@ -265,6 +367,191 @@ def get_maintenance_case(
         raise HTTPException(status_code=404, detail="Maintenance case not found")
 
     return _build_case_read(session, case)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/onsite-outcome/",
+    response_model=MaintenanceCaseRead,
+    tags=["maintenance-cases"],
+)
+def record_case_onsite_outcome(
+    case_id: int,
+    payload: OnsiteOutcomePayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    """Record onsite visit outcome: soft_fix | fault_identified | inconclusive."""
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+
+    field_svc.record_onsite_outcome(
+        session,
+        case,
+        actor=current_user,
+        outcome=payload.onsite_outcome,
+        soft_fix_method=payload.onsite_soft_fix_method,
+        notes=payload.notes,
+    )
+
+    if (
+        payload.onsite_outcome.strip().lower() == "soft_fix"
+        and payload.resolve_soft_fixed
+    ):
+        open_fes = session.exec(
+            select(FaultyEntity).where(
+                FaultyEntity.case_id == case_id,
+                FaultyEntity.status.in_(
+                    [
+                        FaultyEntityStatus.IDENTIFIED,
+                        FaultyEntityStatus.SUSPECTED,
+                        FaultyEntityStatus.UNDER_INSPECTION,
+                        FaultyEntityStatus.CONFIRMED_FAULTY,
+                    ]
+                ),
+            )
+        ).all()
+        now = datetime.now(timezone.utc)
+        for fe in open_fes:
+            fe.status = FaultyEntityStatus.RESOLVED
+            fe.resolution_type = ResolutionType.SOFT_FIXED
+            fe.resolved_at = now
+            session.add(fe)
+        if case.status in OPEN_CASE_STATUSES:
+            case.status = CaseStatus.RESOLVED
+            case.resolved_at = now
+            if payload.notes:
+                case.resolution_notes = payload.notes
+            session.add(case)
+
+    session.commit()
+    session.refresh(case)
+    return _build_case_read(session, case)
+
+
+@router.get(
+    "/maintenance-cases/{case_id}/returned-units/",
+    response_model=List[ReturnedUnitRead],
+    tags=["maintenance-cases"],
+)
+def list_case_returned_units(
+    case_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    rows = field_svc.list_case_returned_units(session, case_id)
+    return [_serialize_returned_unit(session, row) for row in rows]
+
+
+@router.post(
+    "/item-rework/{rework_id}/assign-investigating-pd/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def assign_returned_unit_investigating_pd(
+    rework_id: int,
+    payload: AssignInvestigatingPdPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    rework = field_svc.assign_investigating_pd(
+        session, rework_id, pd_user_id=payload.pd_user_id
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.get(
+    "/oem-warranty-claims/",
+    response_model=List[OemWarrantyClaimRead],
+    tags=["oem-warranty-claims"],
+)
+def list_oem_warranty_claims(
+    response: Response,
+    maintenance_case_id: Optional[int] = None,
+    status: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    count_stmt = select(func.count()).select_from(OemWarrantyClaim)
+    query = select(OemWarrantyClaim)
+    if maintenance_case_id is not None:
+        count_stmt = count_stmt.where(
+            OemWarrantyClaim.maintenance_case_id == maintenance_case_id
+        )
+        query = query.where(OemWarrantyClaim.maintenance_case_id == maintenance_case_id)
+    if status:
+        count_stmt = count_stmt.where(OemWarrantyClaim.status == status)
+        query = query.where(OemWarrantyClaim.status == status)
+    set_list_total_header(response, session.exec(count_stmt).one())
+    rows = session.exec(
+        query.order_by(OemWarrantyClaim.id.desc()).offset(skip).limit(limit)
+    ).all()
+    return [OemWarrantyClaimRead.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/oem-warranty-claims/",
+    response_model=OemWarrantyClaimRead,
+    status_code=201,
+    tags=["oem-warranty-claims"],
+)
+def create_oem_warranty_claim(
+    payload: OemWarrantyClaimCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    rework = session.get(InventoryReworkCase, payload.rework_case_id)
+    if not rework:
+        raise HTTPException(status_code=404, detail="Rework case not found")
+    claim, action = field_svc.create_or_require_warranty_claim(
+        session,
+        rework=rework,
+        actor=current_user,
+        force_discard=payload.force_discard,
+        notes=payload.notes,
+    )
+    if action == "discard" or claim is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Warranty is not active for this unit. Confirm discard instead of opening a claim."
+            ),
+        )
+    session.commit()
+    session.refresh(claim)
+    return OemWarrantyClaimRead.model_validate(claim)
+
+
+@router.put(
+    "/oem-warranty-claims/{claim_id}/",
+    response_model=OemWarrantyClaimRead,
+    tags=["oem-warranty-claims"],
+)
+def update_oem_warranty_claim(
+    claim_id: int,
+    payload: OemWarrantyClaimUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    claim = session.get(OemWarrantyClaim, claim_id)
+    if not claim:
+        raise HTTPException(status_code=404, detail="Warranty claim not found")
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(claim, key, value)
+    claim.updated_at = datetime.now(timezone.utc)
+    session.add(claim)
+    session.commit()
+    session.refresh(claim)
+    return OemWarrantyClaimRead.model_validate(claim)
+
 
 @router.put(
     "/maintenance-cases/{case_id}/",
@@ -706,7 +993,12 @@ def update_faulty_entity(
 
     if payload.status == FaultyEntityStatus.RESOLVED:
         resolved_fault_type = payload.fault_type if payload.fault_type is not None else fe.fault_type
-        if resolved_fault_type == FaultType.UNCLASSIFIED:
+        skip_fault_class = resolution_type in (
+            ResolutionType.NO_FAULT_FOUND,
+            ResolutionType.SOFT_FIXED,
+            ResolutionType.CLEAR,
+        )
+        if not skip_fault_class and resolved_fault_type == FaultType.UNCLASSIFIED:
             raise HTTPException(
                 status_code=400,
                 detail="Fault type must be selected before resolving a faulty entity."
@@ -730,6 +1022,22 @@ def update_faulty_entity(
                 new_serial_number=payload.new_serial_number,
                 remarks=payload.remarks,
             )
+
+            # Field replace → open IM return/rework linked to this case
+            if resolution_type == ResolutionType.REPLACED:
+                case = session.get(MaintenanceCase, fe.case_id)
+                if case:
+                    field_svc.create_returned_unit_rework(
+                        session,
+                        case=case,
+                        faulty_entity_id=int(fe.id),
+                        entity_type=str(fe.entity_type),
+                        entity_id=int(fe.entity_id),
+                        part_number=old_part or fe.part_number,
+                        serial_number=old_serial or fe.serial_number,
+                        actor=current_user,
+                        notes=payload.remarks,
+                    )
 
     session.add(fe)
     session.commit()

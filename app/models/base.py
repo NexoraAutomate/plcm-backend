@@ -918,6 +918,27 @@ class ReworkDisposition(str, Enum):
 REWORK_CYCLE_WARNING_ATTEMPTS = 3
 
 
+class OnsiteOutcome(str, Enum):
+    SOFT_FIX = "soft_fix"
+    FAULT_IDENTIFIED = "fault_identified"
+    INCONCLUSIVE = "inconclusive"
+
+
+class SoftFixMethod(str, Enum):
+    REBOOT = "reboot"
+    HARD_RESET = "hard_reset"
+    RECONNECT = "reconnect"
+    OTHER = "other"
+
+
+class OemWarrantyClaimStatus(str, Enum):
+    OPEN = "open"
+    SUBMITTED = "submitted"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    CLOSED = "closed"
+
+
 class InventoryReworkCaseBase(SQLModel):
     """Spec 10 — open defect/rework case for a hierarchy node (outlives a serial)."""
     project_id: int = Field(foreign_key="project.id", index=True)
@@ -953,6 +974,47 @@ class InventoryReworkCaseBase(SQLModel):
     closed_at: Optional[datetime] = None
     closed_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     notes: Optional[str] = None
+    # Field-service link: returned faulty unit from a maintenance replacement
+    maintenance_case_id: Optional[int] = Field(
+        default=None, foreign_key="maintenance_case.id", index=True
+    )
+    faulty_entity_id: Optional[int] = Field(
+        default=None, foreign_key="faulty_entity.id", index=True
+    )
+    investigating_pd_id: Optional[int] = Field(
+        default=None, foreign_key="user.id", index=True
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class OemWarrantyClaimBase(SQLModel):
+    """OEM warranty claim for a non-repairable returned unit."""
+    maintenance_case_id: Optional[int] = Field(
+        default=None, foreign_key="maintenance_case.id", index=True
+    )
+    faulty_entity_id: Optional[int] = Field(
+        default=None, foreign_key="faulty_entity.id", index=True
+    )
+    inventory_id: Optional[int] = Field(
+        default=None, foreign_key="inventory.id", index=True
+    )
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    rework_case_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryreworkcase.id", index=True
+    )
+    oem_name: Optional[str] = Field(default=None, max_length=128)
+    part_number: Optional[str] = Field(default=None, max_length=128)
+    serial_number: Optional[str] = Field(default=None, max_length=128)
+    warranty_expires_at: Optional[datetime] = None
+    status: str = Field(
+        default=OemWarrantyClaimStatus.OPEN.value, index=True, max_length=32
+    )
+    notes: Optional[str] = None
+    shipped_at: Optional[datetime] = None
+    created_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -1169,8 +1231,10 @@ class ResolutionType(str, Enum):
     REPAIRED       = "repaired"
     REPLACED       = "replaced"
     NO_FAULT_FOUND = "no_fault_found"
+    SOFT_FIXED     = "soft_fixed"
     DECOMMISSIONED = "decommissioned"
     CLEAR          = "clear"
+
 
 class ActionType(str, Enum):
     INSPECTION    = "inspection"
@@ -1229,6 +1293,15 @@ class MaintenanceCaseCommon(SQLModel):
     part_number: Optional[str] = None
     status_id: Optional[int]= None
     resolved_at: Optional[datetime] = None
+    # Production-support snapshot / gate (Phase 1 field service)
+    production_support_date: Optional[date] = None
+    in_production_support: Optional[bool] = None
+    support_override_reason: Optional[str] = None
+    # Onsite visit outcome
+    onsite_outcome: Optional[str] = Field(default=None, max_length=32)
+    onsite_soft_fix_method: Optional[str] = Field(default=None, max_length=32)
+    onsite_notes: Optional[str] = None
+    onsite_recorded_at: Optional[datetime] = None
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] =Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -1237,6 +1310,7 @@ class MaintenanceCaseBase(MaintenanceCaseCommon):
     reported_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     closed_at: Optional[datetime] = None
     project_name: Optional[str] = None
+    onsite_recorded_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
 # =============================================================================
 # 2. FAULTY ENTITY

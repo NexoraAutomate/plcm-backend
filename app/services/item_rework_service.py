@@ -505,6 +505,13 @@ def start_inspection(
     case.updated_at = _now()
     if notes:
         case.notes = notes
+    # Field-service: assign investigating PD from linked maintenance case reporter
+    if case.maintenance_case_id and not case.investigating_pd_id:
+        from app.models.tables import MaintenanceCase
+
+        mc = session.get(MaintenanceCase, case.maintenance_case_id)
+        if mc and mc.reported_by:
+            case.investigating_pd_id = mc.reported_by
     session.add(case)
     _record(
         session,
@@ -542,6 +549,8 @@ def disposition_item(
     actor: User,
     outcome: str,
     notes: Optional[str] = None,
+    confirm_discard: bool = False,
+    force_discard: bool = False,
 ) -> InventoryReworkCase:
     case = _require_open_case(session, rework_id)
     if case.stage != ReworkStage.INSPECTION.value:
@@ -554,6 +563,29 @@ def disposition_item(
         raise ItemReworkError(
             "Disposition must be repairable, reusable, or scrapped"
         )
+
+    warranty_claim = None
+    warranty_action = None
+    if key == ReworkDisposition.SCRAPPED.value and case.maintenance_case_id:
+        from app.services import maintenance_field_service as field_svc
+
+        claim, action = field_svc.create_or_require_warranty_claim(
+            session,
+            rework=case,
+            actor=actor,
+            force_discard=force_discard,
+            notes=notes,
+        )
+        warranty_claim = claim
+        warranty_action = action
+        if action == "claim" and claim is not None and not force_discard:
+            # Claim opened — still mark scrapped/not repairable in IM track
+            pass
+        elif action == "discard" and not confirm_discard and not force_discard:
+            raise ItemReworkError(
+                "Warranty is expired or missing. Set confirm_discard=true to discard this unit."
+            )
+
     _advance_unit_status(session, case, to_status, actor=actor)
     if key == ReworkDisposition.REUSABLE.value:
         _advance_unit_status(
@@ -564,6 +596,12 @@ def disposition_item(
     case.updated_at = _now()
     if notes:
         case.notes = notes
+    if case.maintenance_case_id and not case.investigating_pd_id:
+        from app.models.tables import MaintenanceCase as MC
+
+        mc = session.get(MC, case.maintenance_case_id)
+        if mc and mc.reported_by:
+            case.investigating_pd_id = mc.reported_by
     session.add(case)
     _record(
         session,
@@ -578,11 +616,14 @@ def disposition_item(
     touch_project_progress(session, case.project_id)
     passed = key == ReworkDisposition.REUSABLE.value
     extra = [int(case.assigned_developer_id)] if case.assigned_developer_id else []
+    claim_note = ""
+    if warranty_claim is not None:
+        claim_note = f" (OEM claim #{warranty_claim.id} {warranty_action})"
     notify(
         session,
         event_type="inspection_passed" if passed else "inspection_failed",
         title="Inspection passed" if passed else "Inspection failed",
-        message=f"Returned item disposition: {key}",
+        message=f"Returned item disposition: {key}{claim_note}",
         href="/inspect-queue",
         priority="medium" if passed else "high",
         actor=actor,
@@ -778,6 +819,24 @@ def rework_case_to_dict(
     except Exception:
         entity_name = None
     item_status = _instance_status(session, case)
+    pd = (
+        session.get(User, case.investigating_pd_id)
+        if case.investigating_pd_id
+        else None
+    )
+    claim_id = None
+    claim_status = None
+    if case.maintenance_case_id or case.id:
+        from app.models.tables import OemWarrantyClaim
+
+        claim = session.exec(
+            select(OemWarrantyClaim)
+            .where(OemWarrantyClaim.rework_case_id == case.id)
+            .order_by(col(OemWarrantyClaim.id).desc())
+        ).first()
+        if claim:
+            claim_id = claim.id
+            claim_status = claim.status
     return {
         "id": case.id,
         "project_id": case.project_id,
@@ -812,6 +871,14 @@ def rework_case_to_dict(
         "closed_at": case.closed_at,
         "notes": case.notes,
         "updated_at": case.updated_at,
+        "maintenance_case_id": case.maintenance_case_id,
+        "faulty_entity_id": case.faulty_entity_id,
+        "investigating_pd_id": case.investigating_pd_id,
+        "investigating_pd_name": (
+            (pd.full_name or pd.username) if pd else None
+        ),
+        "warranty_claim_id": claim_id,
+        "warranty_claim_status": claim_status,
     }
 
 

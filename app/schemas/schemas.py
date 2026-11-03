@@ -2086,6 +2086,9 @@ class ItemReworkNotesBody(SQLModel):
 class ItemReworkDispositionBody(SQLModel):
     outcome: str
     notes: Optional[str] = None
+    # Field-service: when scrapping a maintenance-linked return
+    confirm_discard: bool = False
+    force_discard: bool = False  # skip OEM claim even if warranty active
 
 
 class ItemReworkReissueBody(SQLModel):
@@ -2135,6 +2138,12 @@ class ItemReworkCaseRead(SQLModel):
     notes: Optional[str] = None
     updated_at: Optional[datetime] = None
     events: Optional[List[ItemReworkEventRead]] = None
+    maintenance_case_id: Optional[int] = None
+    faulty_entity_id: Optional[int] = None
+    investigating_pd_id: Optional[int] = None
+    investigating_pd_name: Optional[str] = None
+    warranty_claim_id: Optional[int] = None
+    warranty_claim_status: Optional[str] = None
 
 
 class InventoryRecallNotesBody(SQLModel):

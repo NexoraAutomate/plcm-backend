@@ -449,6 +449,10 @@ class InventoryReworkCase(InventoryReworkCaseBase, table=True):
     )
 
 
+class OemWarrantyClaim(OemWarrantyClaimBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
 class InventoryRecallTask(InventoryRecallTaskBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     project: Optional["Project"] = Relationship()

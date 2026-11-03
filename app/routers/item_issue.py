@@ -592,6 +592,8 @@ def disposition_rework_item(
             actor=current_user,
             outcome=payload.outcome,
             notes=payload.notes,
+            confirm_discard=bool(getattr(payload, "confirm_discard", False)),
+            force_discard=bool(getattr(payload, "force_discard", False)),
         )
         return _rework_read(session, case)
     except ItemReworkError as exc:

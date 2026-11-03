@@ -1,10 +1,10 @@
 from sqlmodel import SQLModel, Field
 from pydantic import ConfigDict
-from app.models.base import (MaintenanceCaseBase, FaultyEntityBase, MaintenanceActionBase, MaintenanceDeliveryBase)
+from app.models.base import (MaintenanceCaseBase, FaultyEntityBase, MaintenanceActionBase, MaintenanceDeliveryBase, OemWarrantyClaimBase)
 from typing import List, Optional
 from app.models.base import EntityType, FaultType, CaseStatus, FaultyEntityStatus, ResolutionType, ActionOutcome, DeliveryStatus
 from .schemas import EntityRead, MaintenanceUserRead
-from datetime import datetime, datetime, timezone
+from datetime import date, datetime, timezone
 
 
 # =============================================================================
@@ -155,6 +155,72 @@ class MaintenanceCaseCreate(MaintenanceCaseBase):
     project_id:  int
     reported_by: Optional[int] = None
     project_name:     Optional[str]                 = None
+    # Soft-block when order production support has ended
+    support_override_reason: Optional[str] = None
+
+
+class ProductionSupportPreview(SQLModel):
+    """GET /projects/{id}/production-support/ — used before opening a case."""
+    project_id: int
+    order_id: Optional[int] = None
+    production_support_date: Optional[date] = None
+    in_production_support: Optional[bool] = None
+    requires_override: bool = False
+
+
+class OnsiteOutcomePayload(SQLModel):
+    """POST /maintenance-cases/{id}/onsite-outcome/"""
+    onsite_outcome: str
+    onsite_soft_fix_method: Optional[str] = None
+    notes: Optional[str] = None
+    # When soft_fix: also resolve the primary/open faulty entity as soft_fixed
+    resolve_soft_fixed: bool = True
+
+
+class ReturnedUnitRead(SQLModel):
+    """Maintenance-linked inventory rework / returned faulty unit."""
+    id: int
+    maintenance_case_id: Optional[int] = None
+    faulty_entity_id: Optional[int] = None
+    investigating_pd_id: Optional[int] = None
+    investigating_pd_name: Optional[str] = None
+    project_id: int
+    inventory_id: int
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    status: str
+    stage: str
+    disposition: Optional[str] = None
+    notes: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    warranty_expires_at: Optional[datetime] = None
+    warranty_active: Optional[bool] = None
+    oem_name: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AssignInvestigatingPdPayload(SQLModel):
+    pd_user_id: int
+
+
+class OemWarrantyClaimCreate(SQLModel):
+    rework_case_id: int
+    notes: Optional[str] = None
+    force_discard: bool = False
+
+
+class OemWarrantyClaimUpdate(SQLModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    shipped_at: Optional[datetime] = None
+
+
+class OemWarrantyClaimRead(OemWarrantyClaimBase):
+    id: int
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MaintenanceCaseRead(MaintenanceCaseBase):
@@ -168,6 +234,8 @@ class MaintenanceCaseRead(MaintenanceCaseBase):
     reported_by_user: Optional[MaintenanceUserRead]            = None
     faulty_entities:  List["FaultyEntityRead"]       = []
     deliveries:       List["MaintenanceDeliveryRead"] = []
+    returned_units:   List[ReturnedUnitRead]         = []
+    warranty_claims:  List[OemWarrantyClaimRead]     = []
 
     model_config = ConfigDict(from_attributes=True)
 
