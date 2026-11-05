@@ -75,7 +75,13 @@ PD_ROLE_NAMES = frozenset(
         "ProjectManager",
     }
 )
-MAINTENANCE_ROLE_NAMES = frozenset({"Maintenance"})
+MAINTENANCE_ROLE_NAMES = frozenset(
+    {
+        "Maintenance",
+        WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME],
+        "MaintenanceEngineer",
+    }
+)
 
 PROGRESS_MILESTONES = (25, 50, 75)
 

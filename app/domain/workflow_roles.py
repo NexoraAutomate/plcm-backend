@@ -17,6 +17,10 @@ class WorkflowRole(str, Enum):
     HM = "HM"
     IM = "IM"
     DEV = "DEV"
+    # Maintenance occurrence / dual-track (P0 foundations)
+    ME = "ME"
+    FSE = "FSE"
+    IE = "IE"
 
 
 # Spec code → Role.name stored in DB (additive; legacy roles unchanged)
@@ -26,6 +30,9 @@ WORKFLOW_ROLE_DB_NAMES: dict[WorkflowRole, str] = {
     WorkflowRole.HM: "HierarchyManager",
     WorkflowRole.IM: "InventoryManager",
     WorkflowRole.DEV: "Developer",
+    WorkflowRole.ME: "MaintenanceEngineer",
+    WorkflowRole.FSE: "FieldServiceEngineer",
+    WorkflowRole.IE: "InspectionEngineer",
 }
 
 WORKFLOW_ROLE_LABELS: dict[WorkflowRole, str] = {
@@ -34,6 +41,9 @@ WORKFLOW_ROLE_LABELS: dict[WorkflowRole, str] = {
     WorkflowRole.HM: "Hierarchy Manager",
     WorkflowRole.IM: "Inventory Manager",
     WorkflowRole.DEV: "Developer",
+    WorkflowRole.ME: "Maintenance Engineer",
+    WorkflowRole.FSE: "Field Service Engineer",
+    WorkflowRole.IE: "Inspection Engineer",
 }
 
 # Reverse lookup: Role.name → Spec code
@@ -52,6 +62,12 @@ _ROLE_ALIASES: dict[str, WorkflowRole] = {
     "projectmanager": WorkflowRole.PD,
     "hierarchy manager": WorkflowRole.HM,
     "inventory manager": WorkflowRole.IM,
+    "maintenance engineer": WorkflowRole.ME,
+    "maintenanceengineer": WorkflowRole.ME,
+    "field service engineer": WorkflowRole.FSE,
+    "fieldserviceengineer": WorkflowRole.FSE,
+    "inspection engineer": WorkflowRole.IE,
+    "inspectionengineer": WorkflowRole.IE,
 }
 
 

@@ -34,6 +34,23 @@ WORKFLOW_PERMISSION_DEFS: list[dict[str, str]] = [
     {"name": "config_change.request", "description": "Request configuration change (Spec 12)"},
     {"name": "config_change.approve", "description": "Approve configuration change (Spec 12)"},
     {"name": "audit.read", "description": "Read audit trail (Spec 13)"},
+    # Maintenance occurrence / dual-track (P0 stubs — enforced in later phases)
+    {
+        "name": "maintenance.occurrence_report",
+        "description": "Record occurrence / onsite report on a maintenance case",
+    },
+    {
+        "name": "maintenance.replacement_request",
+        "description": "Create and advance ME replacement requests (Track A)",
+    },
+    {
+        "name": "maintenance.ait_upload",
+        "description": "Upload AIT reports for replacement integration",
+    },
+    {
+        "name": "maintenance.inspection_disposition",
+        "description": "IE inspection disposition and repair updates (Track B)",
+    },
 ]
 
 WORKFLOW_PERMISSION_NAMES: list[str] = [p["name"] for p in WORKFLOW_PERMISSION_DEFS]
@@ -51,6 +68,7 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "config_change.request",
         "config_change.approve",
         "audit.read",
+        "maintenance.replacement_request",  # approve / assign gates (later)
     ],
     WorkflowRole.HM: [
         "project.create_draft",
@@ -77,5 +95,22 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "item.request",
         "item.install_test",
         "inventory.label.scan",
+    ],
+    WorkflowRole.ME: [
+        "maintenance.occurrence_report",
+        "maintenance.replacement_request",
+        "maintenance.ait_upload",
+        "inventory.label.scan",
+        "audit.read",
+    ],
+    WorkflowRole.FSE: [
+        "maintenance.occurrence_report",
+        "inventory.label.scan",
+    ],
+    WorkflowRole.IE: [
+        "maintenance.inspection_disposition",
+        "item.inspect",
+        "inventory.label.scan",
+        "audit.read",
     ],
 }

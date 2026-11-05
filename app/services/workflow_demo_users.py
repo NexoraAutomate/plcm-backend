@@ -42,6 +42,31 @@ WORKFLOW_DEMO_USERS: list[dict[str, str]] = [
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV],
         "password": "Demo@dev123",
     },
+    {
+        "username": "demo-me",
+        "full_name": "Demo Maintenance Engineer",
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME],
+        "password": "Demo@me123",
+    },
+    {
+        "username": "demo-fse",
+        "full_name": "Demo Field Service Engineer",
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.FSE],
+        "password": "Demo@fse123",
+    },
+    {
+        "username": "demo-ie",
+        "full_name": "Demo Inspection Engineer",
+        "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IE],
+        "password": "Demo@ie123",
+    },
+    {
+        # Legacy notify / case-ops role until ME migration is complete (REQ-ROLE-006)
+        "username": "demo-maintenance",
+        "full_name": "Demo Maintenance (legacy)",
+        "role": "Maintenance",
+        "password": "Demo@maint123",
+    },
     # Admin already ensured via ensure_default_admin
 ]
 
