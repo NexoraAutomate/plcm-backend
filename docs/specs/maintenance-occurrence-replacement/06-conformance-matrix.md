@@ -2,6 +2,7 @@
 
 **Feature:** MHD Occurrence Report + Dual-Track  
 **Baseline date:** 2026-11-07 (from code exploration vs `MHD.drawio`)  
+**Last verification cycle:** 2026-11-07 — P0–P2 UT/FT/ST (`reports/TR-MHD-20261107.md`)  
 **Owner:** Product Owner + Engineering + QA  
 **Rule:** Release / feature sign-off only when every **Must** row is **Satisfied** or **Accepted Deviation** (signed).
 
@@ -30,61 +31,61 @@ Update this file after each phase. Status values: see [README](./README.md).
 
 ## Matrix — Occurrence Report (OR)
 
-| REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
-|-----|-----|-----------------|----|----|----|------|-------|
-| OR-001 | Must | Partial (UI still “Onsite visit outcome”) | Pending | FT-OR-001 | N/A | Not Started | Rename pending |
-| OR-002 | Must | Not Started | UT-OR-001 | FT-OR-002 | N/A | Not Started | No occurrence_date |
-| OR-003 | Must | Implemented | UT-OR-001 | FT-OR-002 | N/A | Partial | recorded_by exists |
-| OR-004 | Must | Partial (no NFF in OnsiteOutcome) | UT-OR-002 | FT-OR-* | ST-02/03 | Partial | Add NFF |
-| OR-005 | Must | Implemented | UT-OR-003/004 | FT-OR-003 | ST-01 | Partial | Needs Verified after formal UT |
-| OR-006 | Must | Not Started (NFF on entity only) | UT-OR-005/006 | FT-OR-004/005 | ST-02/03 | Not Started | |
-| OR-007 | Must | Implemented | UT-OR-007 | FT-OR-006 | ST-04 | Partial | |
-| OR-008 | Must | Not Started on report | UT-OR-008 | FT-OR-007 | ST-05 | Not Started | FaultType enum exists |
-| OR-009 | Must | Not Started | UT-OR-009 | FT-OR-007 | ST-05 | Not Started | |
-| OR-010 | Must | Not Started | UT-OR-010 | FT-OR-008/009 | ST-05 | Not Started | |
-| OR-011 | Must | Not Started | UT-OR-011 | FT-OR-010 | ST-05 | Not Started | |
-| OR-012 | Should | Not Started | N/A | FT-OR-010 | N/A | Not Started | Warning only |
-| OR-013 | Must | Partial (hint only) | Pending | FT-OR-007 | ST-05 | Partial | CTA missing |
-| OR-014 | Must | Implemented | N/A | FT-OR-011 | ST-05 | Partial | Tree continues today |
-| OR-015 | Must | Implemented (additive TBD) | UT-OR-012 | Pending | N/A | Partial | |
-| OR-016 | Should | Not Started | UT-NT-* | FT-OR-012 | ST-14 | Not Started | |
+| REQ | Pri | Impl | UT | FT | ST | Conf | Notes |
+|-----|-----|------|----|----|----|------|-------|
+| OR-001 | Must | Implemented | N/A | FT-OR-001 Pass | N/A | Verified | UI labels Occurrence Report |
+| OR-002 | Must | Implemented | UT-OR-001 Pass | FT-OR-002 Pass | N/A | Verified | occurrence_date independent |
+| OR-003 | Must | Implemented | UT-OR-001 Pass | FT-OR-002 Pass | N/A | Verified | onsite_recorded_by_id |
+| OR-004 | Must | Implemented | UT-OR-002 Pass | FT-OR-* Pass | ST-02/03/04 Pass | Verified | NFF in OnsiteOutcome |
+| OR-005 | Must | Implemented | UT-OR-003/004 Pass | FT-OR-003 Pass | ST-01 Pass | Verified | soft_fixed path |
+| OR-006 | Must | Implemented | UT-OR-005/006 Pass | FT-OR-004/005 Pass | ST-02/03 Pass | Verified | NFF confirm Yes/No |
+| OR-007 | Must | Implemented | UT-OR-007 Pass | FT-OR-006 Pass | ST-04 Pass | Verified | |
+| OR-008 | Must | Implemented | UT-OR-008 Pass | FT-OR-007 Pass | ST-05 Skip | Verified (P1) | ST-05 deferred P3+ |
+| OR-009 | Must | Implemented | UT-OR-009 Pass | FT-OR-007 Pass | ST-05 Skip | Verified (P1) | |
+| OR-010 | Must | Implemented | UT-OR-010 Pass | FT-OR-008/009 Pass | N/A | Verified | Named attachments |
+| OR-011 | Must | Implemented | UT-OR-011 Pass | FT-OR-010 Pass | N/A | Verified | Officers |
+| OR-012 | Should | Implemented | N/A | FT-OR-010 Pass | N/A | Verified | Warning-only UX |
+| OR-013 | Must | Implemented | N/A | FT-OR-007 Pass | ST-05 Skip | Verified (P1/P2) | CTA + create RR |
+| OR-014 | Must | Implemented | N/A | FT-OR-011 Pass | ST-05 Skip | Verified (P1) | Tree parallel |
+| OR-015 | Must | Implemented | UT-OR-012 Pass | Pass | N/A | Verified | Additive fields |
+| OR-016 | Should | Implemented | N/A | FT-OR-012 Pass | ST-14 Skip | Verified (P1) | occurrence_recorded notify |
 
 ---
 
 ## Matrix — Dual-track (DT)
 
-| REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
-|-----|-----|-----------------|----|----|----|------|-------|
-| DT-001 | Must | Implemented | UT-RL-003 | N/A | ST-13 | Partial | Spine intact |
-| DT-002 | Must | Partial (P2: Track A without reception; awaiting on PD approve) | UT-RA-006 | FT-DT-004 | ST-05 | Partial | Ship path remains P3 |
-| DT-003 | Must | Not Started | UT-RA-010 | FT-CG-001..003 | ST-09 | Not Started | |
-| DT-004 | Must | Implemented | N/A | FT-CG-004 | ST-01 | Partial | |
-| DT-005 | Must | Partial (dual-track board API + UI skeleton) | N/A | FT-DT-001 | ST-05 | Partial | |
-| DT-006 | Must | Partial | Pending | Pending | ST-13 | Partial | Continuous NR |
+| REQ | Pri | Impl | UT | FT | ST | Conf | Notes |
+|-----|-----|------|----|----|----|------|-------|
+| DT-001 | Must | Implemented | UT-RL-003 Pass | N/A | ST-13 Pass | Verified | Spine intact |
+| DT-002 | Must | Implemented (P2) | UT-RA board Pass | FT-DT-004 Pass | ST-05 Skip | Verified (P2) | Track A without reception; ship path P3 |
+| DT-003 | Must | Not Started | Pending | Pending | ST-09 Skip | Not Started | P5 close gate |
+| DT-004 | Must | Implemented | N/A | FT-OR-003 Pass | ST-01 Pass | Verified | Soft/NFF early exit |
+| DT-005 | Must | Implemented | UT board Pass | FT-DT-001 Pass | ST-05 Skip | Verified (P2) | Dual-track board API+UI |
+| DT-006 | Must | Partial | Pass (P0–P2 slice) | Pass | ST-13 Pass | Verified (P0–P2) | Continuous NR through P5 |
 
 ---
 
 ## Matrix — Replacement / AIT (RA)
 
-| REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
-|-----|-----|-----------------|----|----|----|------|-------|
-| RA-001 | Must | Implemented (P2) | UT-RA-001 | FT-DT-002 | ST-05 | Partial | ReplacementRequest entity + APIs |
-| RA-002 | Must | Implemented (P2) | UT-RA-001 | FT-DT-002 | ST-05 | Partial | create + PD high notify |
-| RA-003 | Must | Implemented (P2) | UT-RA-002 | FT-DT-003 | ST-05 | Partial | HM assign ME + reserve |
-| RA-004 | Must | Not Started | UT-RA-003 | FT-RA-001/002 | ST-11 | Not Started | |
-| RA-005 | Must | Not Started | Pending | FT-RA-002 | ST-05 | Not Started | |
-| RA-006 | Must | Not Started | UT-RA-004 | FT-RA-003 | ST-10 | Not Started | Gap GAP-01 |
-| RA-007 | Must | Partial (replace resolve exists) | UT-RA-005 | FT-RA-004 | ST-05 | Partial | Not ME-driven |
-| RA-008 | Must | Not Started | UT-NT-002 | FT-RA-004 | ST-14 | Not Started | |
-| RA-009 | Must | Partial (rework on replace) | UT-RA-006 | FT-RA-004 | ST-05 | Partial | Need awaiting_arrival |
-| RA-010 | Must | Not Started | Pending | FT-RA-005 | ST-05 | Not Started | ait_upload perm stub only |
-| RA-011 | Must | Not Started (process) | N/A | FT-RA-005 | ST-05 | Not Started | Field procedure |
-| RA-012 | Must | Not Started | UT-RA-007/008 | FT-RA-006/007 | ST-05/06 | Not Started | |
-| RA-013 | Must | Not Started | UT-RA-008 | FT-RA-007 | ST-06 | Not Started | |
-| RA-014 | Must | Not Started | UT-RA-007 | FT-RA-006 | ST-05 | Not Started | |
-| RA-015 | Must | Not Started | UT-RA-009 | FT-RA-* | ST-05 | Not Started | |
-| RA-016 | Should | Not Started | UT-NT-003 | FT-CG-005 | ST-05 | Not Started | |
-| RA-017 | Should | Not Started | Pending | Pending | ST-15 | Not Started | GAP-04 |
+| REQ | Pri | Impl | UT | FT | ST | Conf | Notes |
+|-----|-----|------|----|----|----|------|-------|
+| RA-001 | Must | Implemented (P2) | UT-RA-001 Pass | FT-DT-002 Pass | ST-05 Skip | Verified (P2) | ReplacementRequest entity + APIs |
+| RA-002 | Must | Implemented (P2) | UT-RA-001 Pass | FT-DT-002 Pass | ST-05 Skip | Verified (P2) | create + PD high notify |
+| RA-003 | Must | Implemented (P2) | UT-RA-002 Pass | FT-DT-003 Pass | ST-05 Skip | Verified (P2) | HM assign ME; reserve via UT |
+| RA-004 | Must | Partial (pd-decision API) | UT reject Pass | FT-DT-004 covers approve | ST-11 Skip | Partial | Full FT-RA / ST-11 in P3 |
+| RA-005 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
+| RA-006 | Must | Not Started | Pending | Pending | ST-10 Skip | Not Started | P3 / GAP-01 |
+| RA-007 | Must | Partial (legacy replace) | Pending | Pending | ST-05 Skip | Partial | P3 ME-driven issue |
+| RA-008 | Must | Not Started | Pending | Pending | ST-14 Skip | Not Started | P3 |
+| RA-009 | Must | Partial (awaiting on PD approve) | UT approve Pass | FT-DT-004 Pass | ST-05 Skip | Partial | Ship path remains P3 |
+| RA-010 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
+| RA-011 | Must | Not Started | N/A | Pending | ST-05 Skip | Not Started | P3 |
+| RA-012 | Must | Not Started | Pending | Pending | ST-05/06 Skip | Not Started | P3 |
+| RA-013 | Must | Not Started | Pending | Pending | ST-06 Skip | Not Started | P3 |
+| RA-014 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
+| RA-015 | Must | Partial (P2 spine + guards) | UT-RA illegal jump Pass | FT-DT-* Pass | ST-05 Skip | Partial | Full spine P3 |
+| RA-016 | Should | Not Started | Pending | Pending | ST-05 Skip | Not Started | P5 |
+| RA-017 | Should | Not Started | Pending | Pending | ST-15 Skip | Not Started | GAP-04 |
 | RA-018 | Should | Not Started | Pending | Pending | N/A | Not Started | |
 | RA-019 | Should | Not Started | Pending | Pending | N/A | Not Started | |
 | RA-020 | Could | Not Started | N/A | N/A | N/A | Not Started | GAP-07 |
@@ -93,52 +94,54 @@ Update this file after each phase. Status values: see [README](./README.md).
 
 ## Matrix — Inspection / IE (IE)
 
-| REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
-|-----|-----|-----------------|----|----|----|------|-------|
-| IE-001 | Must | Partial (awaiting_faulty_arrival + reception_date columns; reception flow P4) | UT-IE-001 | FT-IE-001 | ST-05 | Partial | P2 enum/column; reception P4 |
-| IE-002 | Must | Partial | UT-IE-001 | FT-IE-001 | ST-05 | Partial | |
-| IE-003 | Must | Partial (PD assign exists for returned units) | UT-IE-002 | FT-IE-002 | ST-05 | Partial | Assign IE role specifically |
-| IE-004 | Must | Partial (inspect queue) | UT-IE-003 | FT-IE-002 | ST-05 | Partial | |
-| IE-005 | Must | Partial (repairable outcome) | UT-IE-004 | FT-IE-003 | ST-05 | Partial | Sub-status naming |
-| IE-006 | Must | Implemented (OEM claim) | UT-IE-005 | FT-IE-004 | ST-07 | Partial | Needs IE-driven path Verified |
-| IE-007 | Must | Partial (IM discard; no IE recommend gate) | UT-IE-006/007 | FT-IE-005/006 | ST-08/12 | Partial | Segregation gap |
-| IE-008 | Must | Not Started (UI badge) | UT-IE-007 | FT-IE-005 | ST-08 | Not Started | Backend scrap exists |
-| IE-009 | Must | Partial | UT-IE-008 | FT-IE-003/007 | ST-05 | Partial | PD verify gate |
-| IE-010 | Must | Partial | UT-IE-008/009 | FT-IE-003/007 | ST-05 | Partial | |
-| IE-011 | Must | Not Started (explicit terminal helper) | UT-IE-010 | FT-CG-* | ST-09 | Not Started | |
-| IE-012 | Must | Not Started | Pending | FT-IE-* | ST-05 | Not Started | |
+| REQ | Pri | Impl | UT | FT | ST | Conf | Notes |
+|-----|-----|------|----|----|----|------|-------|
+| IE-001 | Must | Partial (columns + awaiting) | Pending | Pending | ST-05 Skip | Partial | Reception flow P4 |
+| IE-002 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-003 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-004 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-005 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-006 | Must | Implemented (OEM claim legacy) | Pending | Pending | ST-07 Skip | Partial | IE-driven path P4 |
+| IE-007 | Must | Partial | Pending | Pending | ST-08/12 Skip | Partial | P4 |
+| IE-008 | Must | Not Started (UI badge) | Pending | Pending | ST-08 Skip | Not Started | P4 |
+| IE-009 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-010 | Must | Partial | Pending | Pending | ST-05 Skip | Partial | P4 |
+| IE-011 | Must | Not Started | Pending | Pending | ST-09 Skip | Not Started | P4/P5 |
+| IE-012 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P4 |
 | IE-013 | Should | Implemented (reusable) | N/A | Pending | N/A | Partial | |
-| IE-014 | Should | Not Started | N/A | N/A | ST-16 | Not Started | GAP-08 |
+| IE-014 | Should | Not Started | N/A | N/A | ST-16 Skip | Not Started | GAP-08 |
 | IE-015 | Could | Not Started | N/A | N/A | N/A | Not Started | GAP-11 |
 
 ---
 
 ## Matrix — Roles / notifications / NR
 
-| REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
-|-----|-----|-----------------|----|----|----|------|-------|
-| RL-001 | Must | Implemented (auth seed) | UT-RL-001 | N/A | N/A | Partial | Update role tests for 8 roles |
-| RL-002 | Must | Partial (perms stubbed; endpoints missing) | UT-RL-002 | FT-* | ST-05 | Partial | |
-| RL-003 | Must | Implemented | UT-RL-004 | N/A | N/A | Partial | |
-| RL-004 | Must | Not Started (MHD event matrix) | UT-NT-001 | ST-14 | ST-14 | Not Started | |
-| RL-005 | Must | Partial (history UI; no Discarded chip) | N/A | FT-RA-008 | ST-14 | Partial | |
-| NR-001 | Must | Implemented | UT-OR-003 | FT-OR-003 | ST-01/13 | Partial | |
-| NR-002 | Must | Implemented | N/A | FT-OR-007 | N/A | Partial | Surface on OR |
-| NR-003 | Must | Implemented | Pending | Pending | ST-13 | Partial | |
-| NR-004 | Must | Not Started | All | All | All | Not Started | No MHD pytest suite yet |
-| NR-005 | Must | Not Started | — | — | — | Not Started | Sign-off gate |
+| REQ | Pri | Impl | UT | FT | ST | Conf | Notes |
+|-----|-----|------|----|----|----|------|-------|
+| RL-001 | Must | Implemented | UT-RL-001 Pass | N/A | N/A | Verified | ME/FSE/IE + 8 roles |
+| RL-002 | Must | Partial (P0–P2 perms) | UT-RL-002 Pass | FT-* Pass | ST-05 Skip | Verified (P0–P2) | Full matrix through P4 |
+| RL-003 | Must | Implemented | UT-RL-004 Pass | N/A | N/A | Verified | Legacy Maintenance notify |
+| RL-004 | Must | Not Started (full matrix) | Pending | Pending | ST-14 Skip | Not Started | P5 |
+| RL-005 | Must | Partial | N/A | Pending | ST-14 Skip | Partial | P3–P4 badges |
+| NR-001 | Must | Implemented | UT-OR-003 Pass | FT-OR-003 Pass | ST-01/13 Pass | Verified | Soft fix |
+| NR-002 | Must | Implemented | N/A | FT-OR-007 Pass | N/A | Verified | FaultType on OR |
+| NR-003 | Must | Implemented | UT approve rework Pass | FT-DT-004 Pass | ST-13 Pass | Verified (P2) | create_returned_unit_rework retained |
+| NR-004 | Must | Partial | P0–P2 suite Pass | P0–P2 Pass | P0–P2 Pass | Partial | Full Must coverage at P6 |
+| NR-005 | Must | Not Started | — | — | — | Not Started | Sign-off after P5/P6 |
 
 ---
 
 ## Summary dashboard (update each review)
 
-| Priority | Total | Satisfied | Accepted Deviation | NCR Open | Remaining |
-|----------|-------|-----------|--------------------|----------|-----------|
-| Must | 57 | 0 | 0 | 0 | 57 |
-| Should | 8 | 0 | 0 | 0 | 8 |
-| Could | 2 | 0 | 0 | 0 | 2 |
+| Priority | Total | Satisfied | Verified | Accepted Deviation | NCR Open | Remaining (Not Started / Partial) |
+|----------|-------|-----------|----------|--------------------|----------|-----------------------------------|
+| Must | 57 | 0 | ~28 (P0–P2 slice) | 0 | 0 | ~29 (P3–P6) |
+| Should | 8 | 0 | 2 | 0 | 0 | 6 |
+| Could | 2 | 0 | 0 | 0 | 0 | 2 |
 
-**Baseline verdict (2026-11-07):** Spec pack created; implementation **not conformant** for release. Foundations (CaseStatus, soft fix, FaultType, roles stubs, rework/warranty) are Partial anchors only. User decision required on GAP-01…GAP-12 before P5 freeze (see § below).
+**P0–P2 verification verdict (2026-11-07):** UT 40 Pass; FT 15 Pass; ST 5 Pass / 3 Skip (P3–P5). See `reports/TR-MHD-20261107.md`.  
+**Fix shipped in cycle:** `FaultyEntity.resolution_type` values_callable + lowercase `resolutiontype` PG labels (`o6a7b8c9d0`).  
+**PO action:** Mark Verified P0–P2 Must rows as **Satisfied** when accepted; proceed to P3.
 
 ---
 
@@ -146,8 +149,8 @@ Update this file after each phase. Status values: see [README](./README.md).
 
 Confirm before treating Should/Could as Must:
 
-1. **NFF:** Add `no_fault_found` to `OnsiteOutcome` **or** modal-only mapping to `ResolutionType.no_fault_found`?  
-2. **Spelling:** “Occurrence” vs mandated “Occurance”?  
+1. **NFF:** Resolved — `no_fault_found` on `OnsiteOutcome` + confirm_close_nff.  
+2. **Spelling:** “Occurrence” used in UI (not “Occurance”).  
 3. **GAP-01…GAP-12:** Which are Must for v1 vs Accepted Deviation / backlog?  
 4. **Close caveat (IE-014):** Allow Track A close if faulty never returned?  
 5. **Demo users:** Treat seed script accounts as official ST actors?

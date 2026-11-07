@@ -780,6 +780,19 @@ class FaultyEntity(FaultyEntityBase, table=True):
             nullable=False,
         ),
     )
+    # Persist ResolutionType values (soft_fixed) not member names (SOFT_FIXED).
+    resolution_type: Optional[ResolutionType] = Field(
+        default=None,
+        sa_column=sa.Column(
+            sa.Enum(
+                ResolutionType,
+                values_callable=lambda entries: [entry.value for entry in entries],
+                name="resolutiontype",
+                native_enum=True,
+            ),
+            nullable=True,
+        ),
+    )
 
     # Relationships
     case:             Optional[MaintenanceCase]  = Relationship(back_populates="faulty_entities")

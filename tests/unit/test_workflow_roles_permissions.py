@@ -78,12 +78,28 @@ class TestWorkflowPermissionSeed:
             assert key in names, f"Missing permission stub: {key}"
 
     def test_eight_workflow_roles_present(self):
+        """UT-RL-001 — WorkflowRole includes ME, FSE, IE (and full 8-role set)."""
         role_names = {r["name"] for r in DEFAULT_ROLES}
         assert len(list(WorkflowRole)) == 8
+        assert WorkflowRole.ME in WorkflowRole
+        assert WorkflowRole.FSE in WorkflowRole
+        assert WorkflowRole.IE in WorkflowRole
         for role in WorkflowRole:
             assert WORKFLOW_ROLE_DB_NAMES[role] in role_names, (
                 f"Missing role: {WORKFLOW_ROLE_DB_NAMES[role]}"
             )
+
+    def test_legacy_maintenance_role_resolvable_as_notify_target(self):
+        """UT-RL-004 — Legacy Maintenance remains a notify target with ME."""
+        from app.services.app_notification_service import MAINTENANCE_ROLE_NAMES
+        from app.services.workflow_demo_users import WORKFLOW_DEMO_USERS
+
+        assert "Maintenance" in MAINTENANCE_ROLE_NAMES
+        assert WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME] in MAINTENANCE_ROLE_NAMES
+        demo_roles = {u["role"] for u in WORKFLOW_DEMO_USERS}
+        assert "Maintenance" in demo_roles
+        role_names = {r["name"] for r in DEFAULT_ROLES}
+        assert "Maintenance" in role_names
 
     def test_admin_has_all_workflow_permissions(self):
         admin = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN])
