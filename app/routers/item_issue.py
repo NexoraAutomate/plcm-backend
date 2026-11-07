@@ -10,6 +10,7 @@ from app.database import get_session
 from app.models.tables import User
 from app.routers.auth import check_role, get_current_user, require_permission, require_role
 from app.schemas import schemas
+from app.services.assignment_activity_service import list_assignment_activity
 from app.services.hierarchy_developer_service import (
     HierarchyDeveloperError,
     assign_developer,
@@ -199,6 +200,26 @@ def list_my_assigned_work(
             viewer_id=int(current_user.id),
         )
     ]
+
+
+@router.get(
+    "/item-assignments/{entity_type}/{entity_id}/activity/",
+    response_model=schemas.AssignmentActivityRead,
+    tags=["item-requests"],
+)
+def get_assignment_activity(
+    entity_type: str,
+    entity_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_mine_assignments),
+):
+    """Workflow activity for one assigned hierarchy item (assign → issue → verify loop)."""
+    try:
+        return schemas.AssignmentActivityRead.model_validate(
+            list_assignment_activity(session, entity_type, entity_id)
+        )
+    except HierarchyDeveloperError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.delete(

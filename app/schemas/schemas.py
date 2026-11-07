@@ -2081,6 +2081,32 @@ class HierarchyAssignmentStatusRead(SQLModel):
     can_return: bool = False
 
 
+class AssignmentActivityStepRead(SQLModel):
+    id: str
+    step: str
+    title: str
+    occurred_at: Optional[datetime] = None
+    actor_user_id: Optional[int] = None
+    actor_name: Optional[str] = None
+    actor_role: Optional[str] = None
+    target_user_id: Optional[int] = None
+    target_name: Optional[str] = None
+    status: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class AssignmentActivityRead(SQLModel):
+    entity_type: str
+    entity_id: int
+    entity_name: Optional[str] = None
+    current_status: Optional[str] = None
+    current_status_label: str
+    assigned_developer_id: Optional[int] = None
+    assigned_developer_name: Optional[str] = None
+    latest_step: Optional[str] = None
+    steps: List[AssignmentActivityStepRead] = []
+
+
 class DeveloperAssignedWorkRead(SQLModel):
     entity_type: str
     entity_id: int
