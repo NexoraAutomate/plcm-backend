@@ -1,83 +1,94 @@
-# 04 — Functional Test Specification
+# 04 — Functional Test Specification (FT)
 
-**Scope:** API + UI feature tests (authenticated roles). May use test DB; not full multi-system production.  
-**IDs:** `FT-<area>-NNN`
-
----
-
-## 1. Occurrence Report — FT-OR-*
-
-| ID | Roles | Steps | Expected | REQ |
-|----|-------|-------|----------|-----|
-| FT-OR-001 | FSE/ME | Open case → Occurrence Report panel visible (not “Onsite visit outcome”) | Label/button renamed | OR-001 |
-| FT-OR-002 | FSE | Set occurrence date yesterday; save; view detail | Occurrence ≠ recorded timestamps | OR-002, OR-003 |
-| FT-OR-003 | FSE | Soft fix + method + notes | Case/entities soft_fixed | OR-006, OR-011 |
-| FT-OR-004 | FSE | Select NFF → modal → Confirm Yes | Case resolved/closed as NFF | OR-010 |
-| FT-OR-005 | FSE | Select NFF → Cancel/No | Report saved; case open | OR-010 |
-| FT-OR-006 | FSE | Inconclusive + notes | Case open | OR-012 |
-| FT-OR-007 | FSE | Fault identified + Fault Type Electrical + named attachment + 2 officers | Saved; CTA for replacement visible | OR-005, OR-008, OR-009, OR-013 |
-| FT-OR-008 | FSE | Upload attachment without name | Blocked with validation | OR-008 |
-| FT-OR-009 | FSE | Fault type each of 10 values (param) | All save | OR-005 |
-| FT-OR-010 | Tech w/o perm | Attempt record | 403 / UI disabled | ROLE-* |
+**Scope:** API + UI feature tests against a running (or test) stack for one feature slice at a time.  
+**Actors:** Use seeded demo users from `scripts/seed_maintenance_demo_users.py` (ME/FSE/IE/PD/IM/HM).  
+**Not E2E dual-track end-to-end** — that is System Test (05). FT may cover a single track or single screen thoroughly.
 
 ---
 
-## 2. Track A — FT-TA-*
+## 1. Preconditions
 
-| ID | Roles | Steps | Expected | REQ |
-|----|-------|-------|----------|-----|
-| FT-TA-001 | ME | From fault_identified case, create Replacement Request **before** any faulty reception | Request status `replacement_requested` | TA-001, TA-002 |
-| FT-TA-002 | PD | Approve + assign ME | `pd_approved`; ME notified | TA-003 |
-| FT-TA-003 | PD | Reject with reason | `pd_rejected`; no IM issue | TA-003 |
-| FT-TA-004 | ME→IM | Request issue; IM issues matching stock | New S/N; Replaced badge; RED on project hierarchy | TA-004..006, BDG-001 |
-| FT-TA-005 | IM | Attempt issue wrong PN | Error; no badge | TA-004 |
-| FT-TA-006 | SYS | After issue | Track B `awaiting_faulty_arrival` exists | TA-007 |
-| FT-TA-007 | ME | Notify AIT in progress | PD sees status; notify | TA-008 |
-| FT-TA-008 | ME | Upload AIT report | Attachments listed | TA-010 |
-| FT-TA-009 | PD | Approve AIT | `patch_delivered`; RED cleared | TA-011, TA-013, CL-002 |
-| FT-TA-010 | PD→IM→ME | Reject AIT; IM issues second S/N to same ME | Loop; prior S/N history retained | TA-012 |
-| FT-TA-011 | Case UI | Dual-track board shows A statuses | UX board updates | UX-001 |
-| FT-TA-012 | IM (S) | Zero stock | Escalation; no issue | TA-015 |
+1. Roles/permissions synced; demo users exist.
+2. Maintenance case open against a known S/N in a project hierarchy.
+3. Spare same-P/N inventory available for Track A happy path; separate fixture for shortage.
 
 ---
 
-## 3. Track B — FT-TB-*
+## 2. Occurrence Report (FT-OR)
 
-| ID | Roles | Steps | Expected | REQ |
-|----|-------|-------|----------|-----|
-| FT-TB-001 | IM | Receive faulty; set reception date | PD notified; status received | TB-001 |
-| FT-TB-002 | PD | Assign IE | ie_assigned | TB-002 |
-| FT-TB-003 | IE→IM | Request handover; IM issues | inspection_under_process | TB-003, TB-004 |
-| FT-TB-004 | IE | Mark irreparable + warranty active | Warranty/claim path | TB-005 |
-| FT-TB-005 | IE→IM | Irreparable + expired → recommend discard; IM trash | Discarded badge; cannot reserve | TB-006, TB-009, BDG-002 |
-| FT-TB-006 | IE | Attempt trash directly | Denied | TB-009 |
-| FT-TB-007 | IE→PD→IM | Repairable → repair → PD approve → restock | Available stock | TB-007, TB-008 |
-| FT-TB-008 | PD | Reject repair verification | Stays repair_under_progress | TB-008 |
-| FT-TB-009 | Case UI | Track B progress on dual board | Visible | UX-001 |
-
----
-
-## 4. Close gate — FT-CL-*
-
-| ID | Steps | Expected | REQ |
-|----|-------|----------|-----|
-| FT-CL-001 | Soft fix only → close | Allowed | CL-001 |
-| FT-CL-002 | Track A shipped, Track B awaiting → attempt close | Blocked | CL-001 |
-| FT-CL-003 | Track A patch_delivered + Track B discarded → close | Allowed | CL-001 |
-| FT-CL-004 | Track A patch_delivered + Track B restocked → close | Allowed | CL-001 |
+| FT-ID | REQ | Steps | Expected |
+|-------|-----|-------|----------|
+| FT-OR-001 | OR-001 | Open case detail | Panel titled Occurrence Report; button Record Occurrence Report |
+| FT-OR-002 | OR-002/003 | Submit with occurrence_date in past | Saved; recorded_at ≈ now; recorded_by = actor |
+| FT-OR-003 | OR-005 | Soft fix + method + save | Case/entity soft_fixed; no Track A CTA |
+| FT-OR-004 | OR-006 | NFF → Yes on modal | Resolved/closed as NFF |
+| FT-OR-005 | OR-006 | NFF → No on modal | Case open; NFF note visible |
+| FT-OR-006 | OR-007 | Inconclusive | Case open; no replacement CTA |
+| FT-OR-007 | OR-008/009/013 | Fault + type + channel + evidence | CTA Request immediate replacement visible |
+| FT-OR-008 | OR-010 | Upload file with display name | Attachment listed by name |
+| FT-OR-009 | OR-010 | Upload without name | Blocked with validation message |
+| FT-OR-010 | OR-011 | Add FSE officer + guest observer | Officers list persisted after reload |
+| FT-OR-011 | OR-014 | After fault | Investigation tree still usable |
+| FT-OR-012 | OR-016 | After record | PD (and ME if any) receive occurrence_recorded |
 
 ---
 
-## 5. Non-regression — FT-NR-*
+## 3. Dual-track board & request (FT-DT)
 
-| ID | Steps | Expected | REQ |
-|----|-------|----------|-----|
-| FT-NR-001 | Legacy soft fix API payload (no occurrence_date if still supported via default) | Still works or clear migration message | NR-002 |
-| FT-NR-002 | Open warranty claim on scrapped rework (existing UI) | Status transitions OK | NR-004 |
-| FT-NR-003 | Delivery confirm on resolved case | Close still works | NR-005 |
+| FT-ID | REQ | Steps | Expected |
+|-------|-----|-------|----------|
+| FT-DT-001 | DT-005 | After fault + create request | Dual-track board shows Track A started; Track B awaiting or idle |
+| FT-DT-002 | RA-002 | Authorized user creates Replacement Request | Status replacement_requested; PD notified high |
+| FT-DT-003 | RA-003 | HM assigns ME + reserves S/N | ME assigned; inventory reserved; case marked to ME |
+| FT-DT-004 | DT-002 | Observe timing | Track A advances without requiring reception of faulty |
 
 ---
 
-## Evidence
+## 4. Track A Replacement / AIT (FT-RA)
 
-For each FT: screenshot or API log excerpt + timestamp + build SHA in Functional Test Report ([07](./07-verification-loop-and-reports.md#functional-test-report-template)).
+| FT-ID | REQ | Steps | Expected |
+|-------|-----|-------|----------|
+| FT-RA-001 | RA-004 | PD rejects request | pd_rejected; IM cannot issue |
+| FT-RA-002 | RA-004/005 | PD approves; ME requests issue | im_issue_pending |
+| FT-RA-003 | RA-006 | Shortage fixture | Escalation shown; no issue; no Replaced badge |
+| FT-RA-004 | RA-007/008/009 | IM issues available S/N | Hierarchy new S/N; Replaced badge; RED on Project/Order/Flight/SDLS; Track B awaiting |
+| FT-RA-005 | RA-010/011 | ME custody + site + AIT upload | ait_in_progress; attachments visible to PD |
+| FT-RA-006 | RA-012/014 | PD approves AIT | patch_delivered; Track A complete |
+| FT-RA-007 | RA-013 | PD rejects AIT | New issue to same ME; failed unit quarantined; loop allowed |
+| FT-RA-008 | RL-005 | View inventory/hierarchy | Replaced badge present on new S/N context |
+
+---
+
+## 5. Track B Inspection (FT-IE)
+
+| FT-ID | REQ | Steps | Expected |
+|-------|-----|-------|----------|
+| FT-IE-001 | IE-002 | IM enters reception_date | PD notified faulty_received; status received |
+| FT-IE-002 | IE-003/004 | PD assigns IE; IE handover; IM issues | inspection_under_process |
+| FT-IE-003 | IE-005/009/010 | Repairable → repair → PD approve | restocked; Track B terminal |
+| FT-IE-004 | IE-006 | Irreparable + warranty | OEM claim path; claim_closed eventually terminal |
+| FT-IE-005 | IE-007/008 | Irreparable + no warranty; IE recommend; IM trash | Discarded badge; not reservable |
+| FT-IE-006 | IE-007 | IE alone attempts trash | Denied; segregation enforced |
+| FT-IE-007 | IE-010 | PD rejects repair tests | Remains repair_under_progress |
+
+---
+
+## 6. Close gate (FT-CG)
+
+| FT-ID | REQ | Steps | Expected |
+|-------|-----|-------|----------|
+| FT-CG-001 | DT-003 | Attempt close with only Track A done | Blocked with clear message |
+| FT-CG-002 | DT-003 | Attempt close with only Track B done | Blocked |
+| FT-CG-003 | DT-003 | Both terminal | Close succeeds; case_closed notify |
+| FT-CG-004 | DT-004 | Soft-fix case | Close/resolve without dual-track |
+| FT-CG-005 | RA-016 | After patch_delivered | RED cleared (or on abort) |
+
+---
+
+## 7. Pass / Fail rules
+
+- **Pass:** All steps Expected met; screenshots or API logs attached for Must cases on first full cycle.
+- **Fail:** Any Expected mismatch → NCR; linked REQs set to NCR Open in Matrix.
+- **Blocked:** Missing fixture/env → NCR type Environment; do not mark REQ Satisfied.
+
+Update [06-conformance-matrix.md](./06-conformance-matrix.md) after each FT run.
