@@ -168,13 +168,61 @@ class ProductionSupportPreview(SQLModel):
     requires_override: bool = False
 
 
+class OccurrenceAttachmentIn(SQLModel):
+    """Named attachment on Occurrence Report."""
+    display_name: str
+    file_id: Optional[int] = None
+    category: Optional[str] = None
+    # Alias accepted by service via dict: name
+    name: Optional[str] = None
+
+
+class OccurrenceOfficerIn(SQLModel):
+    """Field officer on Occurrence Report."""
+    user_id: Optional[int] = None
+    guest_name: Optional[str] = None
+    role_onsite: str
+    contact: Optional[str] = None
+
+
+class OccurrenceAttachmentRead(SQLModel):
+    id: int
+    case_id: int
+    display_name: str
+    file_id: Optional[int] = None
+    category: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OccurrenceOfficerRead(SQLModel):
+    id: int
+    case_id: int
+    user_id: Optional[int] = None
+    guest_name: Optional[str] = None
+    role_onsite: str
+    contact: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class OnsiteOutcomePayload(SQLModel):
-    """POST /maintenance-cases/{id}/onsite-outcome/"""
+    """POST /maintenance-cases/{id}/onsite-outcome/ — Occurrence Report (additive)."""
     onsite_outcome: str
     onsite_soft_fix_method: Optional[str] = None
     notes: Optional[str] = None
     # When soft_fix: also resolve the primary/open faulty entity as soft_fixed
     resolve_soft_fixed: bool = True
+    # When no_fault_found: Yes on confirm modal → resolve/close as NFF
+    confirm_close_nff: bool = False
+    occurrence_date: Optional[datetime] = None
+    fault_type: Optional[str] = None
+    confirmation_channel: Optional[str] = None
+    confirmation_reference: Optional[str] = None
+    attachments: Optional[List[OccurrenceAttachmentIn]] = None
+    officers: Optional[List[OccurrenceOfficerIn]] = None
 
 
 class ReturnedUnitRead(SQLModel):
@@ -236,6 +284,10 @@ class MaintenanceCaseRead(MaintenanceCaseBase):
     deliveries:       List["MaintenanceDeliveryRead"] = []
     returned_units:   List[ReturnedUnitRead]         = []
     warranty_claims:  List[OemWarrantyClaimRead]     = []
+    occurrence_attachments: List[OccurrenceAttachmentRead] = []
+    occurrence_officers: List[OccurrenceOfficerRead] = []
+    # Convenience alias for occurrence_fault_type
+    fault_type: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

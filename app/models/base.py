@@ -928,6 +928,7 @@ class OnsiteOutcome(str, Enum):
     SOFT_FIX = "soft_fix"
     FAULT_IDENTIFIED = "fault_identified"
     INCONCLUSIVE = "inconclusive"
+    NO_FAULT_FOUND = "no_fault_found"
 
 
 class SoftFixMethod(str, Enum):
@@ -935,6 +936,12 @@ class SoftFixMethod(str, Enum):
     HARD_RESET = "hard_reset"
     RECONNECT = "reconnect"
     OTHER = "other"
+
+
+class ConfirmationChannel(str, Enum):
+    EMAIL = "email"
+    LETTER = "letter"
+    CALL = "call"
 
 
 class OemWarrantyClaimStatus(str, Enum):
@@ -1303,11 +1310,15 @@ class MaintenanceCaseCommon(SQLModel):
     production_support_date: Optional[date] = None
     in_production_support: Optional[bool] = None
     support_override_reason: Optional[str] = None
-    # Onsite visit outcome
+    # Occurrence Report (augmented onsite visit outcome)
     onsite_outcome: Optional[str] = Field(default=None, max_length=32)
     onsite_soft_fix_method: Optional[str] = Field(default=None, max_length=32)
     onsite_notes: Optional[str] = None
     onsite_recorded_at: Optional[datetime] = None
+    occurrence_date: Optional[datetime] = None
+    occurrence_fault_type: Optional[str] = Field(default=None, max_length=64)
+    confirmation_channel: Optional[str] = Field(default=None, max_length=16)
+    confirmation_reference: Optional[str] = Field(default=None, max_length=512)
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] =Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -1317,6 +1328,25 @@ class MaintenanceCaseBase(MaintenanceCaseCommon):
     closed_at: Optional[datetime] = None
     project_name: Optional[str] = None
     onsite_recorded_by_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class MaintenanceOccurrenceAttachmentBase(SQLModel):
+    """Named attachment on an Occurrence Report (REQ-MHD-OR-010)."""
+    case_id: int = Field(foreign_key="maintenance_case.id", index=True)
+    display_name: str = Field(max_length=255)
+    file_id: Optional[int] = Field(default=None, foreign_key="entity_attachment.id")
+    category: Optional[str] = Field(default=None, max_length=64)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MaintenanceOccurrenceOfficerBase(SQLModel):
+    """Field officer listed on an Occurrence Report (REQ-MHD-OR-011)."""
+    case_id: int = Field(foreign_key="maintenance_case.id", index=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    guest_name: Optional[str] = Field(default=None, max_length=255)
+    role_onsite: str = Field(max_length=64)
+    contact: Optional[str] = Field(default=None, max_length=255)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # =============================================================================
 # 2. FAULTY ENTITY

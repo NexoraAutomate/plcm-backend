@@ -24,6 +24,13 @@ SPEC_00_PERMISSIONS = [
     "audit.read",
 ]
 
+MAINTENANCE_WORKFLOW_PERMISSIONS = [
+    "maintenance.occurrence_report",
+    "maintenance.replacement_request",
+    "maintenance.ait_upload",
+    "maintenance.inspection_disposition",
+]
+
 ROLE_PRIMARY_PERMS = {
     WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD]: [
         "project.create_draft",
@@ -66,11 +73,12 @@ def _role_perms(name: str) -> set[str]:
 class TestWorkflowPermissionSeed:
     def test_all_spec_permissions_registered(self):
         names = {p["name"] for p in DEFAULT_PERMISSIONS}
-        for key in SPEC_00_PERMISSIONS:
+        for key in SPEC_00_PERMISSIONS + MAINTENANCE_WORKFLOW_PERMISSIONS:
             assert key in names, f"Missing permission stub: {key}"
 
-    def test_five_workflow_roles_present(self):
+    def test_eight_workflow_roles_present(self):
         role_names = {r["name"] for r in DEFAULT_ROLES}
+        assert len(list(WorkflowRole)) == 8
         for role in WorkflowRole:
             assert WORKFLOW_ROLE_DB_NAMES[role] in role_names, (
                 f"Missing role: {WORKFLOW_ROLE_DB_NAMES[role]}"
@@ -78,8 +86,21 @@ class TestWorkflowPermissionSeed:
 
     def test_admin_has_all_workflow_permissions(self):
         admin = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ADMIN])
-        for key in SPEC_00_PERMISSIONS:
+        for key in SPEC_00_PERMISSIONS + MAINTENANCE_WORKFLOW_PERMISSIONS:
             assert key in admin
+
+    def test_maintenance_permissions_mapped_to_roles(self):
+        """UT-RL-002 — ME/FSE/IE/PD grants for maintenance.* stubs."""
+        me = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME])
+        fse = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.FSE])
+        ie = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IE])
+        pd = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD])
+        assert "maintenance.occurrence_report" in me
+        assert "maintenance.replacement_request" in me
+        assert "maintenance.ait_upload" in me
+        assert "maintenance.occurrence_report" in fse
+        assert "maintenance.inspection_disposition" in ie
+        assert "maintenance.replacement_request" in pd
 
     def test_primary_role_permission_matrix(self):
         for role_name, keys in ROLE_PRIMARY_PERMS.items():

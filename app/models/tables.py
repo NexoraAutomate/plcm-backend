@@ -556,6 +556,30 @@ class MaintenanceCase(MaintenanceCaseBase, table=True):
                                             "cascade": "all, delete-orphan",
                                             "passive_deletes": True,
                                             },)
+    occurrence_attachments: List["MaintenanceOccurrenceAttachment"] = Relationship(
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
+    occurrence_officers: List["MaintenanceOccurrenceOfficer"] = Relationship(
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
+
+
+class MaintenanceOccurrenceAttachment(MaintenanceOccurrenceAttachmentBase, table=True):
+    __tablename__ = "maintenance_occurrence_attachment"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class MaintenanceOccurrenceOfficer(MaintenanceOccurrenceOfficerBase, table=True):
+    __tablename__ = "maintenance_occurrence_officer"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
     
 class MaintenanceAction(MaintenanceActionBase, table=True):
     """

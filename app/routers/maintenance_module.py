@@ -17,7 +17,7 @@ from sqlmodel import Field, Relationship, Session, SQLModel, select
 # Project-level imports (adjust paths to match your project structure)
 from app.database import get_session
 from app.auth import check_permission
-from .auth import require_permission
+from .auth import require_permission, require_any_permission
 # Hierarchy models — adapt class names / FK attribute names to your schema
 from app.models.tables import User
 
@@ -141,9 +141,20 @@ def _build_case_read(
         case_read.warranty_claims = [
             OemWarrantyClaimRead.model_validate(claim) for claim in claims
         ]
+        case_read.occurrence_attachments = [
+            OccurrenceAttachmentRead.model_validate(row)
+            for row in field_svc.list_occurrence_attachments(session, int(case.id))
+        ]
+        case_read.occurrence_officers = [
+            OccurrenceOfficerRead.model_validate(row)
+            for row in field_svc.list_occurrence_officers(session, int(case.id))
+        ]
     else:
         case_read.returned_units = []
         case_read.warranty_claims = []
+        case_read.occurrence_attachments = []
+        case_read.occurrence_officers = []
+    case_read.fault_type = getattr(case, "occurrence_fault_type", None)
     return case_read
 
 
@@ -378,12 +389,26 @@ def record_case_onsite_outcome(
     case_id: int,
     payload: OnsiteOutcomePayload,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+    current_user: User = Depends(
+        require_any_permission(
+            "edit_maintenance_cases",
+            "maintenance.occurrence_report",
+        )
+    ),
 ):
-    """Record onsite visit outcome: soft_fix | fault_identified | inconclusive."""
+    """Record Occurrence Report: soft_fix | fault_identified | inconclusive | no_fault_found."""
     case = session.get(MaintenanceCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Maintenance case not found")
+
+    attachment_dicts = None
+    if payload.attachments is not None:
+        attachment_dicts = [
+            a.model_dump(exclude_none=True) for a in payload.attachments
+        ]
+    officer_dicts = None
+    if payload.officers is not None:
+        officer_dicts = [o.model_dump(exclude_none=True) for o in payload.officers]
 
     field_svc.record_onsite_outcome(
         session,
@@ -392,12 +417,19 @@ def record_case_onsite_outcome(
         outcome=payload.onsite_outcome,
         soft_fix_method=payload.onsite_soft_fix_method,
         notes=payload.notes,
+        occurrence_date=payload.occurrence_date,
+        fault_type=payload.fault_type,
+        confirmation_channel=payload.confirmation_channel,
+        confirmation_reference=payload.confirmation_reference,
+        attachments=attachment_dicts,
+        officers=officer_dicts,
+        confirm_close_nff=payload.confirm_close_nff,
     )
 
-    if (
-        payload.onsite_outcome.strip().lower() == "soft_fix"
-        and payload.resolve_soft_fixed
-    ):
+    outcome_key = payload.onsite_outcome.strip().lower()
+    now = datetime.now(timezone.utc)
+
+    if outcome_key == "soft_fix" and payload.resolve_soft_fixed:
         open_fes = session.exec(
             select(FaultyEntity).where(
                 FaultyEntity.case_id == case_id,
@@ -411,7 +443,6 @@ def record_case_onsite_outcome(
                 ),
             )
         ).all()
-        now = datetime.now(timezone.utc)
         for fe in open_fes:
             fe.status = FaultyEntityStatus.RESOLVED
             fe.resolution_type = ResolutionType.SOFT_FIXED
@@ -423,6 +454,53 @@ def record_case_onsite_outcome(
             if payload.notes:
                 case.resolution_notes = payload.notes
             session.add(case)
+
+    if outcome_key == "no_fault_found" and payload.confirm_close_nff:
+        open_fes = session.exec(
+            select(FaultyEntity).where(
+                FaultyEntity.case_id == case_id,
+                FaultyEntity.status.in_(
+                    [
+                        FaultyEntityStatus.IDENTIFIED,
+                        FaultyEntityStatus.SUSPECTED,
+                        FaultyEntityStatus.UNDER_INSPECTION,
+                        FaultyEntityStatus.CONFIRMED_FAULTY,
+                    ]
+                ),
+            )
+        ).all()
+        for fe in open_fes:
+            fe.status = FaultyEntityStatus.NO_FAULT_FOUND
+            fe.resolution_type = ResolutionType.NO_FAULT_FOUND
+            fe.resolved_at = now
+            session.add(fe)
+        if case.status in OPEN_CASE_STATUSES:
+            case.status = CaseStatus.CLOSED
+            case.resolved_at = now
+            case.closed_at = now
+            if payload.notes:
+                case.resolution_notes = payload.notes
+            session.add(case)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="occurrence_recorded",
+        title="Occurrence Report recorded",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"{outcome_key.replace('_', ' ')}"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="medium",
+        actor=current_user,
+        include_pd=True,
+        include_maintenance=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
 
     session.commit()
     session.refresh(case)

@@ -80,6 +80,7 @@ async def upload_attachment(
         "inventory",
         "inventory_instance",
         "inventory_issuance",
+        "maintenance_case",
     }
     if owner_type_normalized not in allowed:
         raise HTTPException(status_code=400, detail="Invalid owner_type.")
@@ -189,6 +190,7 @@ def copy_attachments(
         "inventory",
         "inventory_instance",
         "inventory_issuance",
+        "maintenance_case",
     }
     if from_owner_type_normalized not in allowed or to_owner_type_normalized not in allowed:
         raise HTTPException(status_code=400, detail="Invalid owner_type.")

@@ -1,15 +1,16 @@
-"""Field-service helpers for maintenance cases (Phase 1)."""
+"""Field-service helpers for maintenance cases (Phase 1 + Occurrence Report P1)."""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.models.base import (
-    ItemStatus,
+    ConfirmationChannel,
+    FaultType,
     OemWarrantyClaimStatus,
     OnsiteOutcome,
     ReworkCaseStatus,
@@ -21,6 +22,8 @@ from app.models.tables import (
     InventoryInstance,
     InventoryReworkCase,
     MaintenanceCase,
+    MaintenanceOccurrenceAttachment,
+    MaintenanceOccurrenceOfficer,
     OemWarrantyClaim,
     Order,
     Project,
@@ -82,6 +85,111 @@ def apply_support_gate_on_create(
     }
 
 
+def _parse_occurrence_date(value: Any) -> Optional[datetime]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    text = str(value).strip()
+    if not text:
+        return None
+    # date-only YYYY-MM-DD
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        d = date.fromisoformat(text)
+        return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="occurrence_date must be a valid ISO date or datetime",
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _replace_occurrence_attachments(
+    session: Session,
+    case: MaintenanceCase,
+    attachments: Optional[Sequence[dict[str, Any]]],
+) -> None:
+    if attachments is None:
+        return
+    existing = session.exec(
+        select(MaintenanceOccurrenceAttachment).where(
+            MaintenanceOccurrenceAttachment.case_id == case.id
+        )
+    ).all()
+    for row in existing:
+        session.delete(row)
+    session.flush()
+
+    for raw in attachments:
+        display_name = (raw.get("display_name") or raw.get("name") or "").strip()
+        if not display_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Each occurrence attachment requires a display_name",
+            )
+        file_id = raw.get("file_id")
+        category = (raw.get("category") or "").strip() or None
+        session.add(
+            MaintenanceOccurrenceAttachment(
+                case_id=int(case.id),
+                display_name=display_name,
+                file_id=int(file_id) if file_id is not None else None,
+                category=category,
+                created_at=_now(),
+            )
+        )
+
+
+def _replace_occurrence_officers(
+    session: Session,
+    case: MaintenanceCase,
+    officers: Optional[Sequence[dict[str, Any]]],
+) -> None:
+    if officers is None:
+        return
+    existing = session.exec(
+        select(MaintenanceOccurrenceOfficer).where(
+            MaintenanceOccurrenceOfficer.case_id == case.id
+        )
+    ).all()
+    for row in existing:
+        session.delete(row)
+    session.flush()
+
+    for raw in officers:
+        user_id = raw.get("user_id")
+        guest_name = (raw.get("guest_name") or "").strip() or None
+        role_onsite = (raw.get("role_onsite") or "").strip()
+        contact = (raw.get("contact") or "").strip() or None
+        if not role_onsite:
+            raise HTTPException(
+                status_code=400,
+                detail="Each occurrence officer requires role_onsite",
+            )
+        if user_id is None and not guest_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Each occurrence officer requires user_id or guest_name",
+            )
+        session.add(
+            MaintenanceOccurrenceOfficer(
+                case_id=int(case.id),
+                user_id=int(user_id) if user_id is not None else None,
+                guest_name=guest_name,
+                role_onsite=role_onsite,
+                contact=contact,
+                created_at=_now(),
+            )
+        )
+
+
 def record_onsite_outcome(
     session: Session,
     case: MaintenanceCase,
@@ -90,14 +198,28 @@ def record_onsite_outcome(
     outcome: str,
     soft_fix_method: Optional[str] = None,
     notes: Optional[str] = None,
+    occurrence_date: Any = None,
+    fault_type: Optional[str] = None,
+    confirmation_channel: Optional[str] = None,
+    confirmation_reference: Optional[str] = None,
+    attachments: Optional[Sequence[dict[str, Any]]] = None,
+    officers: Optional[Sequence[dict[str, Any]]] = None,
+    confirm_close_nff: bool = False,
 ) -> MaintenanceCase:
+    """
+    Persist Occurrence Report fields on the case.
+    Soft-fix / NFF resolve+close is applied by the router after this call.
+    """
     outcome_key = (outcome or "").strip().lower()
     try:
         outcome_enum = OnsiteOutcome(outcome_key)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail="onsite_outcome must be soft_fix, fault_identified, or inconclusive",
+            detail=(
+                "onsite_outcome must be soft_fix, fault_identified, "
+                "inconclusive, or no_fault_found"
+            ),
         ) from exc
 
     method_key = (soft_fix_method or "").strip().lower() or None
@@ -117,15 +239,102 @@ def record_onsite_outcome(
     else:
         method_key = None
 
+    fault_key = (fault_type or "").strip().lower() or None
+    channel_key = (confirmation_channel or "").strip().lower() or None
+    reference = (confirmation_reference or "").strip() or None
+
+    if outcome_enum == OnsiteOutcome.FAULT_IDENTIFIED:
+        if not fault_key:
+            raise HTTPException(
+                status_code=400,
+                detail="fault_type is required when outcome is fault_identified",
+            )
+        try:
+            FaultType(fault_key)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"fault_type must be a valid FaultType value; got {fault_key!r}",
+            ) from exc
+        if not channel_key:
+            raise HTTPException(
+                status_code=400,
+                detail="confirmation_channel is required when outcome is fault_identified",
+            )
+        try:
+            ConfirmationChannel(channel_key)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="confirmation_channel must be email, letter, or call",
+            ) from exc
+        if not reference:
+            raise HTTPException(
+                status_code=400,
+                detail="confirmation_reference is required when outcome is fault_identified",
+            )
+    else:
+        # Soft fix / NFF / inconclusive: clear fault confirmation unless provided
+        if outcome_enum != OnsiteOutcome.FAULT_IDENTIFIED:
+            fault_key = fault_key  # allow optional fault_type on non-fault
+            if channel_key:
+                try:
+                    ConfirmationChannel(channel_key)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="confirmation_channel must be email, letter, or call",
+                    ) from exc
+            else:
+                channel_key = None
+                reference = None
+
+    parsed_occurrence = _parse_occurrence_date(occurrence_date)
+
     case.onsite_outcome = outcome_enum.value
     case.onsite_soft_fix_method = method_key
     case.onsite_notes = (notes or "").strip() or None
     case.onsite_recorded_at = _now()
     case.onsite_recorded_by_id = int(actor.id) if actor.id else None
+    case.occurrence_date = parsed_occurrence
+    case.occurrence_fault_type = fault_key
+    case.confirmation_channel = channel_key
+    case.confirmation_reference = reference
     case.updated_at = _now()
     session.add(case)
     session.flush()
+
+    _replace_occurrence_attachments(session, case, attachments)
+    _replace_occurrence_officers(session, case, officers)
+    session.flush()
+
+    # confirm_close_nff is interpreted by the router; acknowledged here for API clarity
+    _ = confirm_close_nff
     return case
+
+
+def list_occurrence_attachments(
+    session: Session, case_id: int
+) -> list[MaintenanceOccurrenceAttachment]:
+    return list(
+        session.exec(
+            select(MaintenanceOccurrenceAttachment)
+            .where(MaintenanceOccurrenceAttachment.case_id == case_id)
+            .order_by(MaintenanceOccurrenceAttachment.id.asc())
+        ).all()
+    )
+
+
+def list_occurrence_officers(
+    session: Session, case_id: int
+) -> list[MaintenanceOccurrenceOfficer]:
+    return list(
+        session.exec(
+            select(MaintenanceOccurrenceOfficer)
+            .where(MaintenanceOccurrenceOfficer.case_id == case_id)
+            .order_by(MaintenanceOccurrenceOfficer.id.asc())
+        ).all()
+    )
 
 
 def _find_inventory_for_removed_unit(
