@@ -263,6 +263,7 @@ def list_assignment_activity(
         .order_by(InventoryReservation.reserved_at, InventoryReservation.id)
     ).all()
     for reservation in reservations:
+        # Reserve is stock hold only — not directed to a developer yet.
         steps.append(
             _step(
                 id=f"reservation-{reservation.id}",
@@ -272,10 +273,8 @@ def list_assignment_activity(
                 actor_user_id=reservation.reserved_by_user_id,
                 actor_name=_user_name(session, reservation.reserved_by_user_id),
                 actor_role="IM",
-                target_user_id=int(assigned_developer_id)
-                if assigned_developer_id
-                else None,
-                target_name=assigned_developer_name,
+                target_user_id=None,
+                target_name=None,
                 status="RESERVED",
                 remarks=reservation.notes,
             )
@@ -297,13 +296,14 @@ def list_assignment_activity(
             _step(
                 id=f"request-{req.id}",
                 step="handover_requested",
-                title="Handover requested from Inventory Manager",
+                title="Handover requested",
                 occurred_at=req.requested_at,
                 actor_user_id=req.requested_by_user_id,
                 actor_name=requester,
                 actor_role="DEV",
-                target_user_id=req.assigned_developer_id,
-                target_name=assignee,
+                # Request is directed to IM queue, not back to the developer.
+                target_user_id=None,
+                target_name="Inventory Manager",
                 status="REQUESTED",
                 remarks=req.notes,
             )
@@ -332,8 +332,8 @@ def list_assignment_activity(
                     title="Handover request cancelled",
                     occurred_at=req.updated_at,
                     actor_role="SYSTEM",
-                    target_user_id=req.assigned_developer_id,
-                    target_name=assignee,
+                    target_user_id=None,
+                    target_name=None,
                     status="CANCELLED",
                 )
             )
@@ -356,7 +356,8 @@ def list_assignment_activity(
         .order_by(InventoryIssuance.issued_at, InventoryIssuance.id)
     ).all()
     for issuance in issuances:
-        issued_to_name = _user_name(session, issuance.issued_to_user_id)
+        issued_to_id = issuance.issued_to_user_id
+        issued_to_name = _user_name(session, issued_to_id)
         event_rows = session.exec(
             select(InventoryIssuanceEvent)
             .where(InventoryIssuanceEvent.issuance_id == issuance.id)
@@ -366,35 +367,48 @@ def list_assignment_activity(
             meta = _ISSUANCE_STEP.get(row.event_type)
             if meta is None:
                 continue
+            step_code = meta["step"]
             actor_id = row.actor_user_id or row.installer_user_id
-            actor_role = "IM" if meta["step"] in {"issued", "reissued"} else None
-            if meta["step"] in {
+            actor_role = "IM" if step_code in {"issued", "reissued"} else None
+            if step_code in {
                 "install_started",
                 "test_passed",
                 "test_failed",
                 "complete_reported",
             }:
                 actor_role = "DEV"
-            if meta["step"] in {"hm_verified", "hm_rejected"}:
+            if step_code in {"hm_verified", "hm_rejected"}:
                 actor_role = "HM"
-            if meta["step"] in {
+            if step_code in {
                 "defect_pending",
                 "inspection_started",
                 "dispositioned",
                 "item_returned",
             }:
                 actor_role = actor_role or "IM"
+
+            target_user_id: Optional[int] = None
+            target_name: Optional[str] = None
+            if step_code in {"issued", "reissued", "hm_verified", "hm_rejected", "rework_opened"}:
+                target_user_id = int(issued_to_id) if issued_to_id else None
+                target_name = issued_to_name
+            elif step_code == "complete_reported":
+                target_name = "Hierarchy Manager"
+            elif step_code in {"item_returned", "defect_pending"}:
+                target_name = "Inventory Manager"
+            # install/test actions are work on the item — no directed "to" party
+
             steps.append(
                 _step(
                     id=f"issuance-event-{row.id}",
-                    step=meta["step"],
+                    step=step_code,
                     title=meta["title"],
                     occurred_at=row.created_at,
                     actor_user_id=actor_id,
                     actor_name=_user_name(session, actor_id),
                     actor_role=actor_role,
-                    target_user_id=issuance.issued_to_user_id,
-                    target_name=issued_to_name,
+                    target_user_id=target_user_id,
+                    target_name=target_name,
                     status=meta["status"],
                     remarks=row.notes,
                 )
