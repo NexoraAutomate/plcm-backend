@@ -298,19 +298,86 @@ def _project_id_for_entity(session: Session, entity_type: str, entity: Any) -> O
     return None
 
 
-def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
-    """Hierarchy nodes assigned to this developer (HM assignment, not IM issue)."""
+def _assignment_context(
+    session: Session, entity_type: str, entity: Any, project_id: Optional[int]
+) -> dict[str, Any]:
+    """Customer / flight / system / HM labels for My Assignments table columns."""
+    from app.models.tables import Customer, Order, Project
+    from app.services.inventory_reservation_service import (
+        InventoryReservationError,
+        _resolve_flight_sdls_for_entity,
+    )
+
+    customer_name = None
+    flight_name = None
+    system_name = None
+    assigned_hm_id = None
+    assigned_hm_name = None
+
+    if project_id is not None:
+        project = session.get(Project, int(project_id))
+        if project is not None:
+            assigned_hm_id = project.assigned_hm_id
+            if assigned_hm_id:
+                hm = session.get(User, int(assigned_hm_id))
+                if hm is not None:
+                    assigned_hm_name = hm.full_name or hm.username
+            if project.order_id:
+                order = session.get(Order, int(project.order_id))
+                if order is not None and order.customer_id:
+                    customer = session.get(Customer, int(order.customer_id))
+                    if customer is not None:
+                        customer_name = customer.name
+
+    try:
+        flight, _sdls, system = _resolve_flight_sdls_for_entity(
+            session, entity_type, entity
+        )
+        flight_name = getattr(flight, "name", None)
+        system_name = getattr(system, "name", None)
+    except InventoryReservationError:
+        if (entity_type or "").strip().lower() == "system":
+            system_name = getattr(entity, "name", None)
+
+    return {
+        "customer_name": customer_name,
+        "flight_name": flight_name,
+        "system_name": system_name,
+        "assigned_hm_id": int(assigned_hm_id) if assigned_hm_id else None,
+        "assigned_hm_name": assigned_hm_name,
+    }
+
+
+def list_assigned_work(
+    session: Session,
+    developer_id: Optional[int] = None,
+    *,
+    viewer_id: Optional[int] = None,
+) -> list[dict]:
+    """Hierarchy nodes with an HM developer assignment (not IM issue).
+
+    When ``developer_id`` is set, only that developer's work is returned.
+    When omitted, every assigned node is returned (Admin cleanup view).
+    Action flags (``can_request`` / install / test) are only true when the
+    ``viewer_id`` (or ``developer_id``) matches the assigned developer.
+    """
     from app.models.tables import Project
     from app.services.inventory_reservation_service import active_reservation_for_entity
     from app.services.item_install_verify_service import install_progress_payload
 
+    action_user_id = viewer_id if viewer_id is not None else developer_id
     rows: list[dict] = []
     for et, model in _ASSIGNMENT_MODELS:
-        entities = session.exec(
-            select(model).where(model.assigned_developer_id == int(developer_id))
-        ).all()
+        query = select(model).where(model.assigned_developer_id.is_not(None))
+        if developer_id is not None:
+            query = query.where(model.assigned_developer_id == int(developer_id))
+        entities = session.exec(query).all()
         for entity in entities:
             eid = int(entity.id)
+            assigned_id = int(entity.assigned_developer_id)
+            is_assignee = (
+                action_user_id is not None and int(assigned_id) == int(action_user_id)
+            )
             reservation = active_reservation_for_entity(session, et, eid)
             issued = entity_is_physically_issued(session, et, eid)
             pending = session.exec(
@@ -337,8 +404,18 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
             if project_id:
                 project = session.get(Project, int(project_id))
                 project_name = project.name if project else None
+            context = _assignment_context(session, et, entity, project_id)
             reserved = reservation is not None
             progress = install_progress_payload(session, et, eid)
+            if not is_assignee:
+                progress = {
+                    **progress,
+                    "can_install": False,
+                    "can_test": False,
+                    "can_report_complete": False,
+                    "can_remove": False,
+                    "can_return": False,
+                }
             serial_number = (
                 reservation.serial_number
                 if reservation
@@ -372,7 +449,7 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     "serial_number": serial_number,
                     "project_id": project_id,
                     "project_name": project_name,
-                    "assigned_developer_id": int(developer_id),
+                    "assigned_developer_id": assigned_id,
                     "reserved": reserved,
                     "reservation_id": reservation.id if reservation else None,
                     "request_status": (
@@ -381,7 +458,9 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                         else ("pending" if pending else "none")
                     ),
                     "issued": issued,
-                    "can_request": reserved and not issued and pending is None,
+                    "can_request": bool(
+                        is_assignee and reserved and not issued and pending is None
+                    ),
                     "pending_request_id": pending.id if pending else None,
                     "last_mark_back_reason": (
                         last_mark_back.mark_back_reason if show_mark_back else None
@@ -389,8 +468,65 @@ def list_assigned_work(session: Session, developer_id: int) -> list[dict]:
                     "last_mark_back_at": (
                         last_mark_back.marked_back_at if show_mark_back else None
                     ),
+                    **context,
                     **progress,
                 }
             )
     rows.sort(key=lambda r: ((r.get("project_name") or ""), (r.get("name") or "")))
     return rows
+
+
+def delete_completed_assignment(
+    session: Session,
+    entity_type: str,
+    entity_id: int,
+    *,
+    actor: User,
+) -> dict:
+    """Permanently remove a verified assignment from My Assignments (Admin only).
+
+    Clears ``assigned_developer_id`` after HM verification. Does not undo install
+    or issuance history. New / in-progress assignments cannot be deleted this way.
+    """
+    from app.domain.workflow_roles import WorkflowRole, has_workflow_role
+    from app.services.item_install_verify_service import install_progress_payload
+
+    role_names = _role_names(actor)
+    if not has_workflow_role(role_names, WorkflowRole.ADMIN) and not any(
+        (n or "").lower() == "admin" for n in role_names
+    ):
+        raise HierarchyDeveloperError(
+            "Only Admin can permanently delete completed assignments"
+        )
+
+    entity = _load_entity(session, entity_type, entity_id)
+    previous_id = getattr(entity, "assigned_developer_id", None)
+    if previous_id is None:
+        raise HierarchyDeveloperError("No developer assignment to delete")
+
+    progress = install_progress_payload(session, entity_type, int(entity_id))
+    if not progress.get("verified"):
+        raise HierarchyDeveloperError(
+            "Only completed (verified) assignments can be deleted; "
+            "new or in-progress tasks cannot be deleted"
+        )
+
+    project_id = _project_id_for_entity(session, entity_type, entity)
+    entity.assigned_developer_id = None
+    session.add(entity)
+    write_workflow_audit(
+        session,
+        action=WorkflowAuditAction.UNASSIGNED,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor=actor,
+        project_id=project_id,
+        old_value={
+            "assigned_developer_id": previous_id,
+            "reason": "admin_delete_completed_assignment",
+        },
+        new_value={"assigned_developer_id": None},
+    )
+    session.commit()
+    session.refresh(entity)
+    return assigned_developer_payload(session, entity, entity_type)

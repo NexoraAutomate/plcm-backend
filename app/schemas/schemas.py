@@ -2089,6 +2089,11 @@ class DeveloperAssignedWorkRead(SQLModel):
     serial_number: Optional[str] = None
     project_id: Optional[int] = None
     project_name: Optional[str] = None
+    customer_name: Optional[str] = None
+    flight_name: Optional[str] = None
+    system_name: Optional[str] = None
+    assigned_hm_id: Optional[int] = None
+    assigned_hm_name: Optional[str] = None
     assigned_developer_id: int
     reserved: bool = False
     reservation_id: Optional[int] = None

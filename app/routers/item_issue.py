@@ -8,13 +8,14 @@ from sqlmodel import Session
 from app.auth import check_permission
 from app.database import get_session
 from app.models.tables import User
-from app.routers.auth import get_current_user, require_permission
+from app.routers.auth import check_role, get_current_user, require_permission, require_role
 from app.schemas import schemas
 from app.services.hierarchy_developer_service import (
     HierarchyDeveloperError,
     assign_developer,
     assigned_developer_payload,
     assignment_status_map,
+    delete_completed_assignment,
     entity_is_physically_issued,
     list_assigned_work,
 )
@@ -187,10 +188,42 @@ def list_my_assigned_work(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_mine_assignments),
 ):
+    # Admin oversight: list every open assignment so completed tasks can be purged.
+    is_admin = check_role(current_user, "Admin")
+    developer_id = None if is_admin else int(current_user.id)
     return [
         schemas.DeveloperAssignedWorkRead.model_validate(row)
-        for row in list_assigned_work(session, int(current_user.id))
+        for row in list_assigned_work(
+            session,
+            developer_id,
+            viewer_id=int(current_user.id),
+        )
     ]
+
+
+@router.delete(
+    "/item-assignments/{entity_type}/{entity_id}/",
+    response_model=schemas.HierarchyAssignDeveloperRead,
+    tags=["item-requests"],
+)
+def delete_completed_assigned_work(
+    entity_type: str,
+    entity_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Permanently remove a verified assignment from My Assignments (Admin only)."""
+    try:
+        data = delete_completed_assignment(
+            session,
+            entity_type,
+            entity_id,
+            actor=current_user,
+        )
+        data["issued"] = entity_is_physically_issued(session, entity_type, entity_id)
+        return schemas.HierarchyAssignDeveloperRead.model_validate(data)
+    except HierarchyDeveloperError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post(

@@ -19,7 +19,12 @@ from app.models.tables import (
     System,
     User,
 )
-from app.services.hierarchy_developer_service import assign_developer, list_assigned_work
+from app.services.hierarchy_developer_service import (
+    HierarchyDeveloperError,
+    assign_developer,
+    delete_completed_assignment,
+    list_assigned_work,
+)
 from app.services.inventory_reservation_service import reserve_inventory
 from app.services.item_install_verify_service import (
     ItemInstallVerifyError,
@@ -494,3 +499,71 @@ def test_verify_queue_routes_only_to_current_hm_after_reassign(
         session.delete(hm_old)
         session.delete(hm_new)
         session.commit()
+
+
+def test_admin_can_delete_only_completed_assignments(
+    session: Session,
+    admin_user: User,
+    developer_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.models.tables import Hierarchy
+    from app.services.entity_list_service import find_entity_list_entry
+    from app.services.hierarchy_service import (
+        get_next_hierarchy_id,
+        sync_hierarchy_id_sequence,
+    )
+
+    sys_name = f"InstDel-{uuid.uuid4().hex[:6]}"
+    for name, hierarchy_type in ((sys_name, "system"), ("RF", "subsystem")):
+        if not find_entity_list_entry(
+            session, name=name, hierarchy_type=hierarchy_type
+        ):
+            session.add(
+                Hierarchy(
+                    id=get_next_hierarchy_id(session),
+                    name=name,
+                    hierarchy_type=hierarchy_type,
+                    abbreviation=name[:4].upper(),
+                )
+            )
+    session.commit()
+    sync_hierarchy_id_sequence(session)
+
+    project, cfg = _ready_project(session, admin_user, system_name=sys_name)
+    inv = _stock_for_system(session, name=sys_name, serials=["SN-ITV-DEL-1"])
+    target = session.exec(select(System).where(System.project_id == project.id)).first()
+    assert target is not None
+    assign_developer(
+        session, "system", int(target.id), int(developer_user.id), actor=admin_user
+    )
+    try:
+        monkeypatch.setattr(
+            "app.services.item_install_verify_service.install_progress_payload",
+            lambda *_args, **_kwargs: {"verified": False},
+        )
+        with pytest.raises(HierarchyDeveloperError, match="completed"):
+            delete_completed_assignment(
+                session, "system", int(target.id), actor=admin_user
+            )
+
+        monkeypatch.setattr(
+            "app.services.item_install_verify_service.install_progress_payload",
+            lambda *_args, **_kwargs: {"verified": True},
+        )
+        with pytest.raises(HierarchyDeveloperError, match="Only Admin"):
+            delete_completed_assignment(
+                session, "system", int(target.id), actor=developer_user
+            )
+
+        deleted = delete_completed_assignment(
+            session, "system", int(target.id), actor=admin_user
+        )
+        assert deleted["assigned_developer_id"] is None
+
+        work = list_assigned_work(session, int(developer_user.id))
+        assert not any(r["entity_id"] == int(target.id) for r in work)
+        session.refresh(target)
+        assert target.assigned_developer_id is None
+    finally:
+        _cleanup(session, project, cfg, inv)
