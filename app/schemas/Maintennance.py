@@ -232,6 +232,8 @@ class ReturnedUnitRead(SQLModel):
     faulty_entity_id: Optional[int] = None
     investigating_pd_id: Optional[int] = None
     investigating_pd_name: Optional[str] = None
+    assigned_ie_id: Optional[int] = None
+    assigned_ie_name: Optional[str] = None
     project_id: int
     inventory_id: int
     part_number: Optional[str] = None
@@ -246,12 +248,39 @@ class ReturnedUnitRead(SQLModel):
     warranty_expires_at: Optional[datetime] = None
     warranty_active: Optional[bool] = None
     oem_name: Optional[str] = None
+    is_track_b_terminal: bool = False
+    discarded: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class AssignInvestigatingPdPayload(SQLModel):
     pd_user_id: int
+
+
+class TrackBReceptionPayload(SQLModel):
+    reception_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class TrackBAssignIePayload(SQLModel):
+    ie_user_id: int
+
+
+class TrackBNotesPayload(SQLModel):
+    notes: Optional[str] = None
+
+
+class TrackBDispositionPayload(SQLModel):
+    """outcome: repairable | warranty | discard | reusable"""
+
+    outcome: str
+    notes: Optional[str] = None
+
+
+class TrackBPdRepairDecisionPayload(SQLModel):
+    decision: str  # approve | reject
+    reject_reason: Optional[str] = None
 
 
 class ReplacementRequestCreate(SQLModel):
@@ -307,6 +336,12 @@ class ReplacementRequestAitDecisionPayload(SQLModel):
 
     decision: str  # approve | reject
     reject_reason: Optional[str] = None
+
+
+class ReplacementRequestAbortPayload(SQLModel):
+    """POST .../replacement-requests/{id}/abort/ — RA-017"""
+
+    reason: str
 
 
 class ReplacementRequestReservationRead(SQLModel):
@@ -366,9 +401,11 @@ class DualTrackBoardRead(SQLModel):
     case_id: int
     track_a: Optional[ReplacementRequestRead] = None
     track_a_status: Optional[str] = None
-    track_b_status: Optional[str] = None  # idle | awaiting_faulty_arrival | stage
+    track_b_status: Optional[str] = None  # idle | MHD Track B spine stage
     track_b_rework_id: Optional[int] = None
     track_b_reception_date: Optional[datetime] = None
+    track_b_discarded: bool = False
+    track_b_terminal: bool = False
 
 
 class OemWarrantyClaimCreate(SQLModel):

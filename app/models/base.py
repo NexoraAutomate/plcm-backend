@@ -904,6 +904,7 @@ class ReworkCaseStatus(str, Enum):
 
 
 class ReworkStage(str, Enum):
+    # Spec-10 project defect loop
     FAILED = "failed"
     REMOVED = "removed"
     RETURNED = "returned"
@@ -914,6 +915,17 @@ class ReworkStage(str, Enum):
     SCRAPPED = "scrapped"
     REISSUED = "reissued"
     RETESTING = "retesting"
+    # MHD Track B inspection spine (maintenance_case_id set)
+    RECEIVED = "received"
+    IE_ASSIGNED = "ie_assigned"
+    ISSUED_TO_IE = "issued_to_ie"
+    INSPECTION_UNDER_PROCESS = "inspection_under_process"
+    REPAIR_UNDER_PROGRESS = "repair_under_progress"
+    WARRANTY_CLAIM = "warranty_claim"
+    DISCARD_PENDING = "discard_pending"
+    RESTOCKED = "restocked"
+    DISCARDED = "discarded"
+    CLAIM_CLOSED = "claim_closed"
 
 
 class ReplacementRequestStatus(str, Enum):

@@ -60,6 +60,7 @@ from app.services.configuration_history import (
 from app.models.base import CaseStatus, FaultyEntityStatus, FaultType, ResolutionType
 from app.services import maintenance_field_service as field_svc
 from app.services import replacement_request_service as rr_svc
+from app.services import track_b_inspection_service as track_b_svc
 
 router = APIRouter()
 
@@ -82,6 +83,11 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
         else None
     )
     pd = session.get(User, rework.investigating_pd_id) if rework.investigating_pd_id else None
+    ie = (
+        session.get(User, rework.assigned_developer_id)
+        if rework.assigned_developer_id
+        else None
+    )
     expires = None
     if instance and getattr(instance, "warranty_expires_at", None):
         expires = instance.warranty_expires_at
@@ -93,6 +99,8 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
         faulty_entity_id=rework.faulty_entity_id,
         investigating_pd_id=rework.investigating_pd_id,
         investigating_pd_name=(pd.full_name or pd.username) if pd else None,
+        assigned_ie_id=rework.assigned_developer_id,
+        assigned_ie_name=(ie.full_name or ie.username) if ie else None,
         project_id=rework.project_id,
         inventory_id=rework.inventory_id,
         part_number=(
@@ -110,6 +118,8 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
         warranty_expires_at=expires,
         warranty_active=field_svc.warranty_active(expires) if expires else False,
         oem_name=inventory.oem_name if inventory else None,
+        is_track_b_terminal=track_b_svc.is_track_b_terminal(rework.stage),
+        discarded=track_b_svc.discarded_flag(rework),
     )
 
 
@@ -526,6 +536,246 @@ def list_case_returned_units(
         raise HTTPException(status_code=404, detail="Maintenance case not found")
     rows = field_svc.list_case_returned_units(session, case_id)
     return [_serialize_returned_unit(session, row) for row in rows]
+
+
+def _get_case_rework(
+    session: Session, case_id: int, rework_id: int
+) -> InventoryReworkCase:
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    rework = session.get(InventoryReworkCase, rework_id)
+    if not rework or rework.maintenance_case_id != case_id:
+        raise HTTPException(status_code=404, detail="Returned unit not found for case")
+    return rework
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/reception/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_record_reception(
+    case_id: int,
+    rework_id: int,
+    payload: TrackBReceptionPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "edit_maintenance_cases",
+            "issue_inventory",
+            "inventory.issue",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.record_reception(
+        session,
+        rework_id,
+        actor=current_user,
+        reception_date=payload.reception_date,
+        notes=payload.notes,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/assign-ie/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_assign_ie(
+    case_id: int,
+    rework_id: int,
+    payload: TrackBAssignIePayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.assign_ie(
+        session,
+        rework_id,
+        ie_user_id=payload.ie_user_id,
+        actor=current_user,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/handover-request/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_handover_request(
+    case_id: int,
+    rework_id: int,
+    payload: Optional[TrackBNotesPayload] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.inspection_disposition",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.request_handover(
+        session,
+        rework_id,
+        actor=current_user,
+        notes=payload.notes if payload else None,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/im-issue-to-ie/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_im_issue_to_ie(
+    case_id: int,
+    rework_id: int,
+    payload: Optional[TrackBNotesPayload] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "edit_maintenance_cases",
+            "issue_inventory",
+            "inventory.issue",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.im_issue_to_ie(
+        session,
+        rework_id,
+        actor=current_user,
+        notes=payload.notes if payload else None,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/disposition/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_disposition(
+    case_id: int,
+    rework_id: int,
+    payload: TrackBDispositionPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.inspection_disposition",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.ie_disposition(
+        session,
+        rework_id,
+        actor=current_user,
+        outcome=payload.outcome,
+        notes=payload.notes,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/confirm-discard/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_confirm_discard(
+    case_id: int,
+    rework_id: int,
+    payload: Optional[TrackBNotesPayload] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "edit_maintenance_cases",
+            "issue_inventory",
+            "inventory.issue",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.im_confirm_discard(
+        session,
+        rework_id,
+        actor=current_user,
+        notes=payload.notes if payload else None,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/repair-submit/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_repair_submit(
+    case_id: int,
+    rework_id: int,
+    payload: Optional[TrackBNotesPayload] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.inspection_disposition",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.ie_submit_repair(
+        session,
+        rework_id,
+        actor=current_user,
+        notes=payload.notes if payload else None,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/returned-units/{rework_id}/pd-repair-decision/",
+    response_model=ReturnedUnitRead,
+    tags=["maintenance-cases"],
+)
+def track_b_pd_repair_decision(
+    case_id: int,
+    rework_id: int,
+    payload: TrackBPdRepairDecisionPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+):
+    _get_case_rework(session, case_id, rework_id)
+    rework = track_b_svc.pd_repair_decide(
+        session,
+        rework_id,
+        actor=current_user,
+        decision=payload.decision,
+        reject_reason=payload.reject_reason,
+    )
+    session.commit()
+    session.refresh(rework)
+    return _serialize_returned_unit(session, rework)
 
 
 def _serialize_replacement_request(
@@ -1129,6 +1379,57 @@ def pd_ait_decide_replacement_request(
     return _serialize_replacement_request(session, req)
 
 
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/abort/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def abort_replacement_request(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestAbortPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    """RA-017 — abort Track A (e.g. later NFF); clear RED; keep audit."""
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.abort_track_a(session, req, reason=payload.reason)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="replacement_aborted",
+        title="Replacement request aborted",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"Track A aborted — {payload.reason}"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_im=True,
+        include_maintenance=True,
+        include_assigned_hm=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
 @router.get(
     "/maintenance-cases/{case_id}/dual-track/",
     response_model=DualTrackBoardRead,
@@ -1153,6 +1454,8 @@ def get_dual_track_board(
         track_b_status=board.get("track_b_status"),
         track_b_rework_id=board.get("track_b_rework_id"),
         track_b_reception_date=board.get("track_b_reception_date"),
+        track_b_discarded=bool(board.get("track_b_discarded")),
+        track_b_terminal=bool(board.get("track_b_terminal")),
     )
 
 
@@ -1258,6 +1561,9 @@ def update_oem_warranty_claim(
         setattr(claim, key, value)
     claim.updated_at = datetime.now(timezone.utc)
     session.add(claim)
+    track_b_svc.sync_claim_closed_if_needed(
+        session, claim, actor=current_user
+    )
     session.commit()
     session.refresh(claim)
     return OemWarrantyClaimRead.model_validate(claim)
@@ -1284,6 +1590,16 @@ def update_maintenance_case(
     case = session.get(MaintenanceCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Maintenance case not found")
+
+    next_status = payload.status if "status" in payload.model_dump(exclude_unset=True) else None
+    if next_status in (CaseStatus.RESOLVED, CaseStatus.CLOSED):
+        # Apply payload fields that affect Soft/NFF detection before the gate
+        dump = payload.model_dump(exclude_unset=True)
+        for k in ("onsite_outcome", "resolution_type", "resolution_notes"):
+            if k in dump:
+                setattr(case, k, dump[k])
+        rr_svc.assert_dual_track_close_allowed(session, case)
+
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(case, k, v)
     if payload.status == CaseStatus.RESOLVED and not case.resolved_at:
@@ -1293,11 +1609,14 @@ def update_maintenance_case(
             case.closed_at = datetime.now(timezone.utc)
         if not case.resolved_at:
             case.resolved_at = datetime.now(timezone.utc)
+        rr_svc.finalize_track_a_on_case_close(session, case)
+    elif payload.status == CaseStatus.RESOLVED:
+        rr_svc.clear_replacement_red(session, int(case.id))
     session.add(case)
     from app.services.app_notification_service import notify
 
     status_val = str(getattr(payload, "status", None) or getattr(case, "status", "") or "").lower()
-    if "resolved" in status_val or "closed" in status_val:
+    if "resolved" in status_val and "closed" not in status_val:
         notify(
             session,
             event_type="case_resolved",
@@ -1308,6 +1627,23 @@ def update_maintenance_case(
             actor=current_user,
             include_maintenance=True,
             include_assigned_hm=True,
+            extra_user_ids=[int(case.reported_by)] if getattr(case, "reported_by", None) else None,
+            project_id=case.project_id,
+            entity_type="maintenance_case",
+            entity_id=case.id,
+        )
+    if "closed" in status_val:
+        notify(
+            session,
+            event_type="case_closed",
+            title="Maintenance case closed",
+            message=case.case_number or f"Case #{case.id}",
+            href=f"/maintenance/cases/{case.id}",
+            priority="medium",
+            actor=current_user,
+            include_maintenance=True,
+            include_assigned_hm=True,
+            include_pd=True,
             extra_user_ids=[int(case.reported_by)] if getattr(case, "reported_by", None) else None,
             project_id=case.project_id,
             entity_type="maintenance_case",
@@ -2074,9 +2410,11 @@ def create_maintenance_delivery(
     session.add(delivery)
     # Mark case as resolved when re-delivery is dispatched (if not already).
     if case.status not in (CaseStatus.RESOLVED, CaseStatus.CLOSED):
+        rr_svc.assert_dual_track_close_allowed(session, case)
         case.status = CaseStatus.RESOLVED
         if not case.resolved_at:
             case.resolved_at = datetime.now(timezone.utc)
+        rr_svc.clear_replacement_red(session, int(case.id))
         session.add(case)
     session.commit()
     session.refresh(delivery)
@@ -2202,12 +2540,31 @@ def confirm_maintenance_delivery(
     delivery.delivered_at = datetime.now(timezone.utc)
     delivery.received_by  = received_by
     session.add(delivery)
-    # Auto-close the case.
+    # Auto-close the case (DT-004 when dual-track not applicable; else DT-003 gate).
     case = session.get(MaintenanceCase, delivery.case_id)
     if case and case.status == CaseStatus.RESOLVED:
+        rr_svc.assert_dual_track_close_allowed(session, case)
         case.status    = CaseStatus.CLOSED
         case.closed_at = datetime.now(timezone.utc)
+        rr_svc.finalize_track_a_on_case_close(session, case)
         session.add(case)
+        from app.services.app_notification_service import notify as notify_close
+
+        notify_close(
+            session,
+            event_type="case_closed",
+            title="Maintenance case closed",
+            message=case.case_number or f"Case #{case.id}",
+            href=f"/maintenance/cases/{case.id}",
+            priority="medium",
+            actor=current_user,
+            include_maintenance=True,
+            include_assigned_hm=True,
+            include_pd=True,
+            project_id=case.project_id,
+            entity_type="maintenance_case",
+            entity_id=case.id,
+        )
     from app.services.app_notification_service import notify
 
     notify(

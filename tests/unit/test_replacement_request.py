@@ -335,9 +335,11 @@ class TestAitFlow:
         """UT-RA-007 / RA-012 / RA-014"""
         req = SimpleNamespace(
             id=5,
+            case_id=42,
             status=ReplacementRequestStatus.AIT_IN_PROGRESS.value,
             ait_decision=None,
             ait_reject_reason=None,
+            red_notified_at=None,
             updated_at=None,
         )
         session = MagicMock()
@@ -345,10 +347,11 @@ class TestAitFlow:
             rr_svc,
             "list_ait_attachments",
             return_value=[SimpleNamespace(id=1)],
-        ):
+        ), patch.object(rr_svc, "clear_replacement_red") as clear_red:
             out = rr_svc.pd_ait_decide(session, req, decision="approve")
         assert out.status == ReplacementRequestStatus.PATCH_DELIVERED.value
         assert out.ait_decision == "approve"
+        clear_red.assert_called_once()
 
     def test_ait_reject_quarantines_and_reopens_issue(self):
         """UT-RA-008 / RA-013"""
@@ -425,3 +428,134 @@ class TestDualTrackBoard:
 
         assert board["track_a_status"] == ReplacementRequestStatus.REPLACEMENT_REQUESTED.value
         assert board["track_b_status"] == "idle"
+
+
+class TestCloseGate:
+    def test_ut_ra_010_blocks_when_track_a_incomplete(self):
+        """UT-RA-010 / DT-003 — close gate fails if Track A incomplete."""
+        case = _case()
+        session = MagicMock()
+        with patch.object(rr_svc, "is_soft_nff_early_exit", return_value=False), patch.object(
+            rr_svc, "dual_track_applicable", return_value=True
+        ), patch.object(
+            rr_svc,
+            "build_dual_track_board",
+            return_value={
+                "track_a_status": ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+                "track_a": SimpleNamespace(abort_reason=None),
+                "track_b_terminal": True,
+                "track_b_status": ReworkStage.RESTOCKED.value,
+            },
+        ):
+            with pytest.raises(HTTPException) as exc:
+                rr_svc.assert_dual_track_close_allowed(session, case)
+        assert exc.value.status_code == 409
+        assert "Track A incomplete" in str(exc.value.detail)
+
+    def test_close_gate_blocks_when_track_b_incomplete(self):
+        case = _case()
+        session = MagicMock()
+        with patch.object(rr_svc, "is_soft_nff_early_exit", return_value=False), patch.object(
+            rr_svc, "dual_track_applicable", return_value=True
+        ), patch.object(
+            rr_svc,
+            "build_dual_track_board",
+            return_value={
+                "track_a_status": ReplacementRequestStatus.PATCH_DELIVERED.value,
+                "track_a": SimpleNamespace(abort_reason=None),
+                "track_b_terminal": False,
+                "track_b_status": ReworkStage.AWAITING_FAULTY_ARRIVAL.value,
+            },
+        ):
+            with pytest.raises(HTTPException) as exc:
+                rr_svc.assert_dual_track_close_allowed(session, case)
+        assert exc.value.status_code == 409
+        assert "Track B incomplete" in str(exc.value.detail)
+
+    def test_close_gate_allows_when_both_terminal(self):
+        case = _case()
+        session = MagicMock()
+        with patch.object(rr_svc, "is_soft_nff_early_exit", return_value=False), patch.object(
+            rr_svc, "dual_track_applicable", return_value=True
+        ), patch.object(
+            rr_svc,
+            "build_dual_track_board",
+            return_value={
+                "track_a_status": ReplacementRequestStatus.PATCH_DELIVERED.value,
+                "track_a": SimpleNamespace(abort_reason=None),
+                "track_b_terminal": True,
+                "track_b_status": ReworkStage.RESTOCKED.value,
+            },
+        ):
+            rr_svc.assert_dual_track_close_allowed(session, case)
+
+    def test_close_gate_soft_nff_exempt(self):
+        case = _case(onsite_outcome=OnsiteOutcome.SOFT_FIX.value)
+        assert rr_svc.is_soft_nff_early_exit(case) is True
+        rr_svc.assert_dual_track_close_allowed(MagicMock(), case)
+
+    def test_dt004_not_applicable_allows(self):
+        case = _case(onsite_outcome=OnsiteOutcome.INCONCLUSIVE.value)
+        session = MagicMock()
+        with patch.object(rr_svc, "dual_track_applicable", return_value=False):
+            rr_svc.assert_dual_track_close_allowed(session, case)
+
+
+class TestClearRedAndAbort:
+    def test_ut_nt_003_clear_red_helper(self):
+        """UT-NT-003 / RA-016 — Clear RED helper removes open flag."""
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            red_notified_at="2026-01-01T00:00:00Z",
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch(
+            "app.services.app_notification_service.dismiss_replacement_case_open_notifications",
+            return_value=1,
+        ) as dismiss:
+            rr_svc.clear_replacement_red(session, 1, req)
+        assert req.red_notified_at is None
+        dismiss.assert_called_once()
+        session.flush.assert_called()
+
+    def test_abort_track_a_sets_closed_and_clears_red(self):
+        """RA-017"""
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.AIT_IN_PROGRESS.value,
+            abort_reason=None,
+            red_notified_at="2026-01-01T00:00:00Z",
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch.object(rr_svc, "clear_replacement_red") as clear:
+            out = rr_svc.abort_track_a(session, req, reason="later NFF")
+        assert out.status == ReplacementRequestStatus.TRACK_A_CLOSED.value
+        assert out.abort_reason == "later NFF"
+        clear.assert_called_once()
+
+    def test_ait_approve_clears_red(self):
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.AIT_IN_PROGRESS.value,
+            ait_decision=None,
+            ait_reject_reason=None,
+            issued_instance_id=None,
+            issued_serial=None,
+            issued_at=None,
+            quarantined_instance_id=None,
+            shortage_held=False,
+            red_notified_at="x",
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch.object(
+            rr_svc, "list_ait_attachments", return_value=[SimpleNamespace(id=1)]
+        ), patch.object(rr_svc, "clear_replacement_red") as clear:
+            out = rr_svc.pd_ait_decide(session, req, decision="approve")
+        assert out.status == ReplacementRequestStatus.PATCH_DELIVERED.value
+        clear.assert_called_once()

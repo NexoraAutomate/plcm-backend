@@ -940,6 +940,12 @@ VERIFY_QUEUE_EVENT_TYPES = frozenset(
     }
 )
 
+REPLACEMENT_RED_EVENT_TYPES = frozenset(
+    {
+        "replacement_case_open",
+    }
+)
+
 
 def dismiss_verify_queue_notifications_for_user(
     session: Session,
@@ -966,6 +972,34 @@ def dismiss_verify_queue_notifications_for_user(
     elif rows:
         session.flush()
     return len(rows)
+
+
+def dismiss_replacement_case_open_notifications(
+    session: Session,
+    *,
+    case_id: int,
+    commit: bool = True,
+) -> int:
+    """RA-016 — mark unread RED (replacement_case_open) notices for a case as read."""
+    dedupe = f"replacement_case_open:{int(case_id)}"
+    matched = list(
+        session.exec(
+            select(AppNotification).where(
+                AppNotification.event_type.in_(list(REPLACEMENT_RED_EVENT_TYPES)),
+                AppNotification.read_at.is_(None),
+                AppNotification.dedupe_key == dedupe,
+            )
+        ).all()
+    )
+    now = _now()
+    for row in matched:
+        row.read_at = now
+        session.add(row)
+    if matched and commit:
+        session.commit()
+    elif matched:
+        session.flush()
+    return len(matched)
 
 
 def notify_pending_verifications_routed(

@@ -16,6 +16,7 @@ from app.models.base import (
     InventoryReservationStatus,
     OnsiteOutcome,
     ReplacementRequestStatus,
+    ResolutionType,
     ReworkCaseStatus,
     ReworkStage,
 )
@@ -84,6 +85,20 @@ _OPEN_REQUEST_STATUSES = frozenset(
         ReplacementRequestStatus.AIT_REJECTED.value,
         ReplacementRequestStatus.AIT_APPROVED.value,
         ReplacementRequestStatus.PATCH_DELIVERED.value,
+    }
+)
+
+_TRACK_A_COMPLETE_STATUSES = frozenset(
+    {
+        ReplacementRequestStatus.PATCH_DELIVERED.value,
+        ReplacementRequestStatus.TRACK_A_CLOSED.value,
+    }
+)
+
+_TRACK_A_INACTIVE_STATUSES = frozenset(
+    {
+        ReplacementRequestStatus.PD_REJECTED.value,
+        ReplacementRequestStatus.TRACK_A_CLOSED.value,
     }
 )
 
@@ -224,14 +239,21 @@ def assign_me(
     *,
     assigned_me_id: int,
 ) -> ReplacementRequest:
+    """HM/PD assign or reassign ME (RA-003 / RA-018) while pre-issue."""
     if req.status == ReplacementRequestStatus.PD_REJECTED.value:
         raise HTTPException(
             status_code=409, detail="Cannot assign ME on a rejected replacement request"
         )
+    if req.status in _TRACK_A_INACTIVE_STATUSES:
+        raise HTTPException(
+            status_code=409, detail="Cannot assign ME on a closed/aborted replacement request"
+        )
+    # RA-018: reassignment allowed while ME unavailable through pre-issue statuses
     if req.status not in (
         ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
         ReplacementRequestStatus.PD_APPROVED.value,
         ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+        ReplacementRequestStatus.AIT_REJECTED.value,
     ):
         raise HTTPException(
             status_code=409,
@@ -826,6 +848,186 @@ def pd_ait_decide(
     req.updated_at = _now()
     session.add(req)
     session.flush()
+    # RA-016 — clear RED when patch delivered
+    clear_replacement_red(session, int(req.case_id), req)
+    return req
+
+
+def is_soft_nff_early_exit(case: MaintenanceCase) -> bool:
+    """Soft-fix / NFF paths close without dual-track gate (DT-003 early exit)."""
+    outcome = (getattr(case, "onsite_outcome", None) or "").strip().lower()
+    if outcome in (
+        OnsiteOutcome.SOFT_FIX.value,
+        OnsiteOutcome.NO_FAULT_FOUND.value,
+    ):
+        return True
+    rt = getattr(case, "resolution_type", None)
+    if rt is not None:
+        rt_val = str(getattr(rt, "value", rt) or "").strip().lower()
+        if rt_val == ResolutionType.SOFT_FIXED.value:
+            return True
+    return False
+
+
+def dual_track_applicable(session: Session, case: MaintenanceCase) -> bool:
+    """True when dual-track close gate must run (not DT-004 exempt)."""
+    for req in list_requests_for_case(session, int(case.id)):
+        if req.status == ReplacementRequestStatus.PD_REJECTED.value:
+            continue
+        if (
+            req.status == ReplacementRequestStatus.TRACK_A_CLOSED.value
+            and (req.abort_reason or "").strip()
+        ):
+            # Aborted Track A — gate only if Track B still active below
+            continue
+        # Any non-rejected / non-abort RR means dual-track was started
+        return True
+
+    reworks = field_svc.list_case_returned_units(session, int(case.id))
+    for rework in reworks:
+        stage = (rework.stage or "").strip().lower()
+        if stage in ("", "idle"):
+            continue
+        # Any real Track B spine (open or terminal) implies dual-track applies
+        return True
+    return False
+
+
+def dual_track_active(session: Session, case: MaintenanceCase) -> bool:
+    """Open Track A (non-inactive) or non-terminal Track B."""
+    req = get_open_request_for_case(session, int(case.id))
+    if req and req.status not in _TRACK_A_INACTIVE_STATUSES:
+        return True
+    from app.services import track_b_inspection_service as track_b_svc
+
+    reworks = field_svc.list_case_returned_units(session, int(case.id))
+    for rework in reworks:
+        if rework.status != ReworkCaseStatus.OPEN.value:
+            continue
+        stage = (rework.stage or "").strip().lower()
+        if stage in ("", "idle"):
+            continue
+        if not track_b_svc.is_track_b_terminal(rework.stage):
+            return True
+    return False
+
+
+def clear_replacement_red(
+    session: Session,
+    case_id: int,
+    req: Optional[ReplacementRequest] = None,
+) -> None:
+    """RA-016 / UT-NT-003 — clear red_notified_at and dismiss RED notifications."""
+    targets: list[ReplacementRequest]
+    if req is not None:
+        targets = [req]
+    else:
+        targets = [
+            r
+            for r in list_requests_for_case(session, int(case_id))
+            if getattr(r, "red_notified_at", None) is not None
+        ]
+    for row in targets:
+        if getattr(row, "red_notified_at", None) is not None:
+            row.red_notified_at = None
+            row.updated_at = _now()
+            session.add(row)
+    from app.services.app_notification_service import (
+        dismiss_replacement_case_open_notifications,
+    )
+
+    dismiss_replacement_case_open_notifications(
+        session, case_id=int(case_id), commit=False
+    )
+    session.flush()
+
+
+def assert_dual_track_close_allowed(session: Session, case: MaintenanceCase) -> None:
+    """
+    DT-003 / UT-RA-010 — raise 409 unless Soft/NFF early exit, dual-track N/A (DT-004),
+    or Track A complete AND Track B terminal.
+    """
+    if is_soft_nff_early_exit(case):
+        return
+    if not dual_track_applicable(session, case):
+        return
+
+    board = build_dual_track_board(session, case)
+    track_a_status = board.get("track_a_status")
+    track_a = board.get("track_a")
+    track_b_terminal = bool(board.get("track_b_terminal"))
+    track_b_status = board.get("track_b_status")
+
+    aborted = bool(
+        track_a
+        and track_a_status == ReplacementRequestStatus.TRACK_A_CLOSED.value
+        and (getattr(track_a, "abort_reason", None) or "").strip()
+    )
+    track_a_ok = track_a_status in _TRACK_A_COMPLETE_STATUSES
+    if aborted and (track_b_status in (None, "idle") or track_b_terminal):
+        return
+
+    if not track_a_ok:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dual-track close gate: Track A incomplete "
+                f"(status={track_a_status or 'none'}; need patch_delivered)"
+            ),
+        )
+    if not track_b_terminal:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dual-track close gate: Track B incomplete "
+                f"(status={track_b_status or 'none'}; need restocked|discarded|claim_closed)"
+            ),
+        )
+
+
+def finalize_track_a_on_case_close(
+    session: Session, case: MaintenanceCase
+) -> Optional[ReplacementRequest]:
+    """Move patch_delivered → track_a_closed when the case closes."""
+    req = get_open_request_for_case(session, int(case.id))
+    if not req:
+        return None
+    if req.status == ReplacementRequestStatus.PATCH_DELIVERED.value:
+        assert_status_transition(
+            req.status, ReplacementRequestStatus.TRACK_A_CLOSED.value
+        )
+        req.status = ReplacementRequestStatus.TRACK_A_CLOSED.value
+        req.updated_at = _now()
+        session.add(req)
+        session.flush()
+    clear_replacement_red(session, int(case.id), req)
+    return req
+
+
+def abort_track_a(
+    session: Session,
+    req: ReplacementRequest,
+    *,
+    reason: str,
+) -> ReplacementRequest:
+    """RA-017 — abort Track A (e.g. later NFF); cancel request; clear RED; keep audit."""
+    reason_text = (reason or "").strip()
+    if not reason_text:
+        raise HTTPException(status_code=400, detail="abort reason is required")
+    if req.status in (
+        ReplacementRequestStatus.PD_REJECTED.value,
+        ReplacementRequestStatus.TRACK_A_CLOSED.value,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot abort replacement request in status {req.status}",
+        )
+    req.abort_reason = reason_text
+    req.status = ReplacementRequestStatus.TRACK_A_CLOSED.value
+    req.updated_at = _now()
+    session.add(req)
+    session.flush()
+    clear_replacement_red(session, int(req.case_id), req)
     return req
 
 
@@ -847,10 +1049,16 @@ def build_dual_track_board(
         (r for r in reworks if r.status == ReworkCaseStatus.OPEN.value),
         reworks[0] if reworks else None,
     )
+    track_b_discarded = False
+    track_b_terminal = False
     if open_rework:
+        from app.services import track_b_inspection_service as track_b_svc
+
         track_b_rework_id = int(open_rework.id) if open_rework.id else None
         track_b_status = open_rework.stage or "idle"
         track_b_reception_date = getattr(open_rework, "reception_date", None)
+        track_b_discarded = track_b_svc.discarded_flag(open_rework)
+        track_b_terminal = track_b_svc.is_track_b_terminal(open_rework.stage)
     elif req and req.status == ReplacementRequestStatus.REPLACEMENT_REQUESTED.value:
         track_b_status = "idle"
     elif req is None:
@@ -863,6 +1071,8 @@ def build_dual_track_board(
         "track_b_status": track_b_status,
         "track_b_rework_id": track_b_rework_id,
         "track_b_reception_date": track_b_reception_date,
+        "track_b_discarded": track_b_discarded,
+        "track_b_terminal": track_b_terminal,
     }
 
 

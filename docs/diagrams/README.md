@@ -83,6 +83,8 @@ Step-by-step FSD, unit/functional/system tests, conformance matrix, and verifica
 
 [`docs/specs/maintenance-occurrence-replacement/`](../specs/maintenance-occurrence-replacement/README.md)
 
+**Progress (2026-11-07):** P0–P6 implemented and verified. Conformance Report `CR-MHD-20261107` **Approved with deviations** (GAP-07 / GAP-08 / GAP-11 backlog). Archive: [`specs/maintenance-occurrence-replacement/reports/`](../specs/maintenance-occurrence-replacement/reports/).
+
 ---
 
 ## Open & edit
