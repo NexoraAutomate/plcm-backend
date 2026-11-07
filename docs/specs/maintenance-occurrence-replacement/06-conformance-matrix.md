@@ -56,10 +56,10 @@ Update this file after each phase. Status values: see [README](./README.md).
 | REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
 |-----|-----|-----------------|----|----|----|------|-------|
 | DT-001 | Must | Implemented | UT-RL-003 | N/A | ST-13 | Partial | Spine intact |
-| DT-002 | Must | Not Started | UT-RA-006 | FT-DT-004 | ST-05 | Not Started | Replace today waits/ties rework differently |
+| DT-002 | Must | Partial (P2: Track A without reception; awaiting on PD approve) | UT-RA-006 | FT-DT-004 | ST-05 | Partial | Ship path remains P3 |
 | DT-003 | Must | Not Started | UT-RA-010 | FT-CG-001..003 | ST-09 | Not Started | |
 | DT-004 | Must | Implemented | N/A | FT-CG-004 | ST-01 | Partial | |
-| DT-005 | Must | Not Started | N/A | FT-DT-001 | ST-05 | Not Started | |
+| DT-005 | Must | Partial (dual-track board API + UI skeleton) | N/A | FT-DT-001 | ST-05 | Partial | |
 | DT-006 | Must | Partial | Pending | Pending | ST-13 | Partial | Continuous NR |
 
 ---
@@ -68,9 +68,9 @@ Update this file after each phase. Status values: see [README](./README.md).
 
 | REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
 |-----|-----|-----------------|----|----|----|------|-------|
-| RA-001 | Must | Not Started | UT-RA-001 | FT-DT-002 | ST-05 | Not Started | No ReplacementRequest entity |
-| RA-002 | Must | Not Started | UT-RA-001 | FT-DT-002 | ST-05 | Not Started | |
-| RA-003 | Must | Not Started | UT-RA-002 | FT-DT-003 | ST-05 | Not Started | |
+| RA-001 | Must | Implemented (P2) | UT-RA-001 | FT-DT-002 | ST-05 | Partial | ReplacementRequest entity + APIs |
+| RA-002 | Must | Implemented (P2) | UT-RA-001 | FT-DT-002 | ST-05 | Partial | create + PD high notify |
+| RA-003 | Must | Implemented (P2) | UT-RA-002 | FT-DT-003 | ST-05 | Partial | HM assign ME + reserve |
 | RA-004 | Must | Not Started | UT-RA-003 | FT-RA-001/002 | ST-11 | Not Started | |
 | RA-005 | Must | Not Started | Pending | FT-RA-002 | ST-05 | Not Started | |
 | RA-006 | Must | Not Started | UT-RA-004 | FT-RA-003 | ST-10 | Not Started | Gap GAP-01 |
@@ -95,7 +95,7 @@ Update this file after each phase. Status values: see [README](./README.md).
 
 | REQ | Pri | Impl (baseline) | UT | FT | ST | Conf | Notes |
 |-----|-----|-----------------|----|----|----|------|-------|
-| IE-001 | Must | Partial (rework exists) | UT-IE-001 | FT-IE-001 | ST-05 | Partial | Add awaiting + reception_date |
+| IE-001 | Must | Partial (awaiting_faulty_arrival + reception_date columns; reception flow P4) | UT-IE-001 | FT-IE-001 | ST-05 | Partial | P2 enum/column; reception P4 |
 | IE-002 | Must | Partial | UT-IE-001 | FT-IE-001 | ST-05 | Partial | |
 | IE-003 | Must | Partial (PD assign exists for returned units) | UT-IE-002 | FT-IE-002 | ST-05 | Partial | Assign IE role specifically |
 | IE-004 | Must | Partial (inspect queue) | UT-IE-003 | FT-IE-002 | ST-05 | Partial | |

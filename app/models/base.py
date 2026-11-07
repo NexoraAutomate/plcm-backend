@@ -907,12 +907,28 @@ class ReworkStage(str, Enum):
     FAILED = "failed"
     REMOVED = "removed"
     RETURNED = "returned"
+    AWAITING_FAULTY_ARRIVAL = "awaiting_faulty_arrival"
     INSPECTION = "inspection"
     REPAIRABLE = "repairable"
     REUSABLE = "reusable"
     SCRAPPED = "scrapped"
     REISSUED = "reissued"
     RETESTING = "retesting"
+
+
+class ReplacementRequestStatus(str, Enum):
+    """Track A sub-status spine (does not alter CaseStatus)."""
+
+    REPLACEMENT_REQUESTED = "replacement_requested"
+    PD_APPROVED = "pd_approved"
+    PD_REJECTED = "pd_rejected"
+    IM_ISSUE_PENDING = "im_issue_pending"
+    SHIPPED_REPLACED_BADGE = "shipped_replaced_badge"
+    AIT_IN_PROGRESS = "ait_in_progress"
+    AIT_APPROVED = "ait_approved"
+    AIT_REJECTED = "ait_rejected"
+    PATCH_DELIVERED = "patch_delivered"
+    TRACK_A_CLOSED = "track_a_closed"
 
 
 class ReworkDisposition(str, Enum):
@@ -997,8 +1013,48 @@ class InventoryReworkCaseBase(SQLModel):
     investigating_pd_id: Optional[int] = Field(
         default=None, foreign_key="user.id", index=True
     )
+    reception_date: Optional[datetime] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReplacementRequestBase(SQLModel):
+    """Track A immediate-replacement request linked to a maintenance case."""
+
+    case_id: int = Field(foreign_key="maintenance_case.id", index=True)
+    faulty_entity_id: Optional[int] = Field(
+        default=None, foreign_key="faulty_entity.id", index=True
+    )
+    # Fallback when no FaultyEntity row yet — case root hierarchy entity
+    faulty_entity_type: Optional[str] = Field(default=None, max_length=32)
+    faulty_entity_ref_id: Optional[int] = Field(default=None, index=True)
+    requested_by_id: int = Field(foreign_key="user.id", index=True)
+    assigned_me_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+    status: str = Field(
+        default=ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
+        max_length=48,
+        index=True,
+    )
+    pd_decision: Optional[str] = Field(default=None, max_length=16)
+    reject_reason: Optional[str] = None
+    abort_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReplacementRequestReservationBase(SQLModel):
+    """Inventory reserved for a ReplacementRequest (Track A)."""
+
+    replacement_request_id: int = Field(
+        foreign_key="replacement_request.id", index=True
+    )
+    inventory_reservation_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryreservation.id", index=True
+    )
+    inventory_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class OemWarrantyClaimBase(SQLModel):
@@ -1347,6 +1403,7 @@ class MaintenanceOccurrenceOfficerBase(SQLModel):
     role_onsite: str = Field(max_length=64)
     contact: Optional[str] = Field(default=None, max_length=255)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 
 # =============================================================================
 # 2. FAULTY ENTITY

@@ -393,9 +393,11 @@ def create_returned_unit_rework(
     serial_number: Optional[str],
     actor: User,
     notes: Optional[str] = None,
+    initial_stage: Optional[str] = None,
 ) -> Optional[InventoryReworkCase]:
     """
     After a field replacement, open an IM inspect rework case for the removed unit.
+    Dual-track approve path may pass initial_stage=awaiting_faulty_arrival (NR-003).
     """
     inventory, instance = _find_inventory_for_removed_unit(
         session,
@@ -415,8 +417,15 @@ def create_returned_unit_rework(
         )
     ).first()
     if existing:
+        stage_key = (initial_stage or "").strip().lower() or None
+        if stage_key and existing.stage != stage_key:
+            existing.stage = stage_key
+            existing.updated_at = _now()
+            session.add(existing)
+            session.flush()
         return existing
 
+    stage_value = (initial_stage or "").strip().lower() or ReworkStage.RETURNED.value
     now = _now()
     rework = InventoryReworkCase(
         project_id=case.project_id,
@@ -426,11 +435,16 @@ def create_returned_unit_rework(
         original_instance_id=int(instance.id) if instance and instance.id else None,
         current_instance_id=int(instance.id) if instance and instance.id else None,
         status=ReworkCaseStatus.OPEN.value,
-        stage=ReworkStage.RETURNED.value,
+        stage=stage_value,
         attempt_count=1,
         opened_at=now,
         opened_by_id=int(actor.id) if actor.id else None,
-        notes=notes or "Returned from field replacement (maintenance case)",
+        notes=notes
+        or (
+            "Awaiting faulty return (dual-track)"
+            if stage_value == ReworkStage.AWAITING_FAULTY_ARRIVAL.value
+            else "Returned from field replacement (maintenance case)"
+        ),
         maintenance_case_id=case.id,
         faulty_entity_id=faulty_entity_id,
         investigating_pd_id=case.reported_by,

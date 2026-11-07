@@ -242,6 +242,7 @@ class ReturnedUnitRead(SQLModel):
     notes: Optional[str] = None
     opened_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    reception_date: Optional[datetime] = None
     warranty_expires_at: Optional[datetime] = None
     warranty_active: Optional[bool] = None
     oem_name: Optional[str] = None
@@ -251,6 +252,80 @@ class ReturnedUnitRead(SQLModel):
 
 class AssignInvestigatingPdPayload(SQLModel):
     pd_user_id: int
+
+
+class ReplacementRequestCreate(SQLModel):
+    """POST /maintenance-cases/{id}/replacement-requests/"""
+
+    faulty_entity_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class ReplacementRequestAssignMePayload(SQLModel):
+    """POST .../replacement-requests/{id}/assign-me/"""
+
+    assigned_me_id: int
+
+
+class ReplacementRequestReservePayload(SQLModel):
+    """POST .../replacement-requests/{id}/reserve/"""
+
+    inventory_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    target_entity_type: Optional[str] = None
+    target_entity_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class ReplacementRequestPdDecisionPayload(SQLModel):
+    """POST .../replacement-requests/{id}/pd-decision/"""
+
+    decision: str  # approve | reject
+    reject_reason: Optional[str] = None
+
+
+class ReplacementRequestReservationRead(SQLModel):
+    id: int
+    replacement_request_id: int
+    inventory_reservation_id: Optional[int] = None
+    inventory_instance_id: Optional[int] = None
+    serial_number: Optional[str] = None
+    part_number: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReplacementRequestRead(SQLModel):
+    id: int
+    case_id: int
+    faulty_entity_id: Optional[int] = None
+    faulty_entity_type: Optional[str] = None
+    faulty_entity_ref_id: Optional[int] = None
+    requested_by_id: int
+    assigned_me_id: Optional[int] = None
+    assigned_me_name: Optional[str] = None
+    status: str
+    pd_decision: Optional[str] = None
+    reject_reason: Optional[str] = None
+    abort_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    reservations: List[ReplacementRequestReservationRead] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DualTrackBoardRead(SQLModel):
+    """GET /maintenance-cases/{id}/dual-track/ — Track A + Track B skeleton."""
+
+    case_id: int
+    track_a: Optional[ReplacementRequestRead] = None
+    track_a_status: Optional[str] = None
+    track_b_status: Optional[str] = None  # idle | awaiting_faulty_arrival | stage
+    track_b_rework_id: Optional[int] = None
+    track_b_reception_date: Optional[datetime] = None
 
 
 class OemWarrantyClaimCreate(SQLModel):

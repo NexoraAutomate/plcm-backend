@@ -580,7 +580,28 @@ class MaintenanceOccurrenceOfficer(MaintenanceOccurrenceOfficerBase, table=True)
     __tablename__ = "maintenance_occurrence_officer"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    
+
+
+class ReplacementRequest(ReplacementRequestBase, table=True):
+    """Track A replacement request for a maintenance case (P2 dual-track)."""
+
+    __tablename__ = "replacement_request"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    reservations: List["ReplacementRequestReservation"] = Relationship(
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
+
+
+class ReplacementRequestReservation(ReplacementRequestReservationBase, table=True):
+    __tablename__ = "replacement_request_reservation"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
 class MaintenanceAction(MaintenanceActionBase, table=True):
     """
     PostgreSQL table: maintenance_action

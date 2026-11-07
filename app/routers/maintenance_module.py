@@ -50,6 +50,8 @@ from app.models.tables import (
     OemWarrantyClaim,
     Inventory,
     InventoryInstance,
+    ReplacementRequest,
+    ReplacementRequestReservation,
 )
 from app.services.configuration_history import (
     create_configuration_history_for_resolve,
@@ -57,6 +59,7 @@ from app.services.configuration_history import (
 )
 from app.models.base import CaseStatus, FaultyEntityStatus, FaultType, ResolutionType
 from app.services import maintenance_field_service as field_svc
+from app.services import replacement_request_service as rr_svc
 
 router = APIRouter()
 
@@ -103,6 +106,7 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
         notes=rework.notes,
         opened_at=rework.opened_at,
         updated_at=rework.updated_at,
+        reception_date=getattr(rework, "reception_date", None),
         warranty_expires_at=expires,
         warranty_active=field_svc.warranty_active(expires) if expires else False,
         oem_name=inventory.oem_name if inventory else None,
@@ -522,6 +526,300 @@ def list_case_returned_units(
         raise HTTPException(status_code=404, detail="Maintenance case not found")
     rows = field_svc.list_case_returned_units(session, case_id)
     return [_serialize_returned_unit(session, row) for row in rows]
+
+
+def _serialize_replacement_request(
+    session: Session, req: ReplacementRequest
+) -> ReplacementRequestRead:
+    links = rr_svc.list_reservations(session, int(req.id))
+    reservations: List[ReplacementRequestReservationRead] = []
+    for link in links:
+        extras = rr_svc.reservation_read_extras(session, link)
+        reservations.append(
+            ReplacementRequestReservationRead(
+                id=int(link.id),
+                replacement_request_id=int(link.replacement_request_id),
+                inventory_reservation_id=link.inventory_reservation_id,
+                inventory_instance_id=link.inventory_instance_id,
+                serial_number=extras.get("serial_number"),
+                part_number=extras.get("part_number"),
+            )
+        )
+    me_name = None
+    if req.assigned_me_id:
+        me = session.get(User, req.assigned_me_id)
+        if me:
+            me_name = me.full_name or me.username
+    return ReplacementRequestRead(
+        id=int(req.id),
+        case_id=int(req.case_id),
+        faulty_entity_id=req.faulty_entity_id,
+        faulty_entity_type=req.faulty_entity_type,
+        faulty_entity_ref_id=req.faulty_entity_ref_id,
+        requested_by_id=int(req.requested_by_id),
+        assigned_me_id=req.assigned_me_id,
+        assigned_me_name=me_name,
+        status=req.status,
+        pd_decision=req.pd_decision,
+        reject_reason=req.reject_reason,
+        abort_reason=req.abort_reason,
+        created_at=req.created_at,
+        updated_at=req.updated_at,
+        reservations=reservations,
+    )
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def create_replacement_request(
+    case_id: int,
+    payload: ReplacementRequestCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+            "create_maintenance_cases",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.create_replacement_request(
+        session,
+        case,
+        actor=current_user,
+        faulty_entity_id=payload.faulty_entity_id,
+    )
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="replacement_requested",
+        title="Replacement request created",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            "Immediate replacement requested (Track A)"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.get(
+    "/maintenance-cases/{case_id}/replacement-requests/",
+    response_model=List[ReplacementRequestRead],
+    tags=["maintenance-cases"],
+)
+def list_replacement_requests(
+    case_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    rows = rr_svc.list_requests_for_case(session, case_id)
+    return [_serialize_replacement_request(session, row) for row in rows]
+
+
+@router.get(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def get_replacement_request(
+    case_id: int,
+    request_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/assign-me/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def assign_replacement_request_me(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestAssignMePayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "inventory.reserve",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.assign_me(session, req, assigned_me_id=payload.assigned_me_id)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="replacement_me_assigned",
+        title="ME assigned to replacement",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"ME user #{payload.assigned_me_id} assigned"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_maintenance=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/reserve/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def reserve_replacement_request(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestReservePayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "inventory.reserve",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.reserve_for_request(
+        session,
+        case,
+        req,
+        actor=current_user,
+        inventory_id=payload.inventory_id,
+        inventory_instance_id=payload.inventory_instance_id,
+        part_number=payload.part_number,
+        serial_number=payload.serial_number,
+        target_entity_type=payload.target_entity_type,
+        target_entity_id=payload.target_entity_id,
+        notes=payload.notes,
+    )
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/pd-decision/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def pd_decide_replacement_request(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestPdDecisionPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.pd_decide(
+        session,
+        case,
+        req,
+        actor=current_user,
+        decision=payload.decision,
+        reject_reason=payload.reject_reason,
+    )
+
+    from app.services.app_notification_service import notify
+
+    approved = (payload.decision or "").strip().lower() == "approve"
+    notify(
+        session,
+        event_type="replacement_approved" if approved else "replacement_rejected",
+        title="Replacement request approved" if approved else "Replacement request rejected",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            + ("PD approved — Track A continues" if approved else f"PD rejected — {payload.reject_reason or ''}")
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_maintenance=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.get(
+    "/maintenance-cases/{case_id}/dual-track/",
+    response_model=DualTrackBoardRead,
+    tags=["maintenance-cases"],
+)
+def get_dual_track_board(
+    case_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    board = rr_svc.build_dual_track_board(session, case)
+    track_a = board.get("track_a")
+    return DualTrackBoardRead(
+        case_id=int(case.id),
+        track_a=(
+            _serialize_replacement_request(session, track_a) if track_a else None
+        ),
+        track_a_status=board.get("track_a_status"),
+        track_b_status=board.get("track_b_status"),
+        track_b_rework_id=board.get("track_b_rework_id"),
+        track_b_reception_date=board.get("track_b_reception_date"),
+    )
 
 
 @router.post(

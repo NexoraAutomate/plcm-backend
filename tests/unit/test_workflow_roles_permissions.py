@@ -46,6 +46,7 @@ ROLE_PRIMARY_PERMS = {
         "hierarchy.generate",
         "inventory.reserve",
         "item.verify",
+        "maintenance.replacement_request",
         "view_my_assignments",
         "view_notifications",
     ],
@@ -90,17 +91,19 @@ class TestWorkflowPermissionSeed:
             assert key in admin
 
     def test_maintenance_permissions_mapped_to_roles(self):
-        """UT-RL-002 — ME/FSE/IE/PD grants for maintenance.* stubs."""
+        """UT-RL-002 — ME/FSE/IE/PD/HM grants for maintenance.* stubs."""
         me = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME])
         fse = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.FSE])
         ie = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IE])
         pd = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD])
+        hm = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM])
         assert "maintenance.occurrence_report" in me
         assert "maintenance.replacement_request" in me
         assert "maintenance.ait_upload" in me
         assert "maintenance.occurrence_report" in fse
         assert "maintenance.inspection_disposition" in ie
         assert "maintenance.replacement_request" in pd
+        assert "maintenance.replacement_request" in hm
 
     def test_primary_role_permission_matrix(self):
         for role_name, keys in ROLE_PRIMARY_PERMS.items():

@@ -80,6 +80,7 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "project.cancel",
         "config_change.request",
         "audit.read",
+        "maintenance.replacement_request",  # assign ME + reserve (P2 Track A)
     ],
     WorkflowRole.IM: [
         "inventory.receive",

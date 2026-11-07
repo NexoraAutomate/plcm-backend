@@ -851,13 +851,15 @@ def reserve_inventory(
     create_shortage_if_unavailable: bool = True,
     commit: bool = True,
     allow_assembled: bool = False,
+    for_maintenance_replacement: bool = False,
 ) -> InventoryReservation:
     project = session.get(Project, project_id)
     if not project:
         raise InventoryReservationError("Project not found")
     # Auto-assembly may run after the last child verify, which can already
     # mark the project COMPLETED. Skip the HM reserve-window check.
-    if not allow_assembled:
+    # Maintenance dual-track also reserves against delivered/assembled nodes.
+    if not allow_assembled and not for_maintenance_replacement:
         assert_project_can_reserve(project)
     assert_no_open_config_change_for_reserve(session, project_id)
 
@@ -883,7 +885,7 @@ def reserve_inventory(
             "This hierarchy node is configured as a logical group and "
             "cannot be reserved from inventory"
         )
-    if is_build_from_children(source) and not allow_assembled:
+    if is_build_from_children(source) and not allow_assembled and not for_maintenance_replacement:
         raise InventoryReservationError(
             "This hierarchy node is configured as build-from-children and "
             "cannot be reserved from procured inventory"
@@ -892,7 +894,7 @@ def reserve_inventory(
     if flight.project_id != project_id:
         raise InventoryReservationError("Hierarchy entity is not under this project")
 
-    if not allow_assembled:
+    if not allow_assembled and not for_maintenance_replacement:
         committed = _entity_commitment_state(
             session,
             project_id=project_id,
@@ -914,18 +916,21 @@ def reserve_inventory(
     if payload.get("sdls_id") is not None and int(payload["sdls_id"]) != sdls.id:
         raise InventoryReservationError("sdls_id does not match hierarchy entity")
 
-    existing_node = session.exec(
-        select(InventoryReservation).where(
-            InventoryReservation.project_id == project_id,
-            InventoryReservation.target_entity_type == et,
-            InventoryReservation.target_entity_id == eid,
-            InventoryReservation.status == InventoryReservationStatus.ACTIVE.value,
-        )
-    ).first()
-    if existing_node:
-        raise InventoryReservationError(
-            "Hierarchy node already has an active reservation"
-        )
+    # Maintenance replacement reserves a *new* S/N for an already-installed node;
+    # skip the single-active-reservation-per-node guard (instance uniqueness still applies).
+    if not for_maintenance_replacement:
+        existing_node = session.exec(
+            select(InventoryReservation).where(
+                InventoryReservation.project_id == project_id,
+                InventoryReservation.target_entity_type == et,
+                InventoryReservation.target_entity_id == eid,
+                InventoryReservation.status == InventoryReservationStatus.ACTIVE.value,
+            )
+        ).first()
+        if existing_node:
+            raise InventoryReservationError(
+                "Hierarchy node already has an active reservation"
+            )
 
     part_number = payload.get("part_number")
     inventory: Optional[Inventory] = None
