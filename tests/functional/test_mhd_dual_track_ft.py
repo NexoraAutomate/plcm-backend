@@ -141,7 +141,7 @@ def test_ft_dt_004_track_a_without_faulty_reception(
         )
         assert decide.status_code == 200, decide.text
         body = decide.json()
-        assert body["status"] == "im_issue_pending"
+        assert body["status"] == "pd_approved"
         assert body["pd_decision"] == "approve"
         board = client.get(
             f"/api/maintenance-cases/{case.id}/dual-track/",
@@ -149,9 +149,8 @@ def test_ft_dt_004_track_a_without_faulty_reception(
         )
         assert board.status_code == 200
         data = board.json()
-        assert data["track_a_status"] == "im_issue_pending"
-        # Track B may be awaiting if rework could be created; else idle is acceptable
-        # when no inventory match exists for the case entity (NR-003 retained).
+        assert data["track_a_status"] == "pd_approved"
+        # Track B stays idle until IM issue (ship); P2/P3 may still show idle without FE inventory.
         assert data["track_b_status"] in ("awaiting_faulty_arrival", "idle")
     finally:
         cleanup_project(session, project)

@@ -663,6 +663,7 @@ def issue_inventory_unit(
     rework_project_id: Optional[int] = None,
     rework_flight_id: Optional[int] = None,
     rework_sdls_id: Optional[int] = None,
+    for_maintenance_replacement: bool = False,
 ) -> InventoryIssuance:
     if quantity < 1:
         raise HTTPException(status_code=400, detail="Quantity must be at least 1")
@@ -767,7 +768,7 @@ def issue_inventory_unit(
                     detail="Rework re-issue requires project allocation",
                 )
     elif project_hold:
-        if not item_request_id:
+        if not item_request_id and not for_maintenance_replacement:
             raise HTTPException(
                 status_code=400,
                 detail="Developer must request this reserved item before it can be issued",

@@ -1038,6 +1038,19 @@ class ReplacementRequestBase(SQLModel):
     pd_decision: Optional[str] = Field(default=None, max_length=16)
     reject_reason: Optional[str] = None
     abort_reason: Optional[str] = None
+    # P3 — issue / AIT / RED
+    issued_serial: Optional[str] = Field(default=None, max_length=128)
+    issued_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    issued_at: Optional[datetime] = None
+    shortage_held: bool = Field(default=False)
+    red_notified_at: Optional[datetime] = None
+    quarantined_instance_id: Optional[int] = Field(
+        default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    ait_decision: Optional[str] = Field(default=None, max_length=16)
+    ait_reject_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -1053,6 +1066,22 @@ class ReplacementRequestReservationBase(SQLModel):
     )
     inventory_instance_id: Optional[int] = Field(
         default=None, foreign_key="inventoryinstance.id", index=True
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReplacementRequestAitAttachmentBase(SQLModel):
+    """Named AIT evidence attachment on a ReplacementRequest (RA-010 / RA-019)."""
+
+    replacement_request_id: int = Field(
+        foreign_key="replacement_request.id", index=True
+    )
+    display_name: str = Field(max_length=255)
+    file_id: Optional[int] = Field(default=None, foreign_key="entity_attachment.id")
+    occurrence_attachment_id: Optional[int] = Field(
+        default=None,
+        foreign_key="maintenance_occurrence_attachment.id",
+        index=True,
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

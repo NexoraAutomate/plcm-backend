@@ -133,8 +133,8 @@ class TestReserve:
 
 
 class TestPdDecideAndTrackB:
-    def test_approve_sets_im_issue_pending_and_awaiting(self):
-        """FT-DT-004 support — Track A advances without faulty reception."""
+    def test_approve_stops_at_pd_approved(self):
+        """P3 — PD approve does not jump to im_issue_pending or queue Track B."""
         case = _case()
         req = SimpleNamespace(
             id=5,
@@ -152,9 +152,6 @@ class TestPdDecideAndTrackB:
         with patch(
             "app.services.replacement_request_service.field_svc.create_returned_unit_rework"
         ) as rework_mock:
-            rework_mock.return_value = SimpleNamespace(
-                id=3, stage=ReworkStage.AWAITING_FAULTY_ARRIVAL.value
-            )
             out = rr_svc.pd_decide(
                 session,
                 case,
@@ -163,13 +160,9 @@ class TestPdDecideAndTrackB:
                 decision="approve",
             )
 
-        assert out.status == ReplacementRequestStatus.IM_ISSUE_PENDING.value
+        assert out.status == ReplacementRequestStatus.PD_APPROVED.value
         assert out.pd_decision == "approve"
-        rework_mock.assert_called_once()
-        assert (
-            rework_mock.call_args.kwargs["initial_stage"]
-            == ReworkStage.AWAITING_FAULTY_ARRIVAL.value
-        )
+        rework_mock.assert_not_called()
 
     def test_reject_requires_reason_and_stops(self):
         case = _case()
@@ -197,6 +190,211 @@ class TestPdDecideAndTrackB:
         )
         assert out.status == ReplacementRequestStatus.PD_REJECTED.value
         assert out.reject_reason == "wrong PN"
+
+
+class TestMeRequestIssue:
+    def test_me_request_issue_advances(self):
+        """UT-RA / RA-005"""
+        req = SimpleNamespace(
+            id=5,
+            status=ReplacementRequestStatus.PD_APPROVED.value,
+            assigned_me_id=9,
+            shortage_held=False,
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch.object(
+            rr_svc,
+            "list_reservations",
+            return_value=[SimpleNamespace(id=1)],
+        ):
+            out = rr_svc.me_request_issue(session, req)
+        assert out.status == ReplacementRequestStatus.IM_ISSUE_PENDING.value
+
+    def test_me_request_issue_requires_reservation(self):
+        req = SimpleNamespace(
+            id=5,
+            status=ReplacementRequestStatus.PD_APPROVED.value,
+            assigned_me_id=9,
+            shortage_held=False,
+            updated_at=None,
+        )
+        with patch.object(rr_svc, "list_reservations", return_value=[]):
+            with pytest.raises(HTTPException) as exc:
+                rr_svc.me_request_issue(MagicMock(), req)
+        assert exc.value.status_code == 400
+
+
+class TestImIssue:
+    def test_shortage_holds_without_issue(self):
+        """UT-RA-004 / RA-006"""
+        case = _case()
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+            assigned_me_id=9,
+            shortage_held=False,
+            updated_at=None,
+            issued_serial=None,
+            issued_instance_id=None,
+            issued_at=None,
+            red_notified_at=None,
+        )
+        session = MagicMock()
+        with patch.object(
+            rr_svc,
+            "_active_reservation_link",
+            side_effect=HTTPException(status_code=409, detail="No active inventory reservation"),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                rr_svc.im_issue(
+                    session,
+                    case,
+                    req,
+                    actor=_actor(),
+                    signature_type="HARD_COPY",
+                    signature_payload="ACK",
+                )
+        assert exc.value.status_code == 409
+        assert req.shortage_held is True
+
+    def test_successful_issue_sets_shipped_and_track_b(self):
+        """UT-RA-005 / RA-007 / RA-009"""
+        case = _case()
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+            assigned_me_id=9,
+            shortage_held=False,
+            updated_at=None,
+            issued_serial=None,
+            issued_instance_id=None,
+            issued_at=None,
+            red_notified_at=None,
+            faulty_entity_id=12,
+            faulty_entity_type="unit",
+            faulty_entity_ref_id=55,
+        )
+        link = SimpleNamespace(
+            inventory_reservation_id=77,
+            inventory_instance_id=88,
+        )
+        reservation = SimpleNamespace(
+            id=77,
+            inventory_id=3,
+            inventory_instance_id=88,
+            status="active",
+            target_entity_type="unit",
+            target_entity_id=55,
+        )
+        inventory = SimpleNamespace(id=3, part_number="PN-100")
+        session = MagicMock()
+        session.get.side_effect = lambda model, pk: {
+            3: inventory,
+            88: SimpleNamespace(id=88, status_id=1, inventory_id=3),
+        }.get(pk)
+
+        issuance = SimpleNamespace(
+            serial_number="SN-NEW",
+            inventory_instance_id=88,
+        )
+
+        with patch.object(
+            rr_svc, "_active_reservation_link", return_value=(link, reservation)
+        ), patch(
+            "app.services.replacement_request_service.item_status_name",
+            return_value="RESERVED",
+        ), patch(
+            "app.services.inventory_issuance_service.issue_inventory_unit",
+            return_value=issuance,
+        ), patch(
+            "app.services.replacement_request_service.field_svc.create_returned_unit_rework"
+        ) as rework_mock:
+            rework_mock.return_value = SimpleNamespace(
+                id=3, stage=ReworkStage.AWAITING_FAULTY_ARRIVAL.value
+            )
+            out = rr_svc.im_issue(
+                session,
+                case,
+                req,
+                actor=_actor(),
+                signature_type="HARD_COPY",
+                signature_payload="ACK",
+            )
+
+        assert out.status == ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value
+        assert out.issued_serial == "SN-NEW"
+        assert out.red_notified_at is not None
+        rework_mock.assert_called_once()
+
+
+class TestAitFlow:
+    def test_ait_approve_patch_delivered(self):
+        """UT-RA-007 / RA-012 / RA-014"""
+        req = SimpleNamespace(
+            id=5,
+            status=ReplacementRequestStatus.AIT_IN_PROGRESS.value,
+            ait_decision=None,
+            ait_reject_reason=None,
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch.object(
+            rr_svc,
+            "list_ait_attachments",
+            return_value=[SimpleNamespace(id=1)],
+        ):
+            out = rr_svc.pd_ait_decide(session, req, decision="approve")
+        assert out.status == ReplacementRequestStatus.PATCH_DELIVERED.value
+        assert out.ait_decision == "approve"
+
+    def test_ait_reject_quarantines_and_reopens_issue(self):
+        """UT-RA-008 / RA-013"""
+        req = SimpleNamespace(
+            id=5,
+            status=ReplacementRequestStatus.AIT_IN_PROGRESS.value,
+            ait_decision=None,
+            ait_reject_reason=None,
+            issued_instance_id=88,
+            issued_serial="SN-FAIL",
+            issued_at=None,
+            quarantined_instance_id=None,
+            shortage_held=False,
+            updated_at=None,
+        )
+        session = MagicMock()
+        with patch.object(
+            rr_svc,
+            "list_ait_attachments",
+            return_value=[SimpleNamespace(id=1)],
+        ), patch.object(rr_svc, "_quarantine_instance") as q:
+            out = rr_svc.pd_ait_decide(
+                session, req, decision="reject", reject_reason="failed AIT"
+            )
+        assert out.status == ReplacementRequestStatus.IM_ISSUE_PENDING.value
+        assert out.ait_decision == "reject"
+        assert out.quarantined_instance_id == 88
+        q.assert_called_once()
+
+    def test_upload_ait_starts_progress(self):
+        """UT-RA / RA-010"""
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value,
+            updated_at=None,
+        )
+        session = MagicMock()
+        added = []
+        session.add.side_effect = lambda obj: added.append(obj)
+        row = rr_svc.upload_ait_attachment(
+            session, req, display_name="AIT Report", file_id=42
+        )
+        assert req.status == ReplacementRequestStatus.AIT_IN_PROGRESS.value
+        assert row.display_name == "AIT Report"
+        assert row.file_id == 42
 
 
 class TestStatusGuard:

@@ -545,6 +545,19 @@ def _serialize_replacement_request(
                 part_number=extras.get("part_number"),
             )
         )
+    ait_rows = rr_svc.list_ait_attachments(session, int(req.id))
+    ait_attachments: List[ReplacementRequestAitAttachmentRead] = [
+        ReplacementRequestAitAttachmentRead(
+            id=int(row.id),
+            replacement_request_id=int(row.replacement_request_id),
+            display_name=row.display_name,
+            file_id=row.file_id,
+            occurrence_attachment_id=row.occurrence_attachment_id,
+            created_at=row.created_at,
+        )
+        for row in ait_rows
+        if row.id is not None
+    ]
     me_name = None
     if req.assigned_me_id:
         me = session.get(User, req.assigned_me_id)
@@ -563,9 +576,18 @@ def _serialize_replacement_request(
         pd_decision=req.pd_decision,
         reject_reason=req.reject_reason,
         abort_reason=req.abort_reason,
+        issued_serial=getattr(req, "issued_serial", None),
+        issued_instance_id=getattr(req, "issued_instance_id", None),
+        issued_at=getattr(req, "issued_at", None),
+        shortage_held=bool(getattr(req, "shortage_held", False)),
+        red_notified_at=getattr(req, "red_notified_at", None),
+        quarantined_instance_id=getattr(req, "quarantined_instance_id", None),
+        ait_decision=getattr(req, "ait_decision", None),
+        ait_reject_reason=getattr(req, "ait_reject_reason", None),
         created_at=req.created_at,
         updated_at=req.updated_at,
         reservations=reservations,
+        ait_attachments=ait_attachments,
     )
 
 
@@ -785,6 +807,318 @@ def pd_decide_replacement_request(
         actor=current_user,
         include_pd=True,
         include_maintenance=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/request-issue/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def me_request_replacement_issue(
+    case_id: int,
+    request_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.me_request_issue(session, req)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="replacement_issue_requested",
+        title="ME requested IM issue",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            "ME requested ISSUE of reserved replacement inventory"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_im=True,
+        include_pd=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/im-issue/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def im_issue_replacement_request(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestImIssuePayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "issue_inventory",
+            "inventory.issue",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    try:
+        rr_svc.im_issue(
+            session,
+            case,
+            req,
+            actor=current_user,
+            signature_type=payload.signature_type,
+            signature_payload=payload.signature_payload,
+            notes=payload.notes,
+        )
+    except HTTPException:
+        session.commit()  # persist shortage_held when set
+        session.refresh(req)
+        if req.shortage_held:
+            from app.services.app_notification_service import notify
+
+            notify(
+                session,
+                event_type="replacement_shortage",
+                title="Replacement stock shortage",
+                message=(
+                    f"{case.case_number or f'Case #{case.id}'}: "
+                    "IM cannot issue — shortage held (no fake issue)"
+                ),
+                href=f"/maintenance/cases/{case.id}",
+                priority="high",
+                actor=current_user,
+                include_pd=True,
+                include_assigned_hm=True,
+                project_id=case.project_id,
+                entity_type="maintenance_case",
+                entity_id=case.id,
+            )
+            session.commit()
+        raise
+
+    from app.services.app_notification_service import notify
+
+    sn = req.issued_serial or "S/N"
+    notify(
+        session,
+        event_type="replacement_shipped",
+        title="Replacement shipped (RED)",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"Replacement {sn} issued — Track A open (RED)"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_im=True,
+        include_maintenance=True,
+        include_assigned_hm=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+    notify(
+        session,
+        event_type="replacement_case_open",
+        title="RED — replacement case open",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            "Replacement case open on Project/Order/Flight/SDLS"
+        ),
+        href=f"/projects/{case.project_id}" if case.project_id else f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_assigned_hm=True,
+        include_concerned_pd=True,
+        project_id=case.project_id,
+        entity_type="project",
+        entity_id=case.project_id,
+        dedupe_key=f"replacement_case_open:{case.id}",
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/ait/start/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def me_start_ait(
+    case_id: int,
+    request_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.ait_upload",
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.me_start_ait(session, req)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="ait_in_progress",
+        title="AIT in progress",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            "ME notified AIT / site integration in progress"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="normal",
+        actor=current_user,
+        include_pd=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/ait/attachments/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def upload_ait_attachment(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestAitAttachmentPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.ait_upload",
+            "maintenance.replacement_request",
+            "upload_attachments",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.upload_ait_attachment(
+        session,
+        req,
+        display_name=payload.display_name,
+        file_id=payload.file_id,
+        occurrence_attachment_id=payload.occurrence_attachment_id,
+    )
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="ait_in_progress",
+        title="AIT evidence uploaded",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"AIT attachment '{payload.display_name}' uploaded"
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="normal",
+        actor=current_user,
+        include_pd=True,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/ait/pd-decision/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def pd_ait_decide_replacement_request(
+    case_id: int,
+    request_id: int,
+    payload: ReplacementRequestAitDecisionPayload,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.replacement_request",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.pd_ait_decide(
+        session,
+        req,
+        decision=payload.decision,
+        reject_reason=payload.reject_reason,
+    )
+
+    from app.services.app_notification_service import notify
+
+    approved = (payload.decision or "").strip().lower() == "approve"
+    notify(
+        session,
+        event_type="ait_approved" if approved else "ait_rejected",
+        title="AIT approved" if approved else "AIT rejected",
+        message=(
+            f"{case.case_number or f'Case #{case.id}'}: "
+            + (
+                "AIT approved — Track A patch_delivered"
+                if approved
+                else f"AIT rejected — re-issue loop ({payload.reject_reason or ''})"
+            )
+        ),
+        href=f"/maintenance/cases/{case.id}",
+        priority="high" if not approved else "normal",
+        actor=current_user,
+        include_im=True,
+        include_maintenance=True,
+        include_pd=True,
         project_id=case.project_id,
         entity_type="maintenance_case",
         entity_id=case.id,

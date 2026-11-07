@@ -165,7 +165,7 @@ def test_st_13_non_regression_soft_fix_and_fault_path(
             json={"decision": "approve"},
         )
         assert decide.status_code == 200, decide.text
-        assert decide.json()["status"] == "im_issue_pending"
+        assert decide.json()["status"] == "pd_approved"
     finally:
         cleanup_project(session, p2)
 

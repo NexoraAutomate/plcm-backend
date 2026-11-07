@@ -286,6 +286,29 @@ class ReplacementRequestPdDecisionPayload(SQLModel):
     reject_reason: Optional[str] = None
 
 
+class ReplacementRequestImIssuePayload(SQLModel):
+    """POST .../replacement-requests/{id}/im-issue/"""
+
+    signature_type: str  # DIGITAL | HARD_COPY
+    signature_payload: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ReplacementRequestAitAttachmentPayload(SQLModel):
+    """POST .../replacement-requests/{id}/ait/attachments/"""
+
+    display_name: str
+    file_id: Optional[int] = None
+    occurrence_attachment_id: Optional[int] = None
+
+
+class ReplacementRequestAitDecisionPayload(SQLModel):
+    """POST .../replacement-requests/{id}/ait/pd-decision/"""
+
+    decision: str  # approve | reject
+    reject_reason: Optional[str] = None
+
+
 class ReplacementRequestReservationRead(SQLModel):
     id: int
     replacement_request_id: int
@@ -293,6 +316,17 @@ class ReplacementRequestReservationRead(SQLModel):
     inventory_instance_id: Optional[int] = None
     serial_number: Optional[str] = None
     part_number: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReplacementRequestAitAttachmentRead(SQLModel):
+    id: int
+    replacement_request_id: int
+    display_name: str
+    file_id: Optional[int] = None
+    occurrence_attachment_id: Optional[int] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -310,9 +344,18 @@ class ReplacementRequestRead(SQLModel):
     pd_decision: Optional[str] = None
     reject_reason: Optional[str] = None
     abort_reason: Optional[str] = None
+    issued_serial: Optional[str] = None
+    issued_instance_id: Optional[int] = None
+    issued_at: Optional[datetime] = None
+    shortage_held: bool = False
+    red_notified_at: Optional[datetime] = None
+    quarantined_instance_id: Optional[int] = None
+    ait_decision: Optional[str] = None
+    ait_reject_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     reservations: List[ReplacementRequestReservationRead] = []
+    ait_attachments: List[ReplacementRequestAitAttachmentRead] = []
 
     model_config = ConfigDict(from_attributes=True)
 

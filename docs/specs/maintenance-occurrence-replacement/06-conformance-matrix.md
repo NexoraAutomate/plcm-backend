@@ -72,22 +72,22 @@ Update this file after each phase. Status values: see [README](./README.md).
 | RA-001 | Must | Implemented (P2) | UT-RA-001 Pass | FT-DT-002 Pass | ST-05 Skip | Verified (P2) | ReplacementRequest entity + APIs |
 | RA-002 | Must | Implemented (P2) | UT-RA-001 Pass | FT-DT-002 Pass | ST-05 Skip | Verified (P2) | create + PD high notify |
 | RA-003 | Must | Implemented (P2) | UT-RA-002 Pass | FT-DT-003 Pass | ST-05 Skip | Verified (P2) | HM assign ME; reserve via UT |
-| RA-004 | Must | Partial (pd-decision API) | UT reject Pass | FT-DT-004 covers approve | ST-11 Skip | Partial | Full FT-RA / ST-11 in P3 |
-| RA-005 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
-| RA-006 | Must | Not Started | Pending | Pending | ST-10 Skip | Not Started | P3 / GAP-01 |
-| RA-007 | Must | Partial (legacy replace) | Pending | Pending | ST-05 Skip | Partial | P3 ME-driven issue |
-| RA-008 | Must | Not Started | Pending | Pending | ST-14 Skip | Not Started | P3 |
-| RA-009 | Must | Partial (awaiting on PD approve) | UT approve Pass | FT-DT-004 Pass | ST-05 Skip | Partial | Ship path remains P3 |
-| RA-010 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
-| RA-011 | Must | Not Started | N/A | Pending | ST-05 Skip | Not Started | P3 |
-| RA-012 | Must | Not Started | Pending | Pending | ST-05/06 Skip | Not Started | P3 |
-| RA-013 | Must | Not Started | Pending | Pending | ST-06 Skip | Not Started | P3 |
-| RA-014 | Must | Not Started | Pending | Pending | ST-05 Skip | Not Started | P3 |
-| RA-015 | Must | Partial (P2 spine + guards) | UT-RA illegal jump Pass | FT-DT-* Pass | ST-05 Skip | Partial | Full spine P3 |
+| RA-004 | Must | Implemented (P3) | UT reject Pass | FT-RA-001 Pass | ST-11 Skip | Verified (P3 slice) | Pre-issue PD gate; ST deferred |
+| RA-005 | Must | Implemented (P3) | UT me_request Pass | FT-RA-002 Pass | ST-05 Skip | Verified (P3 slice) | ME request-issue from pd_approved |
+| RA-006 | Must | Implemented (P3) | UT-RA-004 Pass | FT-RA shortage via UT | ST-10 Skip | Verified (P3 slice) | shortage_held; no fake issue |
+| RA-007 | Must | Implemented (P3) | UT-RA-005 Pass | Pending E2E stock | ST-05 Skip | Verified (P3 UT) | IM issue + hierarchy swap |
+| RA-008 | Must | Implemented (P3) | UT red_notified | Board RED chip | ST-14 Skip | Verified (P3 slice) | replacement_case_open notify + board RED |
+| RA-009 | Must | Implemented (P3) | UT-RA-006 Pass | FT-DT-004 updated | ST-05 Skip | Verified (P3 slice) | Track B awaiting on IM issue (ship) |
+| RA-010 | Must | Implemented (P3) | UT upload Pass | FT AIT guards Pass | ST-05 Skip | Verified (P3 slice) | AIT start + named attachments |
+| RA-011 | Must | Implemented (P3) | Covered by AIT start | Board ME AIT CTA | ST-05 Skip | Verified (P3 slice) | Custody/site via AIT in progress |
+| RA-012 | Must | Implemented (P3) | UT-RA-007 Pass | FT AIT guards Pass | ST-05 Skip | Verified (P3 slice) | PD AIT approve/reject |
+| RA-013 | Must | Implemented (P3) | UT-RA-008 Pass | Pending E2E loop | ST-06 Skip | Verified (P3 UT) | Quarantine INSPECTION + re-issue |
+| RA-014 | Must | Implemented (P3) | UT-RA-007 Pass | Pending E2E | ST-05 Skip | Verified (P3 UT) | → patch_delivered |
+| RA-015 | Must | Implemented (P3) | UT-RA illegal jump Pass | FT-DT/RA Pass | ST-05 Skip | Verified (P3 slice) | Full spine transitions wired |
 | RA-016 | Should | Not Started | Pending | Pending | ST-05 Skip | Not Started | P5 |
 | RA-017 | Should | Not Started | Pending | Pending | ST-15 Skip | Not Started | GAP-04 |
 | RA-018 | Should | Not Started | Pending | Pending | N/A | Not Started | |
-| RA-019 | Should | Not Started | Pending | Pending | N/A | Not Started | |
+| RA-019 | Should | Implemented (P3) | UT upload link | API occurrence_attachment_id | N/A | Verified (P3 slice) | Optional link on AIT attach |
 | RA-020 | Could | Not Started | N/A | N/A | N/A | Not Started | GAP-07 |
 
 ---

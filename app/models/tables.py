@@ -594,10 +594,22 @@ class ReplacementRequest(ReplacementRequestBase, table=True):
             "passive_deletes": True,
         },
     )
+    ait_attachments: List["ReplacementRequestAitAttachment"] = Relationship(
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
 
 
 class ReplacementRequestReservation(ReplacementRequestReservationBase, table=True):
     __tablename__ = "replacement_request_reservation"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class ReplacementRequestAitAttachment(ReplacementRequestAitAttachmentBase, table=True):
+    __tablename__ = "replacement_request_ait_attachment"
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
