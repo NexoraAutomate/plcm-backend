@@ -27,8 +27,19 @@ SPEC_00_PERMISSIONS = [
 MAINTENANCE_WORKFLOW_PERMISSIONS = [
     "maintenance.occurrence_report",
     "maintenance.replacement_request",
+    "maintenance.replacement_approve",
+    "maintenance.assign_me",
+    "maintenance.request_issue",
+    "maintenance.im_issue",
     "maintenance.ait_upload",
+    "maintenance.ait_approve",
+    "maintenance.reception",
+    "maintenance.assign_ie",
+    "maintenance.im_issue_to_ie",
     "maintenance.inspection_disposition",
+    "maintenance.repair_approve",
+    "maintenance.confirm_discard",
+    "maintenance.case_close",
 ]
 
 ROLE_PRIMARY_PERMS = {
@@ -46,7 +57,8 @@ ROLE_PRIMARY_PERMS = {
         "hierarchy.generate",
         "inventory.reserve",
         "item.verify",
-        "maintenance.replacement_request",
+        "maintenance.assign_me",
+        "maintenance.assign_ie",
         "view_my_assignments",
         "view_notifications",
     ],
@@ -54,6 +66,10 @@ ROLE_PRIMARY_PERMS = {
         "inventory.receive",
         "inventory.issue",
         "item.inspect",
+        "maintenance.im_issue",
+        "maintenance.reception",
+        "maintenance.im_issue_to_ie",
+        "maintenance.confirm_discard",
     ],
     WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV]: [
         "item.request",
@@ -107,19 +123,37 @@ class TestWorkflowPermissionSeed:
             assert key in admin
 
     def test_maintenance_permissions_mapped_to_roles(self):
-        """UT-RL-002 — ME/FSE/IE/PD/HM grants for maintenance.* stubs."""
+        """UT-RL-002 — ME/FSE/IE/PD/HM/IM grants for granular maintenance.* gates."""
         me = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME])
         fse = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.FSE])
         ie = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IE])
         pd = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD])
         hm = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM])
+        im = _role_perms(WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM])
         assert "maintenance.occurrence_report" in me
         assert "maintenance.replacement_request" in me
+        assert "maintenance.request_issue" in me
         assert "maintenance.ait_upload" in me
+        assert "maintenance.case_close" in me
+        assert "maintenance.replacement_approve" not in me
+        assert "maintenance.assign_me" not in me
+        assert "maintenance.im_issue" not in me
+        assert "maintenance.reception" not in me
         assert "maintenance.occurrence_report" in fse
         assert "maintenance.inspection_disposition" in ie
-        assert "maintenance.replacement_request" in pd
-        assert "maintenance.replacement_request" in hm
+        assert "maintenance.replacement_approve" in pd
+        assert "maintenance.assign_me" in pd
+        assert "maintenance.ait_approve" in pd
+        assert "maintenance.assign_ie" in pd
+        assert "maintenance.repair_approve" in pd
+        assert "maintenance.replacement_request" not in pd
+        assert "maintenance.assign_me" in hm
+        assert "maintenance.assign_ie" in hm
+        assert "maintenance.replacement_request" not in hm
+        assert "maintenance.im_issue" in im
+        assert "maintenance.reception" in im
+        assert "maintenance.im_issue_to_ie" in im
+        assert "maintenance.confirm_discard" in im
 
     def test_primary_role_permission_matrix(self):
         for role_name, keys in ROLE_PRIMARY_PERMS.items():

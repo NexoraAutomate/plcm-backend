@@ -154,21 +154,25 @@ def list_maintenance_assigned_work(
 ) -> list[dict[str, Any]]:
     """Return MMHD inbox rows visible / actionable for ``actor``."""
     uid = int(actor.id)
-    can_replacement = _perm(
-        actor,
-        "maintenance.replacement_request",
-        "edit_maintenance_cases",
-    )
-    can_pd = _perm(actor, "maintenance.replacement_request", "project.approve")
-    can_me = _perm(
-        actor,
-        "maintenance.replacement_request",
-        "maintenance.ait_upload",
-        "maintenance.occurrence_report",
-    )
-    can_im = _perm(actor, "inventory.issue", "issue_inventory", "edit_maintenance_cases")
+    can_create_replacement = _perm(actor, "maintenance.replacement_request")
+    can_pd = _perm(actor, "maintenance.replacement_approve")
+    can_assign_me_perm = _perm(actor, "maintenance.assign_me")
+    can_request_issue_perm = _perm(actor, "maintenance.request_issue")
+    can_ait_upload = _perm(actor, "maintenance.ait_upload")
+    can_ait_approve = _perm(actor, "maintenance.ait_approve")
+    can_im = _perm(actor, "maintenance.im_issue", "inventory.issue", "issue_inventory")
     can_ie = _perm(actor, "maintenance.inspection_disposition", "item.inspect")
-    can_reception = _perm(actor, "edit_maintenance_cases", "inventory.issue", "issue_inventory")
+    can_reception = _perm(actor, "maintenance.reception")
+    can_assign_ie_perm = _perm(actor, "maintenance.assign_ie")
+    can_im_issue_to_ie_perm = _perm(
+        actor, "maintenance.im_issue_to_ie", "inventory.issue", "issue_inventory"
+    )
+    can_repair_approve = _perm(actor, "maintenance.repair_approve")
+    can_confirm_discard_perm = _perm(
+        actor, "maintenance.confirm_discard", "inventory.issue", "issue_inventory"
+    )
+    # retained for visibility of create-request actors in inbox filters
+    can_replacement = can_create_replacement or can_assign_me_perm
 
     rows: list[dict[str, Any]] = []
     case_cache: dict[int, MaintenanceCase] = {}
@@ -198,27 +202,27 @@ def list_maintenance_assigned_work(
         is_requester = int(req.requested_by_id) == uid
 
         can_pd_decide = can_pd and status == ReplacementRequestStatus.REPLACEMENT_REQUESTED.value
-        can_assign_me = can_replacement and status in (
+        can_assign_me = can_assign_me_perm and status in (
             ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
             ReplacementRequestStatus.PD_APPROVED.value,
             ReplacementRequestStatus.IM_ISSUE_PENDING.value,
         )
         can_me_request_issue = (
-            can_me
+            can_request_issue_perm
             and is_me
             and status == ReplacementRequestStatus.PD_APPROVED.value
         )
         can_im_issue = can_im and status == ReplacementRequestStatus.IM_ISSUE_PENDING.value
         can_start_ait = (
-            can_me
+            can_ait_upload
             and is_me
             and status == ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value
         )
-        can_upload_ait = can_me and is_me and status in (
+        can_upload_ait = can_ait_upload and is_me and status in (
             ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value,
             ReplacementRequestStatus.AIT_IN_PROGRESS.value,
         )
-        can_pd_ait = can_pd and status == ReplacementRequestStatus.AIT_IN_PROGRESS.value
+        can_pd_ait = can_ait_approve and status == ReplacementRequestStatus.AIT_IN_PROGRESS.value
 
         actionable = any(
             (
@@ -336,14 +340,14 @@ def list_maintenance_assigned_work(
         can_reception_flag = (
             can_reception and stage == ReworkStage.AWAITING_FAULTY_ARRIVAL.value
         )
-        can_assign_ie = (can_pd or can_replacement) and stage == ReworkStage.RECEIVED.value
+        can_assign_ie = can_assign_ie_perm and stage == ReworkStage.RECEIVED.value
         can_handover = (
             can_ie
             and is_ie
             and stage == ReworkStage.IE_ASSIGNED.value
         )
         can_im_issue_to_ie = (
-            can_im and stage == ReworkStage.ISSUED_TO_IE.value
+            can_im_issue_to_ie_perm and stage == ReworkStage.ISSUED_TO_IE.value
         )
         can_disposition = (
             can_ie
@@ -356,11 +360,11 @@ def list_maintenance_assigned_work(
             and stage == ReworkStage.REPAIR_UNDER_PROGRESS.value
         )
         can_pd_repair = (
-            (can_pd or is_pd)
+            (can_repair_approve or is_pd)
             and stage == ReworkStage.REPAIR_UNDER_PROGRESS.value
         )
         can_confirm_discard = (
-            can_im and stage == ReworkStage.DISCARD_PENDING.value
+            can_confirm_discard_perm and stage == ReworkStage.DISCARD_PENDING.value
         )
 
         actionable = any(
@@ -378,12 +382,10 @@ def list_maintenance_assigned_work(
         involved = is_ie or is_pd
         role_queue = (
             (can_reception and stage == ReworkStage.AWAITING_FAULTY_ARRIVAL.value)
-            or ((can_pd or can_replacement) and stage == ReworkStage.RECEIVED.value)
-            or (can_im and stage in (
-                ReworkStage.ISSUED_TO_IE.value,
-                ReworkStage.DISCARD_PENDING.value,
-            ))
-            or (can_pd and stage == ReworkStage.REPAIR_UNDER_PROGRESS.value)
+            or (can_assign_ie_perm and stage == ReworkStage.RECEIVED.value)
+            or (can_im_issue_to_ie_perm and stage == ReworkStage.ISSUED_TO_IE.value)
+            or (can_confirm_discard_perm and stage == ReworkStage.DISCARD_PENDING.value)
+            or (can_repair_approve and stage == ReworkStage.REPAIR_UNDER_PROGRESS.value)
         )
         if not (actionable or involved or role_queue):
             continue

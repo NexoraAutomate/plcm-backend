@@ -34,22 +34,66 @@ WORKFLOW_PERMISSION_DEFS: list[dict[str, str]] = [
     {"name": "config_change.request", "description": "Request configuration change (Spec 12)"},
     {"name": "config_change.approve", "description": "Approve configuration change (Spec 12)"},
     {"name": "audit.read", "description": "Read audit trail (Spec 13)"},
-    # Maintenance occurrence / dual-track (P0 stubs — enforced in later phases)
+    # Maintenance occurrence / dual-track — granular action gates
     {
         "name": "maintenance.occurrence_report",
         "description": "Record occurrence / onsite report on a maintenance case",
     },
     {
         "name": "maintenance.replacement_request",
-        "description": "Create and advance ME replacement requests (Track A)",
+        "description": "Create a Track A replacement request (ME)",
+    },
+    {
+        "name": "maintenance.replacement_approve",
+        "description": "Approve or reject a replacement request (PD)",
+    },
+    {
+        "name": "maintenance.assign_me",
+        "description": "Assign a maintenance engineer on Track A (HM/PD)",
+    },
+    {
+        "name": "maintenance.request_issue",
+        "description": "Request IM to issue reserved replacement stock (ME)",
+    },
+    {
+        "name": "maintenance.im_issue",
+        "description": "Issue reserved replacement inventory on Track A (IM)",
     },
     {
         "name": "maintenance.ait_upload",
-        "description": "Upload AIT reports for replacement integration",
+        "description": "Start AIT and upload AIT evidence (ME)",
+    },
+    {
+        "name": "maintenance.ait_approve",
+        "description": "Approve or reject AIT results (PD)",
+    },
+    {
+        "name": "maintenance.reception",
+        "description": "Record faulty-unit arrival reception on Track B (IM)",
+    },
+    {
+        "name": "maintenance.assign_ie",
+        "description": "Assign an inspection engineer on Track B (PD/HM)",
+    },
+    {
+        "name": "maintenance.im_issue_to_ie",
+        "description": "Issue faulty unit to IE for inspection (IM)",
     },
     {
         "name": "maintenance.inspection_disposition",
         "description": "IE inspection disposition and repair updates (Track B)",
+    },
+    {
+        "name": "maintenance.repair_approve",
+        "description": "Approve or reject Track B repair outcome (PD)",
+    },
+    {
+        "name": "maintenance.confirm_discard",
+        "description": "Confirm discard of unrepairable returned unit (IM)",
+    },
+    {
+        "name": "maintenance.case_close",
+        "description": "Close or resolve a maintenance case",
     },
 ]
 
@@ -68,7 +112,12 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "config_change.request",
         "config_change.approve",
         "audit.read",
-        "maintenance.replacement_request",  # approve / assign gates (later)
+        "maintenance.replacement_approve",
+        "maintenance.assign_me",
+        "maintenance.ait_approve",
+        "maintenance.assign_ie",
+        "maintenance.repair_approve",
+        "maintenance.case_close",
     ],
     WorkflowRole.HM: [
         "project.create_draft",
@@ -80,7 +129,8 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "project.cancel",
         "config_change.request",
         "audit.read",
-        "maintenance.replacement_request",  # assign ME + reserve (P2 Track A)
+        "maintenance.assign_me",
+        "maintenance.assign_ie",
     ],
     WorkflowRole.IM: [
         "inventory.receive",
@@ -91,6 +141,10 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
         "inventory.label.manage",
         "item.inspect",
         "audit.read",
+        "maintenance.im_issue",
+        "maintenance.reception",
+        "maintenance.im_issue_to_ie",
+        "maintenance.confirm_discard",
     ],
     WorkflowRole.DEV: [
         "item.request",
@@ -100,7 +154,9 @@ WORKFLOW_ROLE_PERMISSIONS: dict[WorkflowRole, list[str]] = {
     WorkflowRole.ME: [
         "maintenance.occurrence_report",
         "maintenance.replacement_request",
+        "maintenance.request_issue",
         "maintenance.ait_upload",
+        "maintenance.case_close",
         "inventory.label.scan",
         "audit.read",
     ],

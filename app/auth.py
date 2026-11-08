@@ -737,6 +737,9 @@ DEFAULT_ROLES = [
             "view_hierarchy_dashboard",
             "view_notifications",
             "view_my_assignments",
+            # MMHD: assign ME / IE on dual-track cases.
+            "view_maintenance_cases",
+            "view_faulty_entities",
             # Labels & Templates via create_hierarchy (Definitions labels gate).
             *WORKFLOW_ROLE_PERMISSIONS[WorkflowRole.HM],
         ],
@@ -766,6 +769,10 @@ DEFAULT_ROLES = [
             "view_statuses",
             "view_status_history",
             "view_notifications",
+            "view_my_assignments",
+            # MMHD Track A/B inventory actions need case visibility.
+            "view_maintenance_cases",
+            "view_faulty_entities",
             # Stocking inventory includes attaching docs/photos on create/edit.
             "upload_attachments",
             "download_attachments",

@@ -562,9 +562,9 @@ def track_b_record_reception(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "edit_maintenance_cases",
-            "issue_inventory",
+            "maintenance.reception",
             "inventory.issue",
+            "issue_inventory",
         )
     ),
 ):
@@ -591,7 +591,7 @@ def track_b_assign_ie(
     rework_id: int,
     payload: TrackBAssignIePayload,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+    current_user: User = Depends(require_permission("maintenance.assign_ie")),
 ):
     _get_case_rework(session, case_id, rework_id)
     rework = track_b_svc.assign_ie(
@@ -646,9 +646,9 @@ def track_b_im_issue_to_ie(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "edit_maintenance_cases",
-            "issue_inventory",
+            "maintenance.im_issue_to_ie",
             "inventory.issue",
+            "issue_inventory",
         )
     ),
 ):
@@ -706,9 +706,9 @@ def track_b_confirm_discard(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "edit_maintenance_cases",
-            "issue_inventory",
+            "maintenance.confirm_discard",
             "inventory.issue",
+            "issue_inventory",
         )
     ),
 ):
@@ -763,7 +763,7 @@ def track_b_pd_repair_decision(
     rework_id: int,
     payload: TrackBPdRepairDecisionPayload,
     session: Session = Depends(get_session),
-    current_user: User = Depends(require_permission("edit_maintenance_cases")),
+    current_user: User = Depends(require_permission("maintenance.repair_approve")),
 ):
     _get_case_rework(session, case_id, rework_id)
     rework = track_b_svc.pd_repair_decide(
@@ -853,7 +853,6 @@ def create_replacement_request(
     current_user: User = Depends(
         require_any_permission(
             "maintenance.replacement_request",
-            "edit_maintenance_cases",
             "create_maintenance_cases",
         )
     ),
@@ -936,7 +935,7 @@ def assign_replacement_request_me(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
+            "maintenance.assign_me",
             "inventory.reserve",
         )
     ),
@@ -984,7 +983,7 @@ def reserve_replacement_request(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
+            "maintenance.assign_me",
             "inventory.reserve",
         )
     ),
@@ -1023,8 +1022,7 @@ def pd_decide_replacement_request(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
-            "edit_maintenance_cases",
+            "maintenance.replacement_approve",
         )
     ),
 ):
@@ -1078,8 +1076,8 @@ def me_request_replacement_issue(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
+            "maintenance.request_issue",
             "maintenance.replacement_request",
-            "edit_maintenance_cases",
         )
     ),
 ):
@@ -1126,7 +1124,7 @@ def im_issue_replacement_request(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
+            "maintenance.im_issue",
             "issue_inventory",
             "inventory.issue",
         )
@@ -1231,8 +1229,6 @@ def me_start_ait(
     current_user: User = Depends(
         require_any_permission(
             "maintenance.ait_upload",
-            "maintenance.replacement_request",
-            "edit_maintenance_cases",
         )
     ),
 ):
@@ -1279,7 +1275,6 @@ def upload_ait_attachment(
     current_user: User = Depends(
         require_any_permission(
             "maintenance.ait_upload",
-            "maintenance.replacement_request",
             "upload_attachments",
         )
     ),
@@ -1332,8 +1327,7 @@ def pd_ait_decide_replacement_request(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
-            "edit_maintenance_cases",
+            "maintenance.ait_approve",
         )
     ),
 ):
@@ -1391,7 +1385,8 @@ def abort_replacement_request(
     session: Session = Depends(get_session),
     current_user: User = Depends(
         require_any_permission(
-            "maintenance.replacement_request",
+            "maintenance.replacement_approve",
+            "maintenance.case_close",
             "edit_maintenance_cases",
         )
     ),
@@ -1624,6 +1619,11 @@ def update_maintenance_case(
 
     next_status = payload.status if "status" in payload.model_dump(exclude_unset=True) else None
     if next_status in (CaseStatus.RESOLVED, CaseStatus.CLOSED):
+        if not check_permission(current_user, "maintenance.case_close"):
+            raise HTTPException(
+                status_code=403,
+                detail="User does not have permission: maintenance.case_close",
+            )
         # Apply payload fields that affect Soft/NFF detection before the gate
         dump = payload.model_dump(exclude_unset=True)
         for k in ("onsite_outcome", "resolution_type", "resolution_notes"):
