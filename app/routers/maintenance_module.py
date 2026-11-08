@@ -17,7 +17,7 @@ from sqlmodel import Field, Relationship, Session, SQLModel, select
 # Project-level imports (adjust paths to match your project structure)
 from app.database import get_session
 from app.auth import check_permission
-from .auth import require_permission, require_any_permission
+from .auth import get_current_user, require_permission, require_any_permission
 # Hierarchy models — adapt class names / FK attribute names to your schema
 from app.models.tables import User
 
@@ -1432,22 +1432,12 @@ def abort_replacement_request(
 )
 def list_my_maintenance_assignments(
     session: Session = Depends(get_session),
-    current_user: User = Depends(
-        require_any_permission(
-            "view_my_assignments",
-            "view_maintenance_cases",
-            "maintenance.replacement_request",
-            "maintenance.ait_upload",
-            "maintenance.inspection_disposition",
-            "maintenance.occurrence_report",
-            "inventory.issue",
-            "issue_inventory",
-            "item.inspect",
-            "edit_maintenance_cases",
-        )
-    ),
+    current_user: User = Depends(get_current_user),
 ):
-    """Personal MMHD inbox: Track A + Track B tasks for the current user."""
+    """Personal MMHD inbox for any signed-in user.
+
+    Rows are filtered to assigned / previously-acted / currently-authorized tasks.
+    """
     from app.services.maintenance_assignment_service import list_maintenance_assigned_work
 
     return [

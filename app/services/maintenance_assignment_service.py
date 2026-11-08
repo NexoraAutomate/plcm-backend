@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from app.auth import check_permission
 from app.models.base import ReplacementRequestStatus, ReworkStage
 from app.models.tables import (
+    AppNotification,
     Inventory,
     InventoryInstance,
     InventoryReworkCase,
@@ -148,13 +149,28 @@ def _lifecycle(row: dict[str, Any]) -> str:
     return "in_progress"
 
 
+def _acted_maintenance_case_ids(session: Session, user_id: int) -> set[int]:
+    """Case IDs where ``user_id`` previously took an action (notification actor)."""
+    rows = session.exec(
+        select(AppNotification.entity_id).where(
+            AppNotification.actor_user_id == int(user_id),
+            AppNotification.entity_type == "maintenance_case",
+            AppNotification.entity_id.is_not(None),
+        )
+    ).all()
+    return {int(eid) for eid in rows if eid is not None}
+
+
 def list_maintenance_assigned_work(
     session: Session,
     actor: User,
 ) -> list[dict[str, Any]]:
-    """Return MMHD inbox rows visible / actionable for ``actor``."""
+    """Return MMHD inbox rows visible / actionable for ``actor``.
+
+    A row appears only when the user is assigned / previously acted on it,
+    or currently authorized to act (e.g. PD approval queue).
+    """
     uid = int(actor.id)
-    can_create_replacement = _perm(actor, "maintenance.replacement_request")
     can_pd = _perm(actor, "maintenance.replacement_approve")
     can_assign_me_perm = _perm(actor, "maintenance.assign_me")
     can_request_issue_perm = _perm(actor, "maintenance.request_issue")
@@ -171,8 +187,7 @@ def list_maintenance_assigned_work(
     can_confirm_discard_perm = _perm(
         actor, "maintenance.confirm_discard", "inventory.issue", "issue_inventory"
     )
-    # retained for visibility of create-request actors in inbox filters
-    can_replacement = can_create_replacement or can_assign_me_perm
+    acted_case_ids = _acted_maintenance_case_ids(session, uid)
 
     rows: list[dict[str, Any]] = []
     case_cache: dict[int, MaintenanceCase] = {}
@@ -235,24 +250,13 @@ def list_maintenance_assigned_work(
                 can_pd_ait,
             )
         )
-        involved = is_me or is_requester
-        # Role-queue visibility for PD/IM even when not personally assigned
-        role_queue = (
-            (can_pd and status in (
-                ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
-                ReplacementRequestStatus.AIT_IN_PROGRESS.value,
-            ))
-            or (can_im and status == ReplacementRequestStatus.IM_ISSUE_PENDING.value)
-            or (can_replacement and status in (
-                ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
-                ReplacementRequestStatus.PD_APPROVED.value,
-                ReplacementRequestStatus.IM_ISSUE_PENDING.value,
-            ) and not req.assigned_me_id)
-        )
-        if not (actionable or involved or role_queue):
+        previously_acted = int(req.case_id) in acted_case_ids
+        involved = is_me or is_requester or previously_acted
+        # Visible only if assigned / previously acted, or currently authorized to act.
+        if not (actionable or involved):
             continue
         # Skip fully closed unless the user was involved (Closed tab)
-        if status in TRACK_A_CLOSED and not involved and not actionable:
+        if status in TRACK_A_CLOSED and not involved:
             continue
 
         case = case_for(int(req.case_id))
@@ -379,17 +383,12 @@ def list_maintenance_assigned_work(
                 can_confirm_discard,
             )
         )
-        involved = is_ie or is_pd
-        role_queue = (
-            (can_reception and stage == ReworkStage.AWAITING_FAULTY_ARRIVAL.value)
-            or (can_assign_ie_perm and stage == ReworkStage.RECEIVED.value)
-            or (can_im_issue_to_ie_perm and stage == ReworkStage.ISSUED_TO_IE.value)
-            or (can_confirm_discard_perm and stage == ReworkStage.DISCARD_PENDING.value)
-            or (can_repair_approve and stage == ReworkStage.REPAIR_UNDER_PROGRESS.value)
-        )
-        if not (actionable or involved or role_queue):
+        previously_acted = int(rework.maintenance_case_id) in acted_case_ids
+        involved = is_ie or is_pd or previously_acted
+        # Visible only if assigned / previously acted, or currently authorized to act.
+        if not (actionable or involved):
             continue
-        if is_track_b_terminal(stage) and not involved and not actionable:
+        if is_track_b_terminal(stage) and not involved:
             continue
 
         case = case_for(int(rework.maintenance_case_id))

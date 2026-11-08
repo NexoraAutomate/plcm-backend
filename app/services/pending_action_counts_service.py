@@ -42,31 +42,6 @@ def _assignment_needs_action(row: dict) -> bool:
     )
 
 
-_MMHD_ASSIGNMENT_PERMS = (
-    "view_my_assignments",
-    "view_maintenance_cases",
-    "maintenance.replacement_request",
-    "maintenance.replacement_approve",
-    "maintenance.assign_me",
-    "maintenance.request_issue",
-    "maintenance.im_issue",
-    "maintenance.ait_upload",
-    "maintenance.ait_approve",
-    "maintenance.reception",
-    "maintenance.assign_ie",
-    "maintenance.im_issue_to_ie",
-    "maintenance.inspection_disposition",
-    "maintenance.repair_approve",
-    "maintenance.confirm_discard",
-    "maintenance.occurrence_report",
-    "maintenance.case_close",
-    "inventory.issue",
-    "issue_inventory",
-    "item.inspect",
-    "edit_maintenance_cases",
-)
-
-
 def build_pending_action_counts(session: Session, current_user: User) -> dict[str, int]:
     """Return pending counts gated by the actor's permissions (0 when not applicable)."""
     counts: dict[str, int] = {
@@ -85,21 +60,17 @@ def build_pending_action_counts(session: Session, current_user: User) -> dict[st
     if check_permission(current_user, "item.verify"):
         counts["verify_queue"] = len(list_verification_queue(session, current_user))
 
-    if (
-        check_permission(current_user, "view_my_assignments")
-        or check_permission(current_user, "item.request")
-        or check_permission(current_user, "item.install_test")
-    ):
-        work = list_assigned_work(session, int(current_user.id))
-        counts["my_assignments"] = sum(
-            1 for row in work if _assignment_needs_action(row)
-        )
+    # BHD / MMHD inboxes are available to every signed-in user; counts reflect
+    # only rows they can see (assigned / acted / currently authorized).
+    work = list_assigned_work(session, int(current_user.id))
+    counts["my_assignments"] = sum(
+        1 for row in work if _assignment_needs_action(row)
+    )
 
-    if any(check_permission(current_user, perm) for perm in _MMHD_ASSIGNMENT_PERMS):
-        mmhd_work = list_maintenance_assigned_work(session, current_user)
-        counts["mmhd_assignments"] = sum(
-            1 for row in mmhd_work if maintenance_assignment_needs_action(row)
-        )
+    mmhd_work = list_maintenance_assigned_work(session, current_user)
+    counts["mmhd_assignments"] = sum(
+        1 for row in mmhd_work if maintenance_assignment_needs_action(row)
+    )
 
     # Issue queue is an IM action; developers with item.request must not badge it.
     if check_permission(current_user, "inventory.issue") or check_permission(
