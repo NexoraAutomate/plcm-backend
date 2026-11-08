@@ -408,6 +408,52 @@ class DualTrackBoardRead(SQLModel):
     track_b_terminal: bool = False
 
 
+class MaintenanceAssignedWorkRead(SQLModel):
+    """GET /maintenance-assignments/mine/ — personal MMHD dual-track inbox row."""
+
+    id: str
+    track: str  # a | b
+    task_type: str
+    case_id: int
+    case_number: Optional[str] = None
+    replacement_request_id: Optional[int] = None
+    rework_id: Optional[int] = None
+    status: str
+    status_label: str
+    lifecycle: str = "needs_action"  # needs_action | in_progress | closed
+    needs_action: bool = False
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    assigned_me_id: Optional[int] = None
+    assigned_me_name: Optional[str] = None
+    assigned_ie_id: Optional[int] = None
+    assigned_ie_name: Optional[str] = None
+    investigating_pd_id: Optional[int] = None
+    investigating_pd_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    href: str
+    has_reservation: bool = False
+    can_pd_decide: bool = False
+    can_assign_me: bool = False
+    can_me_request_issue: bool = False
+    can_im_issue: bool = False
+    can_start_ait: bool = False
+    can_upload_ait: bool = False
+    can_pd_ait: bool = False
+    can_reception: bool = False
+    can_assign_ie: bool = False
+    can_handover: bool = False
+    can_im_issue_to_ie: bool = False
+    can_disposition: bool = False
+    can_repair_submit: bool = False
+    can_pd_repair: bool = False
+    can_confirm_discard: bool = False
+
+
 class OemWarrantyClaimCreate(SQLModel):
     rework_case_id: int
     notes: Optional[str] = None

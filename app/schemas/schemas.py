@@ -1504,6 +1504,7 @@ class PendingActionCounts(SQLModel):
 
     verify_queue: int = 0
     my_assignments: int = 0
+    mmhd_assignments: int = 0
     issue_queue: int = 0
     inspect_queue: int = 0
     issuances: int = 0

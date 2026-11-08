@@ -20,6 +20,10 @@ from app.services.inventory_shortage_service import list_shortages
 from app.services.item_install_verify_service import list_verification_queue
 from app.services.item_request_service import list_item_requests
 from app.services.item_rework_service import list_rework_cases
+from app.services.maintenance_assignment_service import (
+    list_maintenance_assigned_work,
+    maintenance_assignment_needs_action,
+)
 
 
 def _count(session: Session, stmt) -> int:
@@ -38,11 +42,26 @@ def _assignment_needs_action(row: dict) -> bool:
     )
 
 
+_MMHD_ASSIGNMENT_PERMS = (
+    "view_my_assignments",
+    "view_maintenance_cases",
+    "maintenance.replacement_request",
+    "maintenance.ait_upload",
+    "maintenance.inspection_disposition",
+    "maintenance.occurrence_report",
+    "inventory.issue",
+    "issue_inventory",
+    "item.inspect",
+    "edit_maintenance_cases",
+)
+
+
 def build_pending_action_counts(session: Session, current_user: User) -> dict[str, int]:
     """Return pending counts gated by the actor's permissions (0 when not applicable)."""
     counts: dict[str, int] = {
         "verify_queue": 0,
         "my_assignments": 0,
+        "mmhd_assignments": 0,
         "issue_queue": 0,
         "inspect_queue": 0,
         "issuances": 0,
@@ -61,7 +80,15 @@ def build_pending_action_counts(session: Session, current_user: User) -> dict[st
         or check_permission(current_user, "item.install_test")
     ):
         work = list_assigned_work(session, int(current_user.id))
-        counts["my_assignments"] = sum(1 for row in work if _assignment_needs_action(row))
+        counts["my_assignments"] = sum(
+            1 for row in work if _assignment_needs_action(row)
+        )
+
+    if any(check_permission(current_user, perm) for perm in _MMHD_ASSIGNMENT_PERMS):
+        mmhd_work = list_maintenance_assigned_work(session, current_user)
+        counts["mmhd_assignments"] = sum(
+            1 for row in mmhd_work if maintenance_assignment_needs_action(row)
+        )
 
     # Issue queue is an IM action; developers with item.request must not badge it.
     if check_permission(current_user, "inventory.issue") or check_permission(

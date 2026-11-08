@@ -1431,6 +1431,37 @@ def abort_replacement_request(
 
 
 @router.get(
+    "/maintenance-assignments/mine/",
+    response_model=List[MaintenanceAssignedWorkRead],
+    tags=["maintenance-assignments"],
+)
+def list_my_maintenance_assignments(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "view_my_assignments",
+            "view_maintenance_cases",
+            "maintenance.replacement_request",
+            "maintenance.ait_upload",
+            "maintenance.inspection_disposition",
+            "maintenance.occurrence_report",
+            "inventory.issue",
+            "issue_inventory",
+            "item.inspect",
+            "edit_maintenance_cases",
+        )
+    ),
+):
+    """Personal MMHD inbox: Track A + Track B tasks for the current user."""
+    from app.services.maintenance_assignment_service import list_maintenance_assigned_work
+
+    return [
+        MaintenanceAssignedWorkRead.model_validate(row)
+        for row in list_maintenance_assigned_work(session, current_user)
+    ]
+
+
+@router.get(
     "/maintenance-cases/{case_id}/dual-track/",
     response_model=DualTrackBoardRead,
     tags=["maintenance-cases"],
