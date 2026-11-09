@@ -480,6 +480,20 @@ def list_case_returned_units(
     )
 
 
+def list_all_returned_units(
+    session: Session, *, skip: int = 0, limit: int = 200
+) -> list[InventoryReworkCase]:
+    return list(
+        session.exec(
+            select(InventoryReworkCase)
+            .where(InventoryReworkCase.maintenance_case_id.is_not(None))
+            .order_by(InventoryReworkCase.id.desc())
+            .offset(max(0, skip))
+            .limit(max(1, min(limit, 500)))
+        ).all()
+    )
+
+
 def assign_investigating_pd(
     session: Session,
     rework_id: int,

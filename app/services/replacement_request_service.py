@@ -11,7 +11,9 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.domain.workflow_status import ItemStatus
+from app.auth import check_permission
 from app.models.base import (
+    CaseStatus,
     EntityType,
     InventoryReservationStatus,
     OnsiteOutcome,
@@ -52,7 +54,10 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     ReplacementRequestStatus.PD_APPROVED.value: {
         ReplacementRequestStatus.IM_ISSUE_PENDING.value,
     },
-    ReplacementRequestStatus.PD_REJECTED.value: set(),
+    ReplacementRequestStatus.PD_REJECTED.value: {
+        # Opener may resubmit after PD asks for modification
+        ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
+    },
     ReplacementRequestStatus.IM_ISSUE_PENDING.value: {
         ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value,
     },
@@ -239,7 +244,7 @@ def assign_me(
     *,
     assigned_me_id: int,
 ) -> ReplacementRequest:
-    """HM/PD assign or reassign ME (RA-003 / RA-018) while pre-issue."""
+    """PD/HM assign ME only after PD approval (reassign allowed pre-issue)."""
     if req.status == ReplacementRequestStatus.PD_REJECTED.value:
         raise HTTPException(
             status_code=409, detail="Cannot assign ME on a rejected replacement request"
@@ -248,16 +253,18 @@ def assign_me(
         raise HTTPException(
             status_code=409, detail="Cannot assign ME on a closed/aborted replacement request"
         )
-    # RA-018: reassignment allowed while ME unavailable through pre-issue statuses
+    # Assign ME only after PD approve; reassignment allowed through pre-issue statuses.
     if req.status not in (
-        ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
         ReplacementRequestStatus.PD_APPROVED.value,
         ReplacementRequestStatus.IM_ISSUE_PENDING.value,
         ReplacementRequestStatus.AIT_REJECTED.value,
     ):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot assign ME while status is {req.status}",
+            detail=(
+                "Assign ME only after PD approval "
+                f"(current: {req.status})"
+            ),
         )
     me = session.get(User, int(assigned_me_id))
     if not me:
@@ -287,14 +294,21 @@ def reserve_for_request(
         raise HTTPException(
             status_code=409, detail="Cannot reserve for a rejected replacement request"
         )
+    if not req.assigned_me_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Assign ME before reserving replacement inventory",
+        )
     if req.status not in (
-        ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
         ReplacementRequestStatus.PD_APPROVED.value,
         ReplacementRequestStatus.IM_ISSUE_PENDING.value,
     ):
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot reserve while status is {req.status}",
+            detail=(
+                "Reserve inventory only after PD approval and ME assignment "
+                f"(current: {req.status})"
+            ),
         )
 
     et = (target_entity_type or req.faulty_entity_type or case.entity_type or "").strip().lower()
@@ -434,6 +448,9 @@ def _ensure_track_b_awaiting(
     )
 
 
+_REJECT_OUTCOMES = frozenset({"issue_fixed", "modification_required"})
+
+
 def pd_decide(
     session: Session,
     case: MaintenanceCase,
@@ -442,6 +459,7 @@ def pd_decide(
     actor: User,
     decision: str,
     reject_reason: Optional[str] = None,
+    reject_outcome: Optional[str] = None,
 ) -> ReplacementRequest:
     key = (decision or "").strip().lower()
     if key not in ("approve", "reject"):
@@ -458,14 +476,41 @@ def pd_decide(
             raise HTTPException(
                 status_code=400, detail="reject_reason is required when rejecting"
             )
+        outcome = (reject_outcome or "").strip().lower()
+        if outcome not in _REJECT_OUTCOMES:
+            raise HTTPException(
+                status_code=400,
+                detail="reject_outcome must be issue_fixed or modification_required when rejecting",
+            )
         assert_status_transition(
             req.status, ReplacementRequestStatus.PD_REJECTED.value
         )
         req.status = ReplacementRequestStatus.PD_REJECTED.value
         req.pd_decision = "reject"
         req.reject_reason = reject_reason.strip()
+        req.reject_outcome = outcome
         req.updated_at = _now()
         session.add(req)
+
+        if outcome == "issue_fixed":
+            # Close the maintenance case and mark stepper skip arc.
+            raw_status = getattr(case, "status", None)
+            prior_status = str(getattr(raw_status, "value", raw_status) or CaseStatus.OPEN.value)
+            prior_status = prior_status.strip().lower() or CaseStatus.OPEN.value
+            case.workflow_skip_to_closed = True
+            case.workflow_skip_from_status = prior_status
+            case.status = CaseStatus.CLOSED
+            note = f"Closed by PD — issue fixed without replacement. {reject_reason.strip()}"
+            existing_notes = (case.resolution_notes or "").strip()
+            case.resolution_notes = f"{existing_notes}\n{note}".strip() if existing_notes else note
+            if not case.closed_at:
+                case.closed_at = _now()
+            if not case.resolved_at:
+                case.resolved_at = _now()
+            case.updated_at = _now()
+            session.add(case)
+            clear_replacement_red(session, int(case.id), req)
+
         session.flush()
         return req
 
@@ -474,6 +519,55 @@ def pd_decide(
     req.status = ReplacementRequestStatus.PD_APPROVED.value
     req.pd_decision = "approve"
     req.reject_reason = None
+    req.reject_outcome = None
+    req.updated_at = _now()
+    session.add(req)
+    session.flush()
+    return req
+
+
+def resubmit_after_modification(
+    session: Session,
+    case: MaintenanceCase,
+    req: ReplacementRequest,
+    *,
+    actor: User,
+) -> ReplacementRequest:
+    """Opener re-sends a PD-rejected (modification_required) request for approval."""
+    if req.status != ReplacementRequestStatus.PD_REJECTED.value:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Resubmit only allowed from pd_rejected (current: {req.status})",
+        )
+    outcome = (getattr(req, "reject_outcome", None) or "").strip().lower()
+    if outcome != "modification_required":
+        raise HTTPException(
+            status_code=409,
+            detail="Resubmit only allowed when PD requested modification",
+        )
+    if int(req.requested_by_id) != int(actor.id):
+        if not check_permission(actor, "create_maintenance_cases") and not check_permission(
+            actor, "edit_maintenance_cases"
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the requester (or a case editor) can resubmit after modification",
+            )
+
+    case_status = str(getattr(getattr(case, "status", None), "value", getattr(case, "status", "")) or "").lower()
+    if case_status == CaseStatus.CLOSED.value:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot resubmit replacement on a closed maintenance case",
+        )
+
+    assert_status_transition(
+        req.status, ReplacementRequestStatus.REPLACEMENT_REQUESTED.value
+    )
+    req.status = ReplacementRequestStatus.REPLACEMENT_REQUESTED.value
+    req.pd_decision = None
+    req.reject_reason = None
+    req.reject_outcome = None
     req.updated_at = _now()
     session.add(req)
     session.flush()

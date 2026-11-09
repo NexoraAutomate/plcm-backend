@@ -50,7 +50,10 @@ from app.models.tables import (
     OemWarrantyClaim,
     Inventory,
     InventoryInstance,
+    MaintenanceOccurrenceAttachment,
+    MaintenanceOccurrenceOfficer,
     ReplacementRequest,
+    ReplacementRequestAitAttachment,
     ReplacementRequestReservation,
 )
 from app.services.configuration_history import (
@@ -88,6 +91,10 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
         if rework.assigned_developer_id
         else None
     )
+    case_number = None
+    if rework.maintenance_case_id:
+        case = session.get(MaintenanceCase, rework.maintenance_case_id)
+        case_number = case.case_number if case else None
     expires = None
     if instance and getattr(instance, "warranty_expires_at", None):
         expires = instance.warranty_expires_at
@@ -96,6 +103,7 @@ def _serialize_returned_unit(session: Session, rework: InventoryReworkCase) -> R
     return ReturnedUnitRead(
         id=int(rework.id),
         maintenance_case_id=rework.maintenance_case_id,
+        case_number=case_number,
         faulty_entity_id=rework.faulty_entity_id,
         investigating_pd_id=rework.investigating_pd_id,
         investigating_pd_name=(pd.full_name or pd.username) if pd else None,
@@ -522,6 +530,33 @@ def record_case_onsite_outcome(
 
 
 @router.get(
+    "/maintenance-returned-units/",
+    response_model=List[ReturnedUnitRead],
+    tags=["maintenance-cases"],
+)
+def list_all_returned_units(
+    skip: int = 0,
+    limit: int = 200,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_permission("view_maintenance_cases")),
+):
+    """Global inbox of maintenance-linked returned units (Track B)."""
+    _ = current_user
+    limit = max(1, min(int(limit or 200), 500))
+    skip = max(0, int(skip or 0))
+    rows = list(
+        session.exec(
+            select(InventoryReworkCase)
+            .where(InventoryReworkCase.maintenance_case_id.is_not(None))
+            .order_by(InventoryReworkCase.id.desc())
+            .offset(skip)
+            .limit(limit)
+        ).all()
+    )
+    return [_serialize_returned_unit(session, row) for row in rows]
+
+
+@router.get(
     "/maintenance-cases/{case_id}/returned-units/",
     response_model=List[ReturnedUnitRead],
     tags=["maintenance-cases"],
@@ -825,6 +860,7 @@ def _serialize_replacement_request(
         status=req.status,
         pd_decision=req.pd_decision,
         reject_reason=req.reject_reason,
+        reject_outcome=getattr(req, "reject_outcome", None),
         abort_reason=req.abort_reason,
         issued_serial=getattr(req, "issued_serial", None),
         issued_instance_id=getattr(req, "issued_instance_id", None),
@@ -1037,18 +1073,93 @@ def pd_decide_replacement_request(
         actor=current_user,
         decision=payload.decision,
         reject_reason=payload.reject_reason,
+        reject_outcome=payload.reject_outcome,
     )
 
     from app.services.app_notification_service import notify
 
     approved = (payload.decision or "").strip().lower() == "approve"
+    outcome = (payload.reject_outcome or "").strip().lower() if not approved else ""
+    if approved:
+        title = "Replacement request approved"
+        message = f"{case.case_number or f'Case #{case.id}'}: PD approved — Track A continues"
+        event_type = "replacement_approved"
+    elif outcome == "issue_fixed":
+        title = "Maintenance case closed — issue fixed"
+        message = (
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"PD rejected replacement — issue fixed. Case closed. {payload.reject_reason or ''}"
+        )
+        event_type = "case_closed"
+    elif outcome == "modification_required":
+        title = "Replacement needs modification"
+        message = (
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"PD rejected — modification required. Re-submit after updates. {payload.reject_reason or ''}"
+        )
+        event_type = "replacement_rejected"
+    else:
+        title = "Replacement request rejected"
+        message = (
+            f"{case.case_number or f'Case #{case.id}'}: "
+            f"PD rejected — {payload.reject_reason or ''}"
+        )
+        event_type = "replacement_rejected"
+
     notify(
         session,
-        event_type="replacement_approved" if approved else "replacement_rejected",
-        title="Replacement request approved" if approved else "Replacement request rejected",
+        event_type=event_type,
+        title=title,
+        message=message,
+        href=f"/maintenance/cases/{case.id}",
+        priority="high",
+        actor=current_user,
+        include_pd=True,
+        include_maintenance=True,
+        extra_user_ids=[int(req.requested_by_id)] if getattr(req, "requested_by_id", None) else None,
+        project_id=case.project_id,
+        entity_type="maintenance_case",
+        entity_id=case.id,
+    )
+
+    session.commit()
+    session.refresh(req)
+    return _serialize_replacement_request(session, req)
+
+
+@router.post(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/resubmit/",
+    response_model=ReplacementRequestRead,
+    tags=["maintenance-cases"],
+)
+def resubmit_replacement_request(
+    case_id: int,
+    request_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "create_maintenance_cases",
+            "edit_maintenance_cases",
+            "maintenance.occurrence_report",
+        )
+    ),
+):
+    """Opener re-sends a modification_required rejection back to PD for approval."""
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    rr_svc.resubmit_after_modification(session, case, req, actor=current_user)
+
+    from app.services.app_notification_service import notify
+
+    notify(
+        session,
+        event_type="replacement_requested",
+        title="Replacement re-submitted for PD approval",
         message=(
             f"{case.case_number or f'Case #{case.id}'}: "
-            + ("PD approved — Track A continues" if approved else f"PD rejected — {payload.reject_reason or ''}")
+            "Requester updated the request after PD modification feedback"
         ),
         href=f"/maintenance/cases/{case.id}",
         priority="high",
@@ -1674,6 +1785,67 @@ def update_maintenance_case(
     session.refresh(case)
     return _build_case_read(session, case)
 
+def _hard_delete_maintenance_case(session: Session, case: MaintenanceCase) -> None:
+    """Delete child rows that lack DB ON DELETE CASCADE, then the case."""
+    case_id = int(case.id)
+
+    # Track A: AIT attachments → reservations → replacement requests
+    req_ids = list(
+        session.exec(
+            select(ReplacementRequest.id).where(ReplacementRequest.case_id == case_id)
+        ).all()
+    )
+    if req_ids:
+        for req_id in req_ids:
+            for row in session.exec(
+                select(ReplacementRequestAitAttachment).where(
+                    ReplacementRequestAitAttachment.replacement_request_id == int(req_id)
+                )
+            ).all():
+                session.delete(row)
+            for row in session.exec(
+                select(ReplacementRequestReservation).where(
+                    ReplacementRequestReservation.replacement_request_id == int(req_id)
+                )
+            ).all():
+                session.delete(row)
+        for row in session.exec(
+            select(ReplacementRequest).where(ReplacementRequest.case_id == case_id)
+        ).all():
+            session.delete(row)
+
+    # Occurrence Report children (FK has no ON DELETE CASCADE)
+    for row in session.exec(
+        select(MaintenanceOccurrenceAttachment).where(
+            MaintenanceOccurrenceAttachment.case_id == case_id
+        )
+    ).all():
+        session.delete(row)
+    for row in session.exec(
+        select(MaintenanceOccurrenceOfficer).where(
+            MaintenanceOccurrenceOfficer.case_id == case_id
+        )
+    ).all():
+        session.delete(row)
+
+    # Optional links — detach rather than delete inventory/rework history
+    for claim in session.exec(
+        select(OemWarrantyClaim).where(OemWarrantyClaim.maintenance_case_id == case_id)
+    ).all():
+        claim.maintenance_case_id = None
+        session.add(claim)
+    for rework in session.exec(
+        select(InventoryReworkCase).where(
+            InventoryReworkCase.maintenance_case_id == case_id
+        )
+    ).all():
+        rework.maintenance_case_id = None
+        session.add(rework)
+
+    session.flush()
+    session.delete(case)
+
+
 @router.delete(
     "/maintenance-cases/{case_id}/",
     tags=["maintenance-cases"],
@@ -1684,18 +1856,29 @@ def delete_maintenance_case(
     current_user: User    = Depends(require_permission("delete_maintenance_cases")),
 ):
     """
-    Hard delete. Only permitted on open cases with no associated actions.
+    Hard delete. Allowed for open or closed cases. Cascades occurrence /
+    replacement-request children that are not ON DELETE CASCADE at the DB.
     """
     case = session.get(MaintenanceCase, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Maintenance case not found")
-    if case.status != CaseStatus.OPEN:
+    if case.status not in (CaseStatus.OPEN, CaseStatus.CLOSED):
         raise HTTPException(
             status_code=400,
-            detail="Only open cases with no recorded actions may be deleted."
+            detail=(
+                "Only open or closed cases may be deleted. "
+                f"Current status: {getattr(case.status, 'value', case.status)}."
+            ),
         )
-    session.delete(case)
-    session.commit()
+    try:
+        _hard_delete_maintenance_case(session, case)
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete maintenance case: {exc}",
+        ) from exc
     return {"detail": f"Maintenance case {case_id} deleted."}
 
 # =============================================================================

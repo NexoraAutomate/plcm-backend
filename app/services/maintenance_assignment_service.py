@@ -34,7 +34,7 @@ TRACK_A_CLOSED = frozenset(
 
 STATUS_LABELS: dict[str, str] = {
     ReplacementRequestStatus.REPLACEMENT_REQUESTED.value: "Awaiting PD approval",
-    ReplacementRequestStatus.PD_APPROVED.value: "PD approved — ME request issue",
+    ReplacementRequestStatus.PD_APPROVED.value: "PD approved — assign ME / reserve",
     ReplacementRequestStatus.PD_REJECTED.value: "PD rejected",
     ReplacementRequestStatus.IM_ISSUE_PENDING.value: "Awaiting IM issue",
     ReplacementRequestStatus.SHIPPED_REPLACED_BADGE.value: "Shipped — start AIT",
@@ -114,6 +114,7 @@ def _row_needs_action(row: dict[str, Any]) -> bool:
         bool(row.get(key))
         for key in (
             "can_pd_decide",
+            "can_resubmit",
             "can_assign_me",
             "can_me_request_issue",
             "can_im_issue",
@@ -140,12 +141,13 @@ def maintenance_assignment_needs_action(row: dict[str, Any]) -> bool:
 def _lifecycle(row: dict[str, Any]) -> str:
     status = (row.get("status") or "").strip().lower()
     track = row.get("track")
+    # Actionable rows (e.g. modification_required resubmit) stay in Needs action
+    if _row_needs_action(row):
+        return "needs_action"
     if track == "a" and status in TRACK_A_CLOSED:
         return "closed"
     if track == "b" and (status in TRACK_B_TERMINAL or is_track_b_terminal(status)):
         return "closed"
-    if _row_needs_action(row):
-        return "needs_action"
     return "in_progress"
 
 
@@ -217,15 +219,38 @@ def list_maintenance_assigned_work(
         is_requester = int(req.requested_by_id) == uid
 
         can_pd_decide = can_pd and status == ReplacementRequestStatus.REPLACEMENT_REQUESTED.value
+        reject_outcome = (getattr(req, "reject_outcome", None) or "").strip().lower()
+        can_resubmit = (
+            is_requester
+            and status == ReplacementRequestStatus.PD_REJECTED.value
+            and reject_outcome == "modification_required"
+        )
+        reservation = session.exec(
+            select(ReplacementRequestReservation).where(
+                ReplacementRequestReservation.replacement_request_id == int(req.id)
+            )
+        ).first()
+        has_reservation = reservation is not None
+
+        # ME assign only after PD approval (not while awaiting PD decision).
         can_assign_me = can_assign_me_perm and status in (
-            ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
             ReplacementRequestStatus.PD_APPROVED.value,
             ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+        )
+        can_reserve = (
+            can_assign_me_perm
+            and bool(req.assigned_me_id)
+            and status in (
+                ReplacementRequestStatus.PD_APPROVED.value,
+                ReplacementRequestStatus.IM_ISSUE_PENDING.value,
+            )
+            and not has_reservation
         )
         can_me_request_issue = (
             can_request_issue_perm
             and is_me
             and status == ReplacementRequestStatus.PD_APPROVED.value
+            and has_reservation
         )
         can_im_issue = can_im and status == ReplacementRequestStatus.IM_ISSUE_PENDING.value
         can_start_ait = (
@@ -242,7 +267,9 @@ def list_maintenance_assigned_work(
         actionable = any(
             (
                 can_pd_decide,
+                can_resubmit,
                 can_assign_me and not req.assigned_me_id,
+                can_reserve,
                 can_me_request_issue,
                 can_im_issue,
                 can_start_ait,
@@ -264,11 +291,6 @@ def list_maintenance_assigned_work(
             continue
 
         me_user = session.get(User, req.assigned_me_id) if req.assigned_me_id else None
-        reservation = session.exec(
-            select(ReplacementRequestReservation).where(
-                ReplacementRequestReservation.replacement_request_id == int(req.id)
-            )
-        ).first()
         serial = req.issued_serial
         part_number = case.part_number
         if reservation and reservation.inventory_instance_id:
@@ -286,7 +308,21 @@ def list_maintenance_assigned_work(
             "replacement_request_id": int(req.id),
             "rework_id": None,
             "status": status,
-            "status_label": _status_label(status),
+            "status_label": (
+                "Modification required — resubmit"
+                if can_resubmit
+                else "Issue fixed — case closed"
+                if status == ReplacementRequestStatus.PD_REJECTED.value
+                and reject_outcome == "issue_fixed"
+                else "PD approved — assign ME"
+                if status == ReplacementRequestStatus.PD_APPROVED.value
+                and not req.assigned_me_id
+                else "PD approved — reserve inventory"
+                if status == ReplacementRequestStatus.PD_APPROVED.value
+                and req.assigned_me_id
+                and not has_reservation
+                else _status_label(status)
+            ),
             "project_id": int(case.project_id) if case.project_id else None,
             "project_name": case.project_name or project_name_for(case.project_id),
             "entity_type": req.faulty_entity_type or case.entity_type,
@@ -302,7 +338,9 @@ def list_maintenance_assigned_work(
             "updated_at": req.updated_at or req.created_at,
             "href": f"/maintenance/cases/{int(req.case_id)}",
             "can_pd_decide": bool(can_pd_decide),
+            "can_resubmit": bool(can_resubmit),
             "can_assign_me": bool(can_assign_me),
+            "can_reserve": bool(can_reserve),
             "can_me_request_issue": bool(can_me_request_issue),
             "can_im_issue": bool(can_im_issue),
             "can_start_ait": bool(can_start_ait),
@@ -443,7 +481,9 @@ def list_maintenance_assigned_work(
             "updated_at": rework.updated_at or rework.opened_at,
             "href": f"/maintenance/cases/{int(rework.maintenance_case_id)}",
             "can_pd_decide": False,
+            "can_resubmit": False,
             "can_assign_me": False,
+            "can_reserve": False,
             "can_me_request_issue": False,
             "can_im_issue": False,
             "can_start_ait": False,

@@ -91,12 +91,13 @@ class TestCreateReplacementRequest:
 
 class TestReserve:
     def test_reserve_marks_reserved_via_inventory(self):
-        """UT-RA-002"""
+        """UT-RA-002 — reserve only after PD approval + ME assignment."""
         case = _case()
         req = SimpleNamespace(
             id=5,
             case_id=1,
-            status=ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
+            status=ReplacementRequestStatus.PD_APPROVED.value,
+            assigned_me_id=9,
             faulty_entity_type="unit",
             faulty_entity_ref_id=55,
             faulty_entity_id=None,
@@ -172,6 +173,7 @@ class TestPdDecideAndTrackB:
             status=ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
             pd_decision=None,
             reject_reason=None,
+            reject_outcome=None,
             updated_at=None,
         )
         with pytest.raises(HTTPException) as exc:
@@ -187,9 +189,45 @@ class TestPdDecideAndTrackB:
             actor=_actor(),
             decision="reject",
             reject_reason="wrong PN",
+            reject_outcome="modification_required",
         )
         assert out.status == ReplacementRequestStatus.PD_REJECTED.value
         assert out.reject_reason == "wrong PN"
+        assert out.reject_outcome == "modification_required"
+
+    def test_assign_me_blocked_before_pd_approval(self):
+        req = SimpleNamespace(
+            id=5,
+            status=ReplacementRequestStatus.REPLACEMENT_REQUESTED.value,
+            assigned_me_id=None,
+            updated_at=None,
+        )
+        session = MagicMock()
+        with pytest.raises(HTTPException) as exc:
+            rr_svc.assign_me(session, req, assigned_me_id=9)
+        assert exc.value.status_code == 409
+
+    def test_reserve_blocked_without_me(self):
+        case = _case()
+        req = SimpleNamespace(
+            id=5,
+            case_id=1,
+            status=ReplacementRequestStatus.PD_APPROVED.value,
+            assigned_me_id=None,
+            faulty_entity_type="unit",
+            faulty_entity_ref_id=55,
+            faulty_entity_id=None,
+            updated_at=None,
+        )
+        with pytest.raises(HTTPException) as exc:
+            rr_svc.reserve_for_request(
+                MagicMock(),
+                case,
+                req,
+                actor=_actor(),
+                part_number="PN-100",
+            )
+        assert exc.value.status_code == 400
 
 
 class TestMeRequestIssue:

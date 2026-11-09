@@ -229,6 +229,7 @@ class ReturnedUnitRead(SQLModel):
     """Maintenance-linked inventory rework / returned faulty unit."""
     id: int
     maintenance_case_id: Optional[int] = None
+    case_number: Optional[str] = None
     faulty_entity_id: Optional[int] = None
     investigating_pd_id: Optional[int] = None
     investigating_pd_name: Optional[str] = None
@@ -313,6 +314,8 @@ class ReplacementRequestPdDecisionPayload(SQLModel):
 
     decision: str  # approve | reject
     reject_reason: Optional[str] = None
+    # Required when rejecting: issue_fixed | modification_required
+    reject_outcome: Optional[str] = None
 
 
 class ReplacementRequestImIssuePayload(SQLModel):
@@ -378,6 +381,7 @@ class ReplacementRequestRead(SQLModel):
     status: str
     pd_decision: Optional[str] = None
     reject_reason: Optional[str] = None
+    reject_outcome: Optional[str] = None
     abort_reason: Optional[str] = None
     issued_serial: Optional[str] = None
     issued_instance_id: Optional[int] = None
@@ -438,6 +442,7 @@ class MaintenanceAssignedWorkRead(SQLModel):
     href: str
     has_reservation: bool = False
     can_pd_decide: bool = False
+    can_resubmit: bool = False
     can_assign_me: bool = False
     can_me_request_issue: bool = False
     can_im_issue: bool = False

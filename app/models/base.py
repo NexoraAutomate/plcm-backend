@@ -1049,6 +1049,8 @@ class ReplacementRequestBase(SQLModel):
     )
     pd_decision: Optional[str] = Field(default=None, max_length=16)
     reject_reason: Optional[str] = None
+    # PD reject branch: issue_fixed | modification_required
+    reject_outcome: Optional[str] = Field(default=None, max_length=32)
     abort_reason: Optional[str] = None
     # P3 — issue / AIT / RED
     issued_serial: Optional[str] = Field(default=None, max_length=128)
@@ -1416,6 +1418,9 @@ class MaintenanceCaseCommon(SQLModel):
     occurrence_fault_type: Optional[str] = Field(default=None, max_length=64)
     confirmation_channel: Optional[str] = Field(default=None, max_length=16)
     confirmation_reference: Optional[str] = Field(default=None, max_length=512)
+    # When PD rejects with issue_fixed, case jumps to Closed and stepper draws a skip arc.
+    workflow_skip_to_closed: bool = Field(default=False)
+    workflow_skip_from_status: Optional[str] = Field(default=None, max_length=48)
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] =Field(default_factory=lambda: datetime.now(timezone.utc))
 
