@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime, timezone, date
 from fastapi import APIRouter, HTTPException, Depends, status, Response, Request, Query, File, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select, func, col
 from app.database import get_session
@@ -520,7 +521,18 @@ def delete_user(
         session.add(row)
     user.roles.clear()
     session.delete(user)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot delete this user because they are still linked to other records "
+                "(for example inventory assignments or workflow history). "
+                "Deactivate the user instead."
+            ),
+        )
     return {"ok": True}
 
 
