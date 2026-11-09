@@ -413,7 +413,15 @@ def update_user(
     if "password" in update_data:
         password = update_data.pop("password")
         if password:
-            set_user_password(session, db_user, password)
+            # Admin/SubAdmin resets from Settings may reuse known demo passwords;
+            # still enforce complexity, but skip history blocking.
+            bypass_history = check_any_role(current_user, ["Admin", "SubAdmin"])
+            set_user_password(
+                session,
+                db_user,
+                password,
+                bypass_history=bypass_history,
+            )
 
     for k, v in update_data.items():
         setattr(db_user, k, v)

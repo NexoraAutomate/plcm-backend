@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlalchemy import func
+from sqlmodel import Session, col, select
 
 from app.domain.workflow_status import ItemStatus
 from app.auth import check_permission
@@ -36,9 +37,11 @@ from app.models.tables import (
     User,
 )
 from app.services import maintenance_field_service as field_svc
+from app.services.inventory_issuance_service import available_quantity
 from app.services.inventory_reservation_service import (
     InventoryReservationError,
     get_item_status_id,
+    is_instance_free_for_project_reserve,
     item_status_name,
     reserve_inventory,
 )
@@ -274,6 +277,87 @@ def assign_me(
     session.add(req)
     session.flush()
     return req
+
+
+def list_available_replacement_stock(
+    session: Session,
+    case: MaintenanceCase,
+    req: ReplacementRequest,
+) -> list[dict[str, Any]]:
+    """Warehouse serials PD/HM can pick for this replacement.
+
+    The inventory catalog list is scoped to inventory managers (and to stock
+    already issued to the caller). Track A reservation needs the free warehouse
+    pool, so this query is separate and only returns reservable units of the
+    faulty entity's type.
+    """
+    et = (req.faulty_entity_type or case.entity_type or "").strip().lower()
+    if not et:
+        return []
+
+    groups = session.exec(
+        select(Inventory).where(func.lower(Inventory.inventory_type) == et)
+    ).all()
+    group_ids = [int(group.id) for group in groups if group.id is not None]
+    if not group_ids:
+        return []
+
+    instances = session.exec(
+        select(InventoryInstance)
+        .where(col(InventoryInstance.inventory_id).in_(group_ids))
+        .order_by(InventoryInstance.id)
+    ).all()
+    by_group: dict[int, list[InventoryInstance]] = {}
+    for inst in instances:
+        if inst.inventory_id is None:
+            continue
+        by_group.setdefault(int(inst.inventory_id), []).append(inst)
+
+    rows: list[dict[str, Any]] = []
+    for group in groups:
+        if group.id is None:
+            continue
+        part = (group.part_number or group.name or "").strip() or "—"
+        name = (group.name or part).strip() or part
+        group_instances = by_group.get(int(group.id), [])
+        if group_instances:
+            for inst in group_instances:
+                if not is_instance_free_for_project_reserve(session, inst):
+                    continue
+                serial = (inst.serial_number or "").strip() or "—"
+                location = (inst.location or group.location or "").strip() or None
+                rows.append(
+                    {
+                        "inventory_id": int(group.id),
+                        "inventory_instance_id": int(inst.id) if inst.id else None,
+                        "name": name,
+                        "part_number": part,
+                        "serial_number": serial,
+                        "configuration_item": (
+                            inst.configuration_item or group.configuration_item
+                        ),
+                        "oem_name": group.oem_name,
+                        "location": location,
+                    }
+                )
+            continue
+
+        # Parent-level stock that has not been split into serial rows yet.
+        if available_quantity(session, group) <= 0:
+            continue
+        rows.append(
+            {
+                "inventory_id": int(group.id),
+                "inventory_instance_id": None,
+                "name": name,
+                "part_number": part,
+                "serial_number": (group.serial_number or "").strip() or "—",
+                "configuration_item": group.configuration_item,
+                "oem_name": group.oem_name,
+                "location": (group.location or "").strip() or None,
+            }
+        )
+    return rows
 
 
 def reserve_for_request(

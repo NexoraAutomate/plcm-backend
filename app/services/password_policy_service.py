@@ -98,10 +98,17 @@ def assert_not_in_password_history(password: str, user: User, settings) -> None:
             continue
 
 
-def apply_new_password(user: User, plain_password: str, settings) -> None:
+def apply_new_password(
+    user: User,
+    plain_password: str,
+    settings,
+    *,
+    bypass_history: bool = False,
+) -> None:
     """Validate policy, update hash + history + password_changed_at on the user object."""
     validate_password_complexity(plain_password, settings)
-    assert_not_in_password_history(plain_password, user, settings)
+    if not bypass_history:
+        assert_not_in_password_history(plain_password, user, settings)
 
     history = _parse_history(user.password_history)
     if user.password:
@@ -126,9 +133,15 @@ def enforce_password_policy(
         assert_not_in_password_history(password, user, settings)
 
 
-def set_user_password(session: Session, user: User, password: str) -> None:
+def set_user_password(
+    session: Session,
+    user: User,
+    password: str,
+    *,
+    bypass_history: bool = False,
+) -> None:
     settings = get_or_create_security_settings(session)
-    apply_new_password(user, password, settings)
+    apply_new_password(user, password, settings, bypass_history=bypass_history)
 
 
 def password_is_expired(user: User, settings) -> bool:

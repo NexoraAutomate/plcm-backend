@@ -309,6 +309,19 @@ class ReplacementRequestReservePayload(SQLModel):
     notes: Optional[str] = None
 
 
+class ReplacementStockOptionRead(SQLModel):
+    """Free warehouse serial that PD/HM may reserve on a Track A replacement."""
+
+    inventory_id: int
+    inventory_instance_id: Optional[int] = None
+    name: str
+    part_number: str
+    serial_number: str
+    configuration_item: Optional[str] = None
+    oem_name: Optional[str] = None
+    location: Optional[str] = None
+
+
 class ReplacementRequestPdDecisionPayload(SQLModel):
     """POST .../replacement-requests/{id}/pd-decision/"""
 
@@ -444,6 +457,7 @@ class MaintenanceAssignedWorkRead(SQLModel):
     can_pd_decide: bool = False
     can_resubmit: bool = False
     can_assign_me: bool = False
+    can_reserve: bool = False
     can_me_request_issue: bool = False
     can_im_issue: bool = False
     can_start_ait: bool = False

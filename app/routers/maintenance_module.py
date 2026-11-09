@@ -1007,6 +1007,30 @@ def assign_replacement_request_me(
     return _serialize_replacement_request(session, req)
 
 
+@router.get(
+    "/maintenance-cases/{case_id}/replacement-requests/{request_id}/available-stock/",
+    response_model=List[ReplacementStockOptionRead],
+    tags=["maintenance-cases"],
+)
+def list_replacement_available_stock(
+    case_id: int,
+    request_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(
+        require_any_permission(
+            "maintenance.assign_me",
+            "inventory.reserve",
+        )
+    ),
+):
+    """Free part/serial options for Track A reserve (PD/HM), not the IM catalog."""
+    case = session.get(MaintenanceCase, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Maintenance case not found")
+    req = rr_svc.get_request(session, request_id, case_id=case_id)
+    return rr_svc.list_available_replacement_stock(session, case, req)
+
+
 @router.post(
     "/maintenance-cases/{case_id}/replacement-requests/{request_id}/reserve/",
     response_model=ReplacementRequestRead,

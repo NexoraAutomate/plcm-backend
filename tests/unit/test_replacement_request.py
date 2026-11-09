@@ -89,6 +89,90 @@ class TestCreateReplacementRequest:
         assert exc.value.status_code == 409
 
 
+class TestAvailableReplacementStock:
+    def test_returns_free_serials_and_skips_held_units(self):
+        group = SimpleNamespace(
+            id=3,
+            inventory_type="unit",
+            part_number="PN-100",
+            name="Radio",
+            oem_name="OEM",
+            location="Warehouse",
+            configuration_item="CI",
+            serial_number=None,
+            quantity=2,
+        )
+        free = SimpleNamespace(
+            id=11,
+            inventory_id=3,
+            serial_number="SN-A",
+            configuration_item=None,
+            location="Rack 1",
+        )
+        held = SimpleNamespace(
+            id=12,
+            inventory_id=3,
+            serial_number="SN-B",
+            configuration_item=None,
+            location=None,
+        )
+        session = MagicMock()
+        groups = MagicMock()
+        groups.all.return_value = [group]
+        insts = MagicMock()
+        insts.all.return_value = [free, held]
+        session.exec.side_effect = [groups, insts]
+
+        with patch(
+            "app.services.replacement_request_service.is_instance_free_for_project_reserve",
+            side_effect=lambda _session, inst: inst.id == 11,
+        ):
+            rows = rr_svc.list_available_replacement_stock(
+                session,
+                _case(),
+                SimpleNamespace(faulty_entity_type="unit"),
+            )
+
+        assert len(rows) == 1
+        assert rows[0]["inventory_id"] == 3
+        assert rows[0]["inventory_instance_id"] == 11
+        assert rows[0]["serial_number"] == "SN-A"
+        assert rows[0]["part_number"] == "PN-100"
+        assert rows[0]["location"] == "Rack 1"
+
+    def test_legacy_parent_stock_when_no_instance_rows(self):
+        group = SimpleNamespace(
+            id=4,
+            part_number="PN-200",
+            name="Board",
+            oem_name=None,
+            location="Cage",
+            configuration_item=None,
+            serial_number="LEG-1",
+            quantity=1,
+        )
+        session = MagicMock()
+        groups = MagicMock()
+        groups.all.return_value = [group]
+        insts = MagicMock()
+        insts.all.return_value = []
+        session.exec.side_effect = [groups, insts]
+
+        with patch(
+            "app.services.replacement_request_service.available_quantity",
+            return_value=1,
+        ):
+            rows = rr_svc.list_available_replacement_stock(
+                session,
+                _case(),
+                SimpleNamespace(faulty_entity_type="unit"),
+            )
+
+        assert len(rows) == 1
+        assert rows[0]["inventory_instance_id"] is None
+        assert rows[0]["serial_number"] == "LEG-1"
+
+
 class TestReserve:
     def test_reserve_marks_reserved_via_inventory(self):
         """UT-RA-002 — reserve only after PD approval + ME assignment."""
