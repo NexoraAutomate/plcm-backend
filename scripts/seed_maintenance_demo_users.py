@@ -54,16 +54,22 @@ def _print_status(session: Session) -> None:
         print(f"  {name:<24}  {'ok' if role else 'MISSING'}")
 
     print("\nDemo accounts:")
-    print(f"  {'username':<18}  {'password':<20}  role")
-    print(f"  {'admin':<18}  {'password@82768243':<20}  Admin")
+    print(f"  {'username':<18}  {'password':<20}  {'email':<28}  role")
+    print(
+        f"  {'admin':<18}  {'password@82768243':<20}  "
+        f"{'(none)':<28}  Admin"
+    )
     for entry in WORKFLOW_DEMO_USERS:
         user = session.exec(
             select(User).where(User.username == entry["username"])
         ).first()
         status = "ok" if user else "MISSING"
+        email = entry.get("email") or ""
+        if user and user.email:
+            email = user.email
         print(
             f"  {entry['username']:<18}  {entry['password']:<20}  "
-            f"{entry['role']} [{status}]"
+            f"{email:<28}  {entry['role']} [{status}]"
         )
 
 
@@ -101,8 +107,8 @@ def main() -> None:
         ensure_default_admin(session)
         ensure_workflow_statuses(session)
 
-        created = ensure_workflow_demo_users(session, force=True)
-        print(f"Users: created {created} demo user(s)")
+        changed = ensure_workflow_demo_users(session, force=True)
+        print(f"Users: created/updated {changed} demo user(s)")
 
         _print_status(session)
         print(

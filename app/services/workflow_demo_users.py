@@ -21,42 +21,49 @@ WORKFLOW_DEMO_USERS: list[dict[str, str]] = [
     {
         "username": "demo-pd",
         "full_name": "Demo Project Director",
+        "email": "demo-pd@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.PD],
         "password": "Demo@pd123",
     },
     {
         "username": "demo-hm",
         "full_name": "Demo Hierarchy Manager",
+        "email": "demo-hm@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.HM],
         "password": "Demo@hm123",
     },
     {
         "username": "demo-im",
         "full_name": "Demo Inventory Manager",
+        "email": "demo-im@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IM],
         "password": "Demo@im123",
     },
     {
         "username": "demo-dev",
         "full_name": "Demo Developer",
+        "email": "demo-dev@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.DEV],
         "password": "Demo@dev123",
     },
     {
         "username": "demo-me",
         "full_name": "Demo Maintenance Engineer",
+        "email": "demo-me@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.ME],
         "password": "Demo@me123",
     },
     {
         "username": "demo-fse",
         "full_name": "Demo Field Service Engineer",
+        "email": "demo-fse@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.FSE],
         "password": "Demo@fse123",
     },
     {
         "username": "demo-ie",
         "full_name": "Demo Inspection Engineer",
+        "email": "demo-ie@example.com",
         "role": WORKFLOW_ROLE_DB_NAMES[WorkflowRole.IE],
         "password": "Demo@ie123",
     },
@@ -64,6 +71,7 @@ WORKFLOW_DEMO_USERS: list[dict[str, str]] = [
         # Legacy notify / case-ops role until ME migration is complete (REQ-ROLE-006)
         "username": "demo-maintenance",
         "full_name": "Demo Maintenance (legacy)",
+        "email": "demo-maintenance@example.com",
         "role": "Maintenance",
         "password": "Demo@maint123",
     },
@@ -79,33 +87,54 @@ def _env_flag_enabled(name: str, default: bool = False) -> bool:
 
 
 def ensure_workflow_demo_users(session: Session, *, force: bool = False) -> int:
-    """Create missing demo users. Returns count of users created.
+    """Create or refresh demo users. Returns count of users created or updated.
 
-    When ``force`` is True (CLI seed), skips the CREATE_WORKFLOW_DEMO_USERS gate.
+    When ``force`` is True (CLI seed), skips the CREATE_WORKFLOW_DEMO_USERS gate
+    and resets password / email / role / active to the cheat-sheet values.
+    Without force, still backfills missing email on existing demo users.
     """
     if not force and not _env_flag_enabled("CREATE_WORKFLOW_DEMO_USERS", default=False):
         return 0
 
-    created = 0
+    changed = 0
+    now = datetime.now(timezone.utc)
     for entry in WORKFLOW_DEMO_USERS:
-        existing = session.exec(
-            select(User).where(User.username == entry["username"])
-        ).first()
-        if existing:
-            continue
         role = session.exec(select(Role).where(Role.name == entry["role"])).first()
         if not role:
             continue
+
+        existing = session.exec(
+            select(User).where(User.username == entry["username"])
+        ).first()
+
+        if existing:
+            dirty = False
+            if force or not existing.email:
+                if existing.email != entry["email"]:
+                    existing.email = entry["email"]
+                    dirty = True
+            if force:
+                existing.password = hash_password(entry["password"])
+                existing.full_name = entry["full_name"]
+                existing.is_active = True
+                existing.roles = [role]
+                dirty = True
+            if dirty:
+                existing.updated_at = now
+                session.add(existing)
+                changed += 1
+            continue
+
         user = User(
             username=entry["username"],
-            email=None,
+            email=entry["email"],
             full_name=entry["full_name"],
             is_active=True,
             password=hash_password(entry["password"]),
-            updated_at=datetime.now(timezone.utc),
+            updated_at=now,
         )
         user.roles = [role]
         session.add(user)
-        created += 1
+        changed += 1
     session.commit()
-    return created
+    return changed

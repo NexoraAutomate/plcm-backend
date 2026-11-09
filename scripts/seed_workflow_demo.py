@@ -222,16 +222,17 @@ def seed_inventory(session: Session, *, dry_run: bool) -> tuple[int, int, int]:
 
 def _print_users(session: Session) -> None:
     print("\nDemo accounts:")
-    print(f"  {'username':<12}  {'password':<20}  role")
-    print(f"  {'admin':<12}  {'password@82768243':<20}  Admin")
+    print(f"  {'username':<18}  {'password':<20}  {'email':<28}  role")
+    print(f"  {'admin':<18}  {'password@82768243':<20}  {'(none)':<28}  Admin")
     for entry in WORKFLOW_DEMO_USERS:
         user = session.exec(
             select(User).where(User.username == entry["username"])
         ).first()
         status = "ok" if user else "MISSING"
+        email = (user.email if user and user.email else entry.get("email")) or ""
         print(
-            f"  {entry['username']:<12}  {entry['password']:<20}  "
-            f"{entry['role']} [{status}]"
+            f"  {entry['username']:<18}  {entry['password']:<20}  "
+            f"{email:<28}  {entry['role']} [{status}]"
         )
 
 
