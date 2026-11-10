@@ -2352,7 +2352,19 @@ class ItemIssueRequestIssueBody(SQLModel):
     notes: Optional[str] = None
 
 
+class ItemIssueRequestBulkIssueBody(SQLModel):
+    request_ids: List[int]
+    signature_type: str
+    signature_payload: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class ItemIssueRequestMarkBackBody(SQLModel):
+    notes: str
+
+
+class ItemIssueRequestBulkMarkBackBody(SQLModel):
+    request_ids: List[int]
     notes: str
 
 
@@ -2396,6 +2408,10 @@ class ItemIssueRequestRead(SQLModel):
 class ItemIssueRequestBulkResult(SQLModel):
     created: List[ItemIssueRequestRead] = []
     skipped: List[ItemIssueRequestBulkSkipped] = []
+
+
+class ItemIssueRequestBulkActionResult(SQLModel):
+    items: List[ItemIssueRequestRead] = []
 
 
 class IssueProgressJobResult(SQLModel):

@@ -35,9 +35,11 @@ from app.services.item_request_service import (
     create_bulk_item_requests,
     create_item_request,
     issue_item_request,
+    issue_item_requests_bulk,
     item_request_to_dict,
     list_item_requests,
     mark_back_item_request,
+    mark_back_item_requests_bulk,
 )
 from app.services.item_rework_service import (
     ItemReworkError,
@@ -324,6 +326,66 @@ def list_developer_item_requests(
         schemas.ItemIssueRequestRead.model_validate(item_request_to_dict(session, row))
         for row in rows
     ]
+
+
+@router.post(
+    "/item-requests/issue-bulk/",
+    response_model=schemas.ItemIssueRequestBulkActionResult,
+    tags=["item-requests"],
+)
+def issue_pending_item_requests_bulk(
+    payload: schemas.ItemIssueRequestBulkIssueBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_can_issue_user),
+):
+    try:
+        rows = issue_item_requests_bulk(
+            session,
+            payload.request_ids,
+            actor=current_user,
+            signature_type=payload.signature_type,
+            signature_payload=payload.signature_payload,
+            notes=payload.notes,
+        )
+        return schemas.ItemIssueRequestBulkActionResult(
+            items=[
+                schemas.ItemIssueRequestRead.model_validate(
+                    item_request_to_dict(session, row)
+                )
+                for row in rows
+            ]
+        )
+    except ItemRequestError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/item-requests/mark-back-bulk/",
+    response_model=schemas.ItemIssueRequestBulkActionResult,
+    tags=["item-requests"],
+)
+def mark_back_pending_item_requests_bulk(
+    payload: schemas.ItemIssueRequestBulkMarkBackBody,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_can_issue_user),
+):
+    try:
+        rows = mark_back_item_requests_bulk(
+            session,
+            payload.request_ids,
+            actor=current_user,
+            reason=payload.notes,
+        )
+        return schemas.ItemIssueRequestBulkActionResult(
+            items=[
+                schemas.ItemIssueRequestRead.model_validate(
+                    item_request_to_dict(session, row)
+                )
+                for row in rows
+            ]
+        )
+    except ItemRequestError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post(

@@ -276,18 +276,59 @@ def list_item_requests(
     return list(session.exec(query).all())
 
 
-def issue_item_request(
+def _load_pending_requests_for_bulk(
     session: Session,
-    request_id: int,
+    request_ids: list[int],
+) -> list[InventoryItemRequest]:
+    cleaned_ids: list[int] = []
+    seen: set[int] = set()
+    for raw in request_ids:
+        try:
+            request_id = int(raw)
+        except (TypeError, ValueError):
+            raise ItemRequestError("Request ids must be integers") from None
+        if request_id in seen:
+            continue
+        seen.add(request_id)
+        cleaned_ids.append(request_id)
+    if not cleaned_ids:
+        raise ItemRequestError("At least one request is required")
+
+    rows_by_id: dict[int, InventoryItemRequest] = {}
+    for row in session.exec(
+        select(InventoryItemRequest).where(InventoryItemRequest.id.in_(cleaned_ids))
+    ).all():
+        rows_by_id[int(row.id)] = row
+
+    missing = [rid for rid in cleaned_ids if rid not in rows_by_id]
+    if missing:
+        raise ItemRequestError(f"Issue request not found: {missing[0]}")
+
+    rows = [rows_by_id[rid] for rid in cleaned_ids]
+    for row in rows:
+        if row.status != ItemRequestStatus.PENDING.value:
+            raise ItemRequestError(
+                f"Issue request #{row.id} is not pending"
+            )
+
+    developer_ids = {int(row.assigned_developer_id) for row in rows}
+    if len(developer_ids) != 1:
+        raise ItemRequestError(
+            "All selected requests must be for the same developer"
+        )
+    return rows
+
+
+def _issue_pending_item_request(
+    session: Session,
+    row: InventoryItemRequest,
     *,
     actor: User,
     signature_type: str,
     signature_payload: Optional[str],
     notes: Optional[str] = None,
 ) -> InventoryItemRequest:
-    row = session.get(InventoryItemRequest, request_id)
-    if not row:
-        raise ItemRequestError("Issue request not found")
+    """Issue one pending request without committing or notifying."""
     if row.status != ItemRequestStatus.PENDING.value:
         raise ItemRequestError("Issue request is not pending")
 
@@ -338,7 +379,9 @@ def issue_item_request(
             request_reservation_id=int(row.reservation_id),
         )
     except HTTPException as exc:
-        raise ItemRequestError(exc.detail if isinstance(exc.detail, str) else str(exc.detail)) from exc
+        raise ItemRequestError(
+            exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        ) from exc
 
     row.status = ItemRequestStatus.ISSUED.value
     row.issued_at = issuance.issued_at
@@ -348,6 +391,30 @@ def issue_item_request(
     from app.services.project_progress_service import touch_project_progress
 
     touch_project_progress(session, row.project_id)
+    return row
+
+
+def issue_item_request(
+    session: Session,
+    request_id: int,
+    *,
+    actor: User,
+    signature_type: str,
+    signature_payload: Optional[str],
+    notes: Optional[str] = None,
+) -> InventoryItemRequest:
+    row = session.get(InventoryItemRequest, request_id)
+    if not row:
+        raise ItemRequestError("Issue request not found")
+
+    row = _issue_pending_item_request(
+        session,
+        row,
+        actor=actor,
+        signature_type=signature_type,
+        signature_payload=signature_payload,
+        notes=notes,
+    )
     from app.services.app_notification_service import notify
 
     notify(
@@ -368,6 +435,78 @@ def issue_item_request(
     return row
 
 
+def issue_item_requests_bulk(
+    session: Session,
+    request_ids: list[int],
+    *,
+    actor: User,
+    signature_type: str,
+    signature_payload: Optional[str],
+    notes: Optional[str] = None,
+) -> list[InventoryItemRequest]:
+    """Issue multiple pending requests for one developer with a shared signature."""
+    rows = _load_pending_requests_for_bulk(session, request_ids)
+    issued: list[InventoryItemRequest] = []
+    for row in rows:
+        issued.append(
+            _issue_pending_item_request(
+                session,
+                row,
+                actor=actor,
+                signature_type=signature_type,
+                signature_payload=signature_payload,
+                notes=notes,
+            )
+        )
+
+    from app.services.app_notification_service import notify
+
+    first = issued[0]
+    count = len(issued)
+    notify(
+        session,
+        event_type="item_issued_hm",
+        title="Requested inventory issued",
+        message=(
+            "IM issued a requested item to the developer"
+            if count == 1
+            else f"IM issued {count} requested items to the developer"
+        ),
+        href=f"/projects/{first.project_id}" if first.project_id else "/projects",
+        priority="low",
+        actor=actor,
+        include_assigned_hm=True,
+        project_id=first.project_id,
+        entity_type="item_request",
+        entity_id=first.id,
+    )
+    session.commit()
+    for row in issued:
+        session.refresh(row)
+    return issued
+
+
+def _mark_back_pending_item_request(
+    session: Session,
+    row: InventoryItemRequest,
+    *,
+    actor: User,
+    reason: str,
+) -> InventoryItemRequest:
+    """Mark one pending request back without committing or notifying."""
+    if row.status != ItemRequestStatus.PENDING.value:
+        raise ItemRequestError("Issue request is not pending")
+
+    now = _now()
+    row.status = ItemRequestStatus.MARKED_BACK.value
+    row.mark_back_reason = reason
+    row.marked_back_at = now
+    row.marked_back_by_user_id = int(actor.id)
+    row.updated_at = now
+    session.add(row)
+    return row
+
+
 def mark_back_item_request(
     session: Session,
     request_id: int,
@@ -383,16 +522,10 @@ def mark_back_item_request(
     row = session.get(InventoryItemRequest, request_id)
     if not row:
         raise ItemRequestError("Issue request not found")
-    if row.status != ItemRequestStatus.PENDING.value:
-        raise ItemRequestError("Issue request is not pending")
 
-    now = _now()
-    row.status = ItemRequestStatus.MARKED_BACK.value
-    row.mark_back_reason = cleaned
-    row.marked_back_at = now
-    row.marked_back_by_user_id = int(actor.id)
-    row.updated_at = now
-    session.add(row)
+    row = _mark_back_pending_item_request(
+        session, row, actor=actor, reason=cleaned
+    )
 
     from app.services.app_notification_service import notify
 
@@ -412,6 +545,54 @@ def mark_back_item_request(
     session.commit()
     session.refresh(row)
     return row
+
+
+def mark_back_item_requests_bulk(
+    session: Session,
+    request_ids: list[int],
+    *,
+    actor: User,
+    reason: str,
+) -> list[InventoryItemRequest]:
+    """Mark multiple pending requests back for one developer with a shared reason."""
+    cleaned = (reason or "").strip()
+    if not cleaned:
+        raise ItemRequestError("Mark-back reason is required")
+
+    rows = _load_pending_requests_for_bulk(session, request_ids)
+    marked: list[InventoryItemRequest] = []
+    for row in rows:
+        marked.append(
+            _mark_back_pending_item_request(
+                session, row, actor=actor, reason=cleaned
+            )
+        )
+
+    from app.services.app_notification_service import notify
+
+    first = marked[0]
+    count = len(marked)
+    notify(
+        session,
+        event_type="item_request_marked_back",
+        title="Issue request marked back",
+        message=(
+            cleaned
+            if count == 1
+            else f"{count} requests marked back: {cleaned}"
+        ),
+        href="/my-assignments",
+        priority="high",
+        actor=actor,
+        extra_user_ids=[int(first.assigned_developer_id)],
+        project_id=first.project_id,
+        entity_type="item_request",
+        entity_id=first.id,
+    )
+    session.commit()
+    for row in marked:
+        session.refresh(row)
+    return marked
 
 
 def item_request_to_dict(session: Session, row: InventoryItemRequest) -> dict[str, Any]:
