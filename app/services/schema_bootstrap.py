@@ -311,10 +311,30 @@ CREATE TABLE IF NOT EXISTS inventoryreworkcase (
     closed_at TIMESTAMP WITH TIME ZONE,
     closed_by_id INTEGER REFERENCES "user"(id),
     notes VARCHAR,
+    maintenance_case_id INTEGER REFERENCES maintenance_case(id),
+    faulty_entity_id INTEGER REFERENCES faulty_entity(id),
+    investigating_pd_id INTEGER REFERENCES "user"(id),
+    reception_date TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE
 )
 """
+
+INVENTORY_REWORK_CASE_COLUMN_DDL = [
+    ("maintenance_case_id", "INTEGER"),
+    ("faulty_entity_id", "INTEGER"),
+    ("investigating_pd_id", "INTEGER"),
+    ("reception_date", "TIMESTAMP WITH TIME ZONE"),
+]
+
+MAINTENANCE_CASE_COLUMN_DDL = [
+    ("occurrence_date", "TIMESTAMP WITH TIME ZONE"),
+    ("occurrence_fault_type", "VARCHAR(64)"),
+    ("confirmation_channel", "VARCHAR(16)"),
+    ("confirmation_reference", "VARCHAR(512)"),
+    ("workflow_skip_to_closed", "BOOLEAN DEFAULT FALSE NOT NULL"),
+    ("workflow_skip_from_status", "VARCHAR(48)"),
+]
 
 INVENTORY_RECALL_TASK_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS inventoryrecalltask (
@@ -655,6 +675,8 @@ def ensure_user_management_schema() -> None:
     _add_columns_if_missing("inventory", INVENTORY_WARRANTY_COLUMN_DDL)
     _add_columns_if_missing("inventoryinstance", INVENTORY_INSTANCE_COST_COLUMN_DDL)
     _add_columns_if_missing("inventoryissuance", ISSUANCE_COLUMN_DDL)
+    _add_columns_if_missing("inventoryreworkcase", INVENTORY_REWORK_CASE_COLUMN_DDL)
+    _add_columns_if_missing("maintenance_case", MAINTENANCE_CASE_COLUMN_DDL)
     _add_columns_if_missing(
         "securitysettings",
         [("admin_session_super_password_hash", "VARCHAR(255)")],
