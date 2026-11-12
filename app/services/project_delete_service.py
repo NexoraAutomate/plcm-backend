@@ -27,6 +27,8 @@ from app.models.base import (
 from app.models.tables import (
     AssembledInventory,
     ConfigChangeRequest,
+    ConfigurationHistory,
+    FaultyEntity,
     InventoryInstallerNotice,
     InventoryIssuance,
     InventoryIssuanceEvent,
@@ -38,7 +40,16 @@ from app.models.tables import (
     InventoryReworkCase,
     InventoryShortage,
     InventoryShortageNotice,
+    MaintenanceAction,
+    MaintenanceCase,
+    MaintenanceDelivery,
+    MaintenanceOccurrenceAttachment,
+    MaintenanceOccurrenceOfficer,
+    OemWarrantyClaim,
     Project,
+    ReplacementRequest,
+    ReplacementRequestAitAttachment,
+    ReplacementRequestReservation,
     User,
 )
 from app.services.inventory_recall_service import (
@@ -183,6 +194,202 @@ def _detach_project_links(session: Session, project_id: int) -> None:
         else:
             row.successor_project_id = None
             session.add(row)
+
+
+def _delete_rows(session: Session, rows: list[Any]) -> int:
+    for row in rows:
+        session.delete(row)
+    if rows:
+        session.flush()
+    return len(rows)
+
+
+def _purge_maintenance_graph(session: Session, project_id: int) -> dict[str, int]:
+    """Remove the project's maintenance graph before hard-deleting the project.
+
+    Several child tables (occurrence attachments/officers, replacement requests,
+    OEM claims) reference ``maintenance_case`` without DB ON DELETE CASCADE, while
+    ORM relationships use ``passive_deletes=True``. Explicit purge avoids FK errors
+    when project → maintenance_case cascade runs.
+    """
+    case_ids = [
+        int(cid)
+        for cid in session.exec(
+            select(MaintenanceCase.id).where(MaintenanceCase.project_id == project_id)
+        ).all()
+        if cid is not None
+    ]
+    empty = {
+        "replacement_requests_removed": 0,
+        "oem_warranty_claims_removed": 0,
+        "rework_case_links_cleared": 0,
+        "occurrence_attachments_removed": 0,
+        "occurrence_officers_removed": 0,
+        "configuration_history_removed": 0,
+        "deliveries_removed": 0,
+        "maintenance_actions_removed": 0,
+        "faulty_entities_removed": 0,
+        "maintenance_cases_removed": 0,
+    }
+    if not case_ids:
+        return empty
+
+    request_ids = [
+        int(rid)
+        for rid in session.exec(
+            select(ReplacementRequest.id).where(
+                col(ReplacementRequest.case_id).in_(case_ids)
+            )
+        ).all()
+        if rid is not None
+    ]
+    if request_ids:
+        _delete_rows(
+            session,
+            list(
+                session.exec(
+                    select(ReplacementRequestAitAttachment).where(
+                        col(
+                            ReplacementRequestAitAttachment.replacement_request_id
+                        ).in_(request_ids)
+                    )
+                ).all()
+            ),
+        )
+        _delete_rows(
+            session,
+            list(
+                session.exec(
+                    select(ReplacementRequestReservation).where(
+                        col(
+                            ReplacementRequestReservation.replacement_request_id
+                        ).in_(request_ids)
+                    )
+                ).all()
+            ),
+        )
+        _delete_rows(
+            session,
+            list(
+                session.exec(
+                    select(ReplacementRequest).where(
+                        col(ReplacementRequest.id).in_(request_ids)
+                    )
+                ).all()
+            ),
+        )
+
+    oem_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(OemWarrantyClaim).where(
+                    col(OemWarrantyClaim.maintenance_case_id).in_(case_ids)
+                )
+            ).all()
+        ),
+    )
+
+    rework_links = list(
+        session.exec(
+            select(InventoryReworkCase).where(
+                col(InventoryReworkCase.maintenance_case_id).in_(case_ids)
+            )
+        ).all()
+    )
+    for row in rework_links:
+        row.maintenance_case_id = None
+        row.faulty_entity_id = None
+        session.add(row)
+    if rework_links:
+        session.flush()
+
+    occurrence_attachments_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(MaintenanceOccurrenceAttachment).where(
+                    col(MaintenanceOccurrenceAttachment.case_id).in_(case_ids)
+                )
+            ).all()
+        ),
+    )
+    occurrence_officers_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(MaintenanceOccurrenceOfficer).where(
+                    col(MaintenanceOccurrenceOfficer.case_id).in_(case_ids)
+                )
+            ).all()
+        ),
+    )
+    configuration_history_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(ConfigurationHistory).where(
+                    col(ConfigurationHistory.maintenance_case_id).in_(case_ids)
+                )
+            ).all()
+        ),
+    )
+    deliveries_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(MaintenanceDelivery).where(
+                    col(MaintenanceDelivery.case_id).in_(case_ids)
+                )
+            ).all()
+        ),
+    )
+
+    faulty_entities = list(
+        session.exec(
+            select(FaultyEntity).where(col(FaultyEntity.case_id).in_(case_ids))
+        ).all()
+    )
+    faulty_ids = [int(row.id) for row in faulty_entities if row.id is not None]
+    actions_removed = 0
+    if faulty_ids:
+        actions_removed = _delete_rows(
+            session,
+            list(
+                session.exec(
+                    select(MaintenanceAction).where(
+                        col(MaintenanceAction.faulty_entity_id).in_(faulty_ids)
+                    )
+                ).all()
+            ),
+        )
+        for row in faulty_entities:
+            row.parent_faulty_entity_id = None
+            session.add(row)
+        session.flush()
+    faulty_removed = _delete_rows(session, faulty_entities)
+
+    cases_removed = _delete_rows(
+        session,
+        list(
+            session.exec(
+                select(MaintenanceCase).where(col(MaintenanceCase.id).in_(case_ids))
+            ).all()
+        ),
+    )
+
+    return {
+        "replacement_requests_removed": len(request_ids),
+        "oem_warranty_claims_removed": oem_removed,
+        "rework_case_links_cleared": len(rework_links),
+        "occurrence_attachments_removed": occurrence_attachments_removed,
+        "occurrence_officers_removed": occurrence_officers_removed,
+        "configuration_history_removed": configuration_history_removed,
+        "deliveries_removed": deliveries_removed,
+        "maintenance_actions_removed": actions_removed,
+        "faulty_entities_removed": faulty_removed,
+        "maintenance_cases_removed": cases_removed,
+    }
 
 
 def _purge_issuance_graph(session: Session, project_id: int) -> dict[str, int]:
@@ -411,6 +618,7 @@ def _hard_delete_project(
     project_name = project.name
 
     purge = _purge_inventory_ledger(session, project_id)
+    maintenance_purge = _purge_maintenance_graph(session, project_id)
     _detach_project_links(session, project_id)
 
     new_value: dict[str, Any] = {
@@ -424,6 +632,7 @@ def _hard_delete_project(
         "shortages_cancelled": shortages_cancelled,
         "pending_requests_cancelled": pending_requests_cancelled,
         **purge,
+        **maintenance_purge,
     }
     if extra_new_value:
         new_value.update(extra_new_value)
@@ -453,6 +662,7 @@ def _hard_delete_project(
         "shortages_cancelled": shortages_cancelled,
         "pending_requests_cancelled": pending_requests_cancelled,
         **purge,
+        **maintenance_purge,
     }
 
 

@@ -47,7 +47,17 @@ from app.schemas.dashboard import (
     TreemapNode,
 )
 
+# Progress fallbacks when Project.progress is null (Spec 00 + legacy names).
 STATUS_PROGRESS = {
+    ProjectWorkflowStatus.DRAFT.value: 5,
+    ProjectWorkflowStatus.APPROVED.value: 20,
+    ProjectWorkflowStatus.HIERARCHY_GENERATED.value: 40,
+    ProjectWorkflowStatus.READY_FOR_INVENTORY.value: 60,
+    ProjectWorkflowStatus.READY_TO_DELIVER.value: 85,
+    ProjectWorkflowStatus.COMPLETED.value: 100,
+    ProjectWorkflowStatus.CANCELLED.value: 0,
+    ProjectWorkflowStatus.SUPERSEDED.value: 0,
+    # Legacy vocabulary (pre–Spec 00)
     "Initiation": 10,
     "Planning": 25,
     "Execution": 50,
@@ -56,8 +66,36 @@ STATUS_PROGRESS = {
     "On Hold": 0,
 }
 
-# Active lifecycle statuses (schedule-derived On Track / Delayed apply only here).
-LIFECYCLE_STATUSES = ["Initiation", "Planning", "Execution", "Monitoring"]
+# Schedule buckets (On Track / Delayed) apply to non-terminal project statuses.
+# Aligns with frontend `isProjectOverdue` (past end_date while still active).
+ACTIVE_SCHEDULE_STATUSES = [
+    ProjectWorkflowStatus.DRAFT.value,
+    ProjectWorkflowStatus.APPROVED.value,
+    ProjectWorkflowStatus.HIERARCHY_GENERATED.value,
+    ProjectWorkflowStatus.READY_FOR_INVENTORY.value,
+    ProjectWorkflowStatus.READY_TO_DELIVER.value,
+    # Legacy lifecycle names still present in some DBs
+    "Initiation",
+    "Planning",
+    "Execution",
+    "Monitoring",
+]
+
+COMPLETED_STATUSES = [
+    ProjectWorkflowStatus.COMPLETED.value,
+    "Completed",
+]
+
+TERMINAL_OR_INACTIVE_STATUSES = [
+    ProjectWorkflowStatus.COMPLETED.value,
+    ProjectWorkflowStatus.CANCELLED.value,
+    ProjectWorkflowStatus.SUPERSEDED.value,
+    "Completed",
+    "On Hold",
+]
+
+# Kept for callers/tests that still reference the old name.
+LIFECYCLE_STATUSES = ACTIVE_SCHEDULE_STATUSES
 
 OPEN_CASE_STATUSES = [
     CaseStatus.OPEN,
@@ -179,6 +217,78 @@ def _enum_str(value) -> str:
     return value.value if hasattr(value, "value") else str(value)
 
 
+def _month_key(dt: datetime) -> str:
+    aware = _as_utc(dt)
+    return f"{aware.year:04d}-{aware.month:02d}"
+
+
+def _next_month_start(dt: datetime) -> datetime:
+    start = _month_start(_as_utc(dt))
+    if start.month == 12:
+        return start.replace(year=start.year + 1, month=1)
+    return start.replace(month=start.month + 1)
+
+
+def _build_delayed_timeline(
+    session: Session,
+    cond: list,
+    now: datetime,
+) -> List[ChartDataPoint]:
+    """
+    Rolling delayed count as of each month-end.
+
+    A project counts in month M when end_date has passed by the end of M and the
+    project was not yet resolved (Completed / Cancelled / Superseded / On Hold)
+    by that month-end. Unresolved delayed projects carry into later months.
+    """
+    rows = session.exec(
+        select(Project.end_date, Project.updated_at, Status.status_name)
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(*(cond or []), Project.end_date.isnot(None))
+    ).all()
+
+    year = now.year
+    current_key = _month_key(now)
+    points: List[ChartDataPoint] = []
+
+    for month in range(1, 13):
+        key = f"{year:04d}-{month:02d}"
+        if key > current_key:
+            break
+        month_end = _next_month_start(datetime(year, month, 1, tzinfo=timezone.utc))
+        delayed = 0
+        for end_date, updated_at, status_name in rows:
+            if end_date is None:
+                continue
+            if _as_utc(end_date) >= month_end:
+                continue
+            if status_name in TERMINAL_OR_INACTIVE_STATUSES:
+                resolved_at = _as_utc(updated_at) if updated_at is not None else _as_utc(end_date)
+                if resolved_at < month_end:
+                    continue
+            delayed += 1
+        points.append(ChartDataPoint(name=key, value=float(delayed)))
+
+    return points
+
+
+def _build_completed_timeline(session: Session, cond: list) -> List[ChartDataPoint]:
+    """Monthly completions keyed by when the project was marked completed (updated_at)."""
+    completion_month = func.to_char(Project.updated_at, "YYYY-MM")
+    rows = session.exec(
+        select(completion_month, func.count(Project.id))
+        .join(Status, Project.status_id == Status.id, isouter=True)
+        .where(
+            *(cond or []),
+            Status.status_name.in_(COMPLETED_STATUSES),
+            Project.updated_at.isnot(None),
+        )
+        .group_by(completion_month)
+        .order_by(completion_month)
+    ).all()
+    return [ChartDataPoint(name=row[0], value=float(row[1])) for row in rows]
+
+
 def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSection:
     now = _now()
     month_start = _month_start(now)
@@ -210,14 +320,20 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
         select(func.count())
         .select_from(Project)
         .join(Status, Project.status_id == Status.id, isouter=True)
-        .where(*(project_cond or []), Status.status_name.notin_(["Completed", "On Hold"]))
+        .where(
+            *(project_cond or []),
+            or_(
+                Status.status_name.is_(None),
+                Status.status_name.notin_(TERMINAL_OR_INACTIVE_STATUSES),
+            ),
+        )
     ).one()
 
     completed_projects = session.exec(
         select(func.count())
         .select_from(Project)
         .join(Status, Project.status_id == Status.id, isouter=True)
-        .where(*(project_cond or []), Status.status_name == "Completed")
+        .where(*(project_cond or []), Status.status_name.in_(COMPLETED_STATUSES))
     ).one()
 
     delayed_projects = session.exec(
@@ -226,7 +342,7 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(project_cond or []),
-            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
             Project.end_date.isnot(None),
             Project.end_date < now,
         )
@@ -301,8 +417,11 @@ def _build_kpis(session: Session, filters: DashboardFilters) -> ExecutiveKpisSec
             Project.end_date.isnot(None),
             Project.end_date < month_start,
             or_(
-                Status.status_name.in_(LIFECYCLE_STATUSES),
-                and_(Status.status_name == "Completed", Project.updated_at >= month_start),
+                Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
+                and_(
+                    Status.status_name.in_(COMPLETED_STATUSES),
+                    Project.updated_at >= month_start,
+                ),
             ),
         )
     ).one()
@@ -405,13 +524,13 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
 
     now = _now()
 
-    # Executive buckets (not raw lifecycle names):
-    # Completed / On Hold from status; Delayed / On Track from end_date among lifecycle statuses.
+    # Executive buckets (not raw workflow codes):
+    # Completed / On Hold from status; Delayed / On Track from end_date among active statuses.
     completed_count = session.exec(
         select(func.count())
         .select_from(Project)
         .join(Status, Project.status_id == Status.id, isouter=True)
-        .where(*(cond or []), Status.status_name == "Completed")
+        .where(*(cond or []), Status.status_name.in_(COMPLETED_STATUSES))
     ).one()
     on_hold_count = session.exec(
         select(func.count())
@@ -425,7 +544,7 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
-            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
             Project.end_date.isnot(None),
             Project.end_date < now,
         )
@@ -436,7 +555,7 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
-            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
             or_(Project.end_date.is_(None), Project.end_date >= now),
         )
     ).one()
@@ -460,23 +579,8 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
     ).all()
     timeline = [ChartDataPoint(name=row[0], value=float(row[1])) for row in timeline_rows]
 
-    completed_cond = list(cond or [])
-    completed_timeline_rows = session.exec(
-        select(func.to_char(Project.end_date, "YYYY-MM"), func.count(Project.id))
-        .join(Status, Project.status_id == Status.id, isouter=True)
-        .where(
-            *completed_cond,
-            Status.status_name.in_(
-                ["Completed", ProjectWorkflowStatus.COMPLETED.value]
-            ),
-            Project.end_date.isnot(None),
-        )
-        .group_by(func.to_char(Project.end_date, "YYYY-MM"))
-        .order_by(func.to_char(Project.end_date, "YYYY-MM"))
-    ).all()
-    completed_timeline = [
-        ChartDataPoint(name=row[0], value=float(row[1])) for row in completed_timeline_rows
-    ]
+    completed_timeline = _build_completed_timeline(session, list(cond or []))
+    delayed_timeline = _build_delayed_timeline(session, list(cond or []), now)
 
     window_start = _month_start(now)
     window_end = window_start + timedelta(days=186)
@@ -492,7 +596,7 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
-            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
             Project.end_date.isnot(None),
             Project.end_date < now,
         )
@@ -510,7 +614,7 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         .join(Status, Project.status_id == Status.id, isouter=True)
         .where(
             *(cond or []),
-            Status.status_name.in_(LIFECYCLE_STATUSES),
+            Status.status_name.in_(ACTIVE_SCHEDULE_STATUSES),
             Project.end_date.isnot(None),
             Project.end_date >= window_start,
             Project.end_date < window_end,
@@ -557,6 +661,7 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         status_distribution=status_distribution,
         timeline=timeline,
         completed_timeline=completed_timeline,
+        delayed_timeline=delayed_timeline,
         progress=progress,
     )
 
@@ -676,6 +781,48 @@ def _build_product_structure(session: Session, filters: DashboardFilters) -> Pro
                 id=cid,
                 href_key="customers",
                 children=order_nodes,
+            )
+        )
+
+    # Projects with no order still belong in the portfolio hierarchy.
+    orphan_cond = [Project.order_id.is_(None)]
+    if project_ids is not None:
+        orphan_cond.append(Project.id.in_(project_ids) if project_ids else Project.id == -1)
+    orphan_projects = session.exec(
+        select(Project.id, Project.name).where(*orphan_cond).limit(40)
+    ).all()
+    if orphan_projects:
+        orphan_nodes: List[TreemapNode] = []
+        for pid, pname in orphan_projects:
+            sys_count = session.exec(
+                select(func.count()).select_from(System).where(System.project_id == pid)
+            ).one()
+            orphan_nodes.append(
+                TreemapNode(
+                    name=pname,
+                    value=int(sys_count or 0) or 1,
+                    entity_type="project",
+                    id=pid,
+                    href_key="projects",
+                )
+            )
+        tree.append(
+            TreemapNode(
+                name="Unassigned",
+                value=len(orphan_nodes),
+                entity_type="customer",
+                id=None,
+                href_key="projects",
+                children=[
+                    TreemapNode(
+                        name="No Order",
+                        value=len(orphan_nodes),
+                        entity_type="order",
+                        id=None,
+                        href_key="orders",
+                        children=orphan_nodes,
+                    )
+                ],
             )
         )
 
@@ -953,16 +1100,22 @@ def _build_resources(session: Session, filters: DashboardFilters) -> ResourcesSe
     ]
 
     customer_rows = session.exec(
-        select(Customer.id, Customer.name, func.count(Project.id))
-        .join(Order, Project.order_id == Order.id)
-        .join(Customer, Order.customer_id == Customer.id)
+        select(
+            Customer.id,
+            func.coalesce(Customer.name, "Unassigned"),
+            func.count(Project.id),
+        )
+        .select_from(Project)
+        .outerjoin(Order, Project.order_id == Order.id)
+        .outerjoin(Customer, Order.customer_id == Customer.id)
         .where(*(cond or []))
         .group_by(Customer.id, Customer.name)
         .order_by(func.count(Project.id).desc())
         .limit(10)
     ).all()
     by_customer = [
-        ChartDataPoint(name=row[1], value=float(row[2]), id=row[0]) for row in customer_rows
+        ChartDataPoint(name=row[1] or "Unassigned", value=float(row[2]), id=row[0])
+        for row in customer_rows
     ]
 
     order_rows = session.exec(

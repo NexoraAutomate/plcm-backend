@@ -838,7 +838,8 @@ class ConfigurationHistory(ConfigurationHistoryBase,table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    # Override base fields so PostgreSQL faulttype receives lowercase values (electrical), not names (ELECTRICAL).
+    # Override base fields so PostgreSQL enums receive lowercase values
+    # (replaced, electrical), not member names (REPLACED, ELECTRICAL).
     fault_type: Optional[FaultType] = Field(
         default=None,
         sa_column=sa.Column(
@@ -849,6 +850,17 @@ class ConfigurationHistory(ConfigurationHistoryBase,table=True):
                 native_enum=True,
             ),
             nullable=True,
+        ),
+    )
+    resolution_type: ResolutionType = Field(
+        sa_column=sa.Column(
+            sa.Enum(
+                ResolutionType,
+                values_callable=lambda entries: [entry.value for entry in entries],
+                name="resolutiontype",
+                native_enum=True,
+            ),
+            nullable=False,
         ),
     )
 

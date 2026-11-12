@@ -77,6 +77,8 @@ class ProjectAnalyticsSection(BaseModel):
     status_distribution: List[ChartDataPoint]
     timeline: List[ChartDataPoint]
     completed_timeline: List[ChartDataPoint] = Field(default_factory=list)
+    # Rolling unresolved delayed count as of each month-end (YYYY-MM).
+    delayed_timeline: List[ChartDataPoint] = Field(default_factory=list)
     progress: List[ProjectProgressItem]
 
 
