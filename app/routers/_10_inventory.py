@@ -24,6 +24,13 @@ from app.services.inventory_stock_seed import (
     get_inventory_seed_options,
     run_inventory_test_seed,
 )
+from app.services.security_settings_service import require_admin_super_password
+
+
+def _require_test_data_super_password(session: Session, super_password: Optional[str]) -> None:
+    ok, status_code, detail = require_admin_super_password(session, super_password)
+    if not ok:
+        raise HTTPException(status_code=status_code, detail=detail)
 from app.services.pagination import paginated_query
 from app.services.list_query import inventory_list_where
 from app.services.entity_list_service import (
@@ -757,9 +764,14 @@ def _filtered_inventory_items(
 def get_seed_test_stock_options(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_role("Admin")),
+    super_password: Optional[str] = Query(
+        default=None,
+        description="Admin super password required for Test Data tools",
+    ),
 ):
     """Admin-only: missing shortage items + inventory groups available for seeding."""
     _ = current_user
+    _require_test_data_super_password(session, super_password)
     options = get_inventory_seed_options(session)
     return schemas.InventorySeedOptionsRead(
         missing_shortages=[
@@ -803,6 +815,7 @@ def seed_test_inventory_stock(
     location. Bootstrap adds exactly 1 unit per missing shortage catalog item
     (no auto-reserve) so the next multiply tranche can use those inventory rows.
     """
+    _require_test_data_super_password(session, payload.super_password)
     if not payload.dry_run and (payload.confirm or "").strip().upper() != "SEED":
         raise HTTPException(
             status_code=400,

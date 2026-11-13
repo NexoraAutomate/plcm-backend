@@ -8,13 +8,13 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from app.auth import hash_password
+from app.auth import hash_password, verify_password
 from app.models.tables import SecuritySettings, User
 from app.schemas import schemas
 from app.services.audit_service import write_audit_log
 
 
-DEFAULT_ADMIN_SESSION_SUPER_PASSWORD = "super@admin8276"
+DEFAULT_ADMIN_SESSION_SUPER_PASSWORD = "super@admin82768243"
 
 DEFAULT_SECURITY_SETTINGS = {
     "min_password_length": 8,
@@ -38,6 +38,35 @@ def default_admin_session_super_password() -> str:
         os.getenv("ADMIN_SESSION_SUPER_PASSWORD", DEFAULT_ADMIN_SESSION_SUPER_PASSWORD).strip()
         or DEFAULT_ADMIN_SESSION_SUPER_PASSWORD
     )
+
+
+def admin_super_password_is_valid(session: Session, super_password: Optional[str]) -> bool:
+    """Return True when the provided plaintext matches the configured admin super password."""
+    settings = get_or_create_security_settings(session)
+    provided = (super_password or "").strip()
+    stored_hash = settings.admin_session_super_password_hash or ""
+    if not provided or not stored_hash:
+        return False
+    return verify_password(provided, stored_hash)
+
+
+def require_admin_super_password(
+    session: Session, super_password: Optional[str]
+) -> tuple[bool, int, str]:
+    """Validate admin super password for Test Data / privileged admin tools.
+
+    Returns ``(ok, http_status, detail)``. Callers should raise HTTPException when not ok.
+    """
+    provided = (super_password or "").strip()
+    if not provided:
+        return (
+            False,
+            403,
+            "Super password required to access Test Data tools.",
+        )
+    if not admin_super_password_is_valid(session, provided):
+        return False, 401, "Invalid super password."
+    return True, 200, ""
 
 
 def ensure_admin_session_super_password(session: Session, settings: SecuritySettings) -> SecuritySettings:

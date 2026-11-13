@@ -27,6 +27,13 @@ from app.services.workflow_demo_users import (
     list_workflow_demo_user_options,
     seed_workflow_demo_users,
 )
+from app.services.security_settings_service import require_admin_super_password
+
+
+def _require_test_data_super_password(session: Session, super_password: Optional[str]) -> None:
+    ok, status_code, detail = require_admin_super_password(session, super_password)
+    if not ok:
+        raise HTTPException(status_code=status_code, detail=detail)
 
 router = APIRouter()
 
@@ -150,6 +157,22 @@ def create_user(
     return db_user
 
 
+@router.post(
+    "/users/test-data/unlock/",
+    response_model=schemas.TestDataUnlockRead,
+    tags=["users"],
+)
+def unlock_test_data_tools(
+    payload: schemas.TestDataUnlockRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Admin-only: verify super password before exposing Test Data tools."""
+    _ = current_user
+    _require_test_data_super_password(session, payload.super_password)
+    return schemas.TestDataUnlockRead(unlocked=True)
+
+
 @router.get(
     "/users/seed-demo-roles/options/",
     response_model=schemas.WorkflowDemoUserOptionsRead,
@@ -158,9 +181,15 @@ def create_user(
 def get_seed_demo_roles_options(
     session: Session = Depends(get_session),
     current_user: User = Depends(require_role("Admin")),
+    x_admin_super_password: Optional[str] = Query(
+        default=None,
+        alias="super_password",
+        description="Admin super password required for Test Data tools",
+    ),
 ):
     """Admin-only: workflow demo accounts available for Test Data seeding."""
     _ = current_user
+    _require_test_data_super_password(session, x_admin_super_password)
     options = list_workflow_demo_user_options(session)
     return schemas.WorkflowDemoUserOptionsRead(
         users=[
@@ -191,6 +220,7 @@ def seed_demo_roles(
     current_user: User = Depends(require_role("Admin")),
 ):
     """Admin-only: create/refresh all or selected workflow demo role users."""
+    _require_test_data_super_password(session, payload.super_password)
     if not payload.dry_run and (payload.confirm or "").strip().upper() != "SEED":
         raise HTTPException(
             status_code=400,

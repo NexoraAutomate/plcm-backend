@@ -1209,6 +1209,10 @@ class InventoryStockSeedRequest(SQLModel):
         default="",
         description='Must be "SEED" when dry_run is false',
     )
+    super_password: str = Field(
+        default="",
+        description="Admin super password required for Test Data tools",
+    )
 
 
 class InventoryStockSeedGroupRead(SQLModel):
@@ -1291,6 +1295,16 @@ class WorkflowDemoUserOptionsRead(SQLModel):
     users: List[WorkflowDemoUserOptionRead] = Field(default_factory=list)
 
 
+class TestDataUnlockRequest(SQLModel):
+    """Unlock Settings → Test Data with the admin super password."""
+
+    super_password: str = Field(default="", min_length=1)
+
+
+class TestDataUnlockRead(SQLModel):
+    unlocked: bool = True
+
+
 class WorkflowDemoUserSeedRequest(SQLModel):
     """Admin test-data seed: create/refresh all or selected workflow demo users."""
 
@@ -1300,6 +1314,10 @@ class WorkflowDemoUserSeedRequest(SQLModel):
     confirm: str = Field(
         default="",
         description='Must be "SEED" when dry_run is false',
+    )
+    super_password: str = Field(
+        default="",
+        description="Admin super password required for Test Data tools",
     )
 
 
