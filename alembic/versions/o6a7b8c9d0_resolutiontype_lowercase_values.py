@@ -27,6 +27,8 @@ _LABELS = (
 
 def upgrade() -> None:
     bind = op.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
     existing = {
         r[0]
         for r in bind.execute(
@@ -37,12 +39,17 @@ def upgrade() -> None:
             )
         )
     }
-    for label in _LABELS:
-        if label in existing:
-            continue
-        # ADD VALUE cannot run inside a transaction block on some PG versions;
-        # Alembic usually autocommits ALTER TYPE ADD VALUE.
-        bind.execute(sa.text(f"ALTER TYPE resolutiontype ADD VALUE IF NOT EXISTS '{label}'"))
+    missing = [label for label in _LABELS if label not in existing]
+    if not missing:
+        return
+    # PG forbids using a newly added enum label until the ADD VALUE txn commits.
+    # Alembic wraps upgrade head in one transaction, so later migration r9d0e1f2a3
+    # would hit UnsafeNewEnumValueUsage without an autocommit here.
+    with op.get_context().autocommit_block():
+        for label in missing:
+            op.execute(
+                sa.text(f"ALTER TYPE resolutiontype ADD VALUE IF NOT EXISTS '{label}'")
+            )
 
 
 def downgrade() -> None:

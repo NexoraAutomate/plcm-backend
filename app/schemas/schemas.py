@@ -1275,6 +1275,50 @@ class InventorySeedOptionsRead(SQLModel):
     )
 
 
+class WorkflowDemoUserOptionRead(SQLModel):
+    username: str
+    full_name: str
+    email: str
+    role: str
+    password: str
+    exists: bool
+    is_active: Optional[bool] = None
+    user_id: Optional[int] = None
+    role_missing: bool = False
+
+
+class WorkflowDemoUserOptionsRead(SQLModel):
+    users: List[WorkflowDemoUserOptionRead] = Field(default_factory=list)
+
+
+class WorkflowDemoUserSeedRequest(SQLModel):
+    """Admin test-data seed: create/refresh all or selected workflow demo users."""
+
+    usernames: Optional[List[str]] = None
+    roles: Optional[List[str]] = None
+    dry_run: bool = False
+    confirm: str = Field(
+        default="",
+        description='Must be "SEED" when dry_run is false',
+    )
+
+
+class WorkflowDemoUserSeedItemRead(SQLModel):
+    username: str
+    role: str
+    action: str
+    reason: Optional[str] = None
+    user_id: Optional[int] = None
+
+
+class WorkflowDemoUserSeedRead(SQLModel):
+    dry_run: bool = False
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    items: List[WorkflowDemoUserSeedItemRead] = Field(default_factory=list)
+
+
 class InventoryRead(InventoryBase):
     id: int
     instances: Optional[List[InventoryInstanceRead]] = None

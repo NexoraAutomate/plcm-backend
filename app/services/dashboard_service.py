@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, literal, or_
 from sqlmodel import Session, select
 
 from app.models.base import CaseStatus, EntityType, FaultyEntityStatus
@@ -272,9 +272,14 @@ def _build_delayed_timeline(
     return points
 
 
+def _month_bucket(column):
+    """Postgres-safe YYYY-MM key for SELECT/GROUP BY/ORDER BY (literal, not bind param)."""
+    return func.to_char(column, literal("YYYY-MM"))
+
+
 def _build_completed_timeline(session: Session, cond: list) -> List[ChartDataPoint]:
     """Monthly completions keyed by when the project was marked completed (updated_at)."""
-    completion_month = func.to_char(Project.updated_at, "YYYY-MM")
+    completion_month = _month_bucket(Project.updated_at)
     rows = session.exec(
         select(completion_month, func.count(Project.id))
         .join(Status, Project.status_id == Status.id, isouter=True)
@@ -571,11 +576,12 @@ def _build_projects(session: Session, filters: DashboardFilters) -> ProjectAnaly
         if value > 0
     ]
 
+    created_month = _month_bucket(Project.created_at)
     timeline_rows = session.exec(
-        select(func.to_char(Project.created_at, "YYYY-MM"), func.count(Project.id))
+        select(created_month, func.count(Project.id))
         .where(*(cond or []))
-        .group_by(func.to_char(Project.created_at, "YYYY-MM"))
-        .order_by(func.to_char(Project.created_at, "YYYY-MM"))
+        .group_by(created_month)
+        .order_by(created_month)
     ).all()
     timeline = [ChartDataPoint(name=row[0], value=float(row[1])) for row in timeline_rows]
 
@@ -706,11 +712,12 @@ def _build_maintenance(session: Session, filters: DashboardFilters) -> Maintenan
         )
     ]
 
+    reported_month = _month_bucket(MaintenanceCase.reported_at)
     trend_rows = session.exec(
-        select(func.to_char(MaintenanceCase.reported_at, "YYYY-MM"), func.count(MaintenanceCase.id))
+        select(reported_month, func.count(MaintenanceCase.id))
         .where(*(case_cond or []))
-        .group_by(func.to_char(MaintenanceCase.reported_at, "YYYY-MM"))
-        .order_by(func.to_char(MaintenanceCase.reported_at, "YYYY-MM"))
+        .group_by(reported_month)
+        .order_by(reported_month)
     ).all()
     monthly_trend = [ChartDataPoint(name=row[0], value=float(row[1])) for row in trend_rows]
 
@@ -841,11 +848,12 @@ def _build_configuration(session: Session, filters: DashboardFilters) -> Configu
             )
         )
 
+    change_month = _month_bucket(ConfigurationHistory.change_date)
     month_rows = session.exec(
-        select(func.to_char(ConfigurationHistory.change_date, "YYYY-MM"), func.count(ConfigurationHistory.id))
+        select(change_month, func.count(ConfigurationHistory.id))
         .where(*(cond or []))
-        .group_by(func.to_char(ConfigurationHistory.change_date, "YYYY-MM"))
-        .order_by(func.to_char(ConfigurationHistory.change_date, "YYYY-MM"))
+        .group_by(change_month)
+        .order_by(change_month)
     ).all()
     changes_by_month = [ChartDataPoint(name=row[0], value=float(row[1])) for row in month_rows]
 

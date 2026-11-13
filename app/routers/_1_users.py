@@ -8,14 +8,25 @@ from sqlmodel import Session, select, func, col
 from app.database import get_session
 from app.models.tables import AppNotification, User, Role, UserLoginHistory
 from app.schemas import schemas
-from app.routers.auth import require_permission, require_any_role, get_current_user
-from app.auth import check_role, check_any_role, hash_password, PRIVILEGED_ROLE_NAMES
+from app.routers.auth import require_permission, require_any_role, require_role, get_current_user
+from app.auth import (
+    check_role,
+    check_any_role,
+    hash_password,
+    PRIVILEGED_ROLE_NAMES,
+    initialize_roles_and_permissions,
+    sync_roles_and_permissions,
+)
 from app.services.pagination import set_list_total_header
 from app.services.sorting import apply_sort
 from app.services.audit_service import write_audit_log
 from app.services.login_history_service import close_open_sessions_for_user, client_ip
 from app.services.password_policy_service import enforce_password_policy, set_user_password
 from app.services.user_avatar import save_user_avatar, clear_user_avatar, resolve_avatar_file
+from app.services.workflow_demo_users import (
+    list_workflow_demo_user_options,
+    seed_workflow_demo_users,
+)
 
 router = APIRouter()
 
@@ -137,6 +148,103 @@ def create_user(
     session.commit()
     session.refresh(db_user)
     return db_user
+
+
+@router.get(
+    "/users/seed-demo-roles/options/",
+    response_model=schemas.WorkflowDemoUserOptionsRead,
+    tags=["users"],
+)
+def get_seed_demo_roles_options(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Admin-only: workflow demo accounts available for Test Data seeding."""
+    _ = current_user
+    options = list_workflow_demo_user_options(session)
+    return schemas.WorkflowDemoUserOptionsRead(
+        users=[
+            schemas.WorkflowDemoUserOptionRead(
+                username=item.username,
+                full_name=item.full_name,
+                email=item.email,
+                role=item.role,
+                password=item.password,
+                exists=item.exists,
+                is_active=item.is_active,
+                user_id=item.user_id,
+                role_missing=item.role_missing,
+            )
+            for item in options
+        ]
+    )
+
+
+@router.post(
+    "/users/seed-demo-roles/",
+    response_model=schemas.WorkflowDemoUserSeedRead,
+    tags=["users"],
+)
+def seed_demo_roles(
+    payload: schemas.WorkflowDemoUserSeedRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("Admin")),
+):
+    """Admin-only: create/refresh all or selected workflow demo role users."""
+    if not payload.dry_run and (payload.confirm or "").strip().upper() != "SEED":
+        raise HTTPException(
+            status_code=400,
+            detail='Confirmation required: set confirm to "SEED" to apply',
+        )
+
+    # Ensure ME/FSE/IE (+ other default roles) exist before creating users.
+    initialize_roles_and_permissions(session)
+    sync_roles_and_permissions(session)
+
+    try:
+        result = seed_workflow_demo_users(
+            session,
+            usernames=payload.usernames,
+            roles=payload.roles,
+            force=True,
+            dry_run=payload.dry_run,
+            commit=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not payload.dry_run:
+        write_audit_log(
+            session,
+            action="users_seed_demo_roles",
+            actor=current_user,
+            resource_type="user",
+            details=(
+                f"created={result.created} updated={result.updated} "
+                f"skipped={result.skipped} "
+                f"usernames={payload.usernames or 'all'} "
+                f"roles={payload.roles or 'all'}"
+            ),
+            commit=False,
+        )
+        session.commit()
+
+    return schemas.WorkflowDemoUserSeedRead(
+        dry_run=result.dry_run,
+        created=result.created,
+        updated=result.updated,
+        skipped=result.skipped,
+        items=[
+            schemas.WorkflowDemoUserSeedItemRead(
+                username=item.username,
+                role=item.role,
+                action=item.action,
+                reason=item.reason,
+                user_id=item.user_id,
+            )
+            for item in result.items
+        ],
+    )
 
 
 @router.get("/users/stats/summary", response_model=schemas.UserStatsSummary, tags=["users"])
